@@ -6,6 +6,17 @@
   - `src/sync_manager.py` line 1245 — `📊` in status line logged via logger.info
   - `src/api/booklore_client.py` line 771 — `📚` in Booklore shelf API payload
 
+## ABS Integration — Remove "Required" Assumptions
+- [ ] Rewrite `QUICKSTART.md` — currently assumes ABS is mandatory
+  - ABS_SERVER, ABS_KEY, ABS_LIBRARY_ID marked as `# REQUIRED` in the compose template
+  - Step 1 is "Get Your API Keys" — assumes ABS is the starting point
+  - References "Book Linker" (removed with Forge) and port 8080 (should be 4477)
+  - Uses emojis throughout
+  - Should reflect that ABS is optional and users can start with ebook-only or any combination
+- [ ] Review settings UI — ABS is tab 1 with no indication it's optional
+  - Other integrations have enable/disable toggles; ABS does not
+  - Consider adding an `ABS_ENABLED` toggle or at minimum labeling it as optional
+
 ## Frontend
 - [ ] Continue frontend improvements (UI/UX polish, responsiveness, design consistency)
 
