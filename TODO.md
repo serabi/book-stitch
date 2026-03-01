@@ -111,6 +111,22 @@ itself has issues. Fixes are ordered by severity.
   - No CORS headers on sync endpoints — browser-based CSRF possible if server is reachable
   - Fix: add restrictive CORS policy to sync blueprint (deny cross-origin by default)
 
+## Dual Booklore — Architectural Improvements
+- [ ] Persist Booklore source on Book records to avoid cross-instance drift
+  - `find_in_booklore()` resolves by filename each time; if the same filename exists on both servers, later re-lookups (update hash, shelf ops) can bind to the wrong instance
+  - Add a `booklore_source` column to `Book` and pass `source_tag` through match/import flows
+- [ ] Use composite key for `booklore_by_filename` in dashboard enrichment
+  - Currently `booklore_by_filename[filename]` silently overwrites one source with the other when dual instances have the same filename
+  - Use `(source, filename)` tuple key or collect a list per filename
+- [ ] Pin GitHub Actions SHAs in `.github/workflows/lint.yml`
+  - `actions/checkout@v4` and `astral-sh/ruff-action@v3` use floating tags
+  - Add explicit `permissions: contents: read` block
+- [ ] Fix ambiguous anchor matching in `ebook_utils.py` (line ~950)
+  - `bs4_chapter_text.find(clean_anchor)` always picks the first occurrence; if `clean_anchor` repeats, can resolve to wrong position
+  - Consider choosing the occurrence closest to `target_offset`
+- [ ] Clean up type annotations in `hardcover_client.py`
+  - Lines 64, 186, 539: parameters with `None` defaults should use `dict | None`, `str | None`, `int | None` to match existing `| None` return type style
+
 ## Hardcover Integration
 - [ ] Improve Hardcover integration
   - Current state: write-only progress sync, basic auto-matching by ISBN/title

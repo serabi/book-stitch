@@ -197,18 +197,22 @@ def index():
         mapping['booklore_2_url'] = None
         if book.ebook_filename:
             for bl_client in get_booklore_clients():
-                if not bl_client.is_configured():
+                try:
+                    if not bl_client.is_configured():
+                        continue
+                    bl_book = bl_client.find_book_by_filename(book.ebook_filename, allow_refresh=False)
+                    if not bl_book and book.original_ebook_filename:
+                        bl_book = bl_client.find_book_by_filename(book.original_ebook_filename, allow_refresh=False)
+                    if bl_book:
+                        url = f"{bl_client.base_url}/book/{bl_book.get('id')}?tab=view"
+                        if bl_client.source_tag == 'booklore':
+                            mapping['booklore_id'] = bl_book.get('id')
+                            mapping['booklore_url'] = url
+                        else:
+                            mapping['booklore_2_url'] = url
+                except Exception:
+                    logger.debug(f"Booklore lookup failed for '{getattr(bl_client, 'source_tag', '?')}', skipping")
                     continue
-                bl_book = bl_client.find_book_by_filename(book.ebook_filename, allow_refresh=False)
-                if not bl_book and book.original_ebook_filename:
-                    bl_book = bl_client.find_book_by_filename(book.original_ebook_filename, allow_refresh=False)
-                if bl_book:
-                    url = f"{bl_client.base_url}/book/{bl_book.get('id')}?tab=view"
-                    if bl_client.source_tag == 'booklore':
-                        mapping['booklore_id'] = bl_book.get('id')
-                        mapping['booklore_url'] = url
-                    else:
-                        mapping['booklore_2_url'] = url
 
         if mapping.get('hardcover_slug'):
             mapping['hardcover_url'] = f"https://hardcover.app/books/{mapping['hardcover_slug']}"

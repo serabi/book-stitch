@@ -749,7 +749,7 @@ class BookloreClient:
     def add_to_shelf(self, ebook_filename, shelf_name=None):
         """Add a book to a shelf, creating the shelf if it doesn't exist."""
         if not shelf_name:
-             shelf_name = os.environ.get(f"{self.config_prefix}_SHELF_NAME", "abs-kosync")
+             shelf_name = os.environ.get(f"{self.config_prefix}_SHELF_NAME") or "abs-kosync"
 
         try:
             # Find the book
@@ -800,7 +800,7 @@ class BookloreClient:
     def remove_from_shelf(self, ebook_filename, shelf_name=None):
         """Remove a book from a shelf."""
         if not shelf_name:
-             shelf_name = os.environ.get(f"{self.config_prefix}_SHELF_NAME", "abs-kosync")
+             shelf_name = os.environ.get(f"{self.config_prefix}_SHELF_NAME") or "abs-kosync"
 
         try:
             # Find the book

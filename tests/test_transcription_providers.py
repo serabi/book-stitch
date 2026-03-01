@@ -50,7 +50,7 @@ class TestLocalWhisperProvider(unittest.TestCase):
 
             self.assertEqual(device, "cuda")
             self.assertEqual(compute_type, "float16") # Default for GPU in auto mode
-            mock_logger.info.assert_any_call("🎮 CUDA available: Test GPU")
+            mock_logger.info.assert_any_call("CUDA available: Test GPU")
 
     @patch("utils.transcription_providers.logger")
     def test_explicit_config(self, mock_logger):

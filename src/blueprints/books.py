@@ -112,7 +112,10 @@ def match():
             book.status = 'pending'
             database_service.save_book(book)
             if bl_client:
-                bl_client.add_to_shelf(ebook_filename)
+                try:
+                    bl_client.add_to_shelf(ebook_filename)
+                except Exception as e:
+                    logger.warning(f"Booklore add_to_shelf failed for '{sanitize_log_data(ebook_filename)}': {e}")
             database_service.dismiss_suggestion(kosync_doc_id)
             return redirect(url_for('dashboard.index'))
 
@@ -224,7 +227,10 @@ def match():
         container.abs_client().add_to_collection(abs_id, ABS_COLLECTION_NAME)
         if bl_match_client:
             shelf_filename = original_ebook_filename or ebook_filename
-            bl_match_client.add_to_shelf(shelf_filename)
+            try:
+                bl_match_client.add_to_shelf(shelf_filename)
+            except Exception as e:
+                logger.warning(f"Booklore add_to_shelf failed for '{sanitize_log_data(shelf_filename)}': {e}")
         # Auto-dismiss pending suggestions
         database_service.dismiss_suggestion(abs_id)
         database_service.dismiss_suggestion(kosync_doc_id)
@@ -388,7 +394,10 @@ def batch_match():
                 container.abs_client().add_to_collection(item['abs_id'], ABS_COLLECTION_NAME)
                 if bl_match_client:
                     shelf_filename = original_ebook_filename or ebook_filename
-                    bl_match_client.add_to_shelf(shelf_filename)
+                    try:
+                        bl_match_client.add_to_shelf(shelf_filename)
+                    except Exception as e:
+                        logger.warning(f"Booklore add_to_shelf failed for '{sanitize_log_data(shelf_filename)}': {e}")
                 database_service.dismiss_suggestion(item['abs_id'])
                 database_service.dismiss_suggestion(kosync_doc_id)
 

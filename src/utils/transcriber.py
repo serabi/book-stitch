@@ -231,9 +231,9 @@ class AudioTranscriber:
             '-of', 'default=noprint_wrappers=1:nokey=1', str(file_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
             return float(result.stdout.strip())
-        except (ValueError, subprocess.CalledProcessError) as e:
+        except (ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
             logger.error(f"Could not determine duration for '{file_path}': {e}")
             return 0.0
 

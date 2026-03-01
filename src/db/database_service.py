@@ -790,8 +790,8 @@ class DatabaseService:
                     BookloreBook.filename == filename,
                     BookloreBook.source == source
                 )
-                query.delete(synchronize_session=False)
-                return True
+                deleted = query.delete(synchronize_session=False)
+                return deleted > 0
         except Exception as e:
             logger.error(f"Failed to delete Booklore book '{filename}': {e}")
             return False
