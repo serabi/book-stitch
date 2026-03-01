@@ -157,6 +157,16 @@ def kosync_auth_required(f):
     return decorated_function
 
 
+# ---------------- CORS: block browser preflight ----------------
+
+@kosync_sync_bp.before_request
+def _kosync_cors_preflight():
+    """Return bare 204 for OPTIONS requests. KOReader is native — it never
+    sends Origin/OPTIONS.  This blocks browser-based cross-origin abuse."""
+    if request.method == 'OPTIONS':
+        return '', 204
+
+
 # ---------------- KOSync Protocol Endpoints ----------------
 
 @kosync_sync_bp.route('/healthcheck')

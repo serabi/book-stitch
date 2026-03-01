@@ -1,8 +1,10 @@
 import logging
 import os
+import secrets
 import sys
 import threading
 import time
+from pathlib import Path
 
 import schedule
 from dependency_injector import providers
@@ -208,12 +210,53 @@ def sync_daemon():
 logger = logging.getLogger(__name__)
 
 
+def _get_or_create_secret_key() -> str:
+    """Return a persistent random secret key, falling back to ephemeral."""
+    data_dir = Path(os.environ.get("DATA_DIR", "/data"))
+    key_file = data_dir / ".flask_secret_key"
+    try:
+        if key_file.exists():
+            key = key_file.read_text().strip()
+            if key:
+                return key
+        key = secrets.token_hex(32)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        key_file.write_text(key)
+        key_file.chmod(0o600)
+        return key
+    except Exception:
+        logger.warning("Could not persist Flask secret key — using ephemeral key")
+        return secrets.token_hex(32)
+
+
+def _log_security_warnings():
+    """Log warnings for common security misconfigurations at startup."""
+    kosync_user = os.environ.get('KOSYNC_USER', '')
+    kosync_key = os.environ.get('KOSYNC_KEY', '')
+    kosync_port = os.environ.get('KOSYNC_PORT', '')
+    public_url = os.environ.get('KOSYNC_PUBLIC_URL', '')
+
+    if not kosync_user or not kosync_key:
+        logger.warning("SECURITY: KOSYNC_USER/KOSYNC_KEY not configured — sync endpoints will reject all requests")
+    elif len(kosync_key) < 8:
+        logger.warning("SECURITY: KOSYNC_KEY is shorter than 8 characters — consider using a stronger password")
+
+    if not kosync_port or kosync_port == '4477':
+        logger.warning("SECURITY: Split-port mode not active — dashboard and sync API share port 4477. "
+                        "Set KOSYNC_PORT to a different port before exposing sync to the internet.")
+
+    if public_url:
+        logger.info(f"KOSync public URL: {public_url}")
+    elif kosync_port and kosync_port != '4477':
+        logger.info("Tip: Set KOSYNC_PUBLIC_URL in settings if you expose KOSync through a reverse proxy")
+
+
 # --- Application Factory ---
 def create_app(test_container=None):
     STATIC_DIR = os.environ.get('STATIC_DIR', '/app/static')
     TEMPLATE_DIR = os.environ.get('TEMPLATE_DIR', '/app/templates')
     app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/static', template_folder=TEMPLATE_DIR)
-    app.secret_key = "kosync-queue-secret-unified-app"
+    app.secret_key = _get_or_create_secret_key()
 
     # Setup dependencies and inject into app context
     setup_dependencies(app, test_container=test_container)
@@ -249,6 +292,7 @@ if __name__ == '__main__':
     app, container = create_app()
 
     logger.info("=== Unified ABS Manager Started (Integrated Mode) ===")
+    _log_security_warnings()
 
     # Start sync daemon in background thread
     sync_daemon_thread = threading.Thread(target=sync_daemon, daemon=True)
