@@ -239,6 +239,12 @@
                             </div>
 
                             <div id="kosync_public_url_group" class="info-box full-width">
+                                <div class="form-group full-width" style="margin-bottom: 12px;">
+                                    <label>Sync Port</label>
+                                    <input type="text" value="{{ get_val('KOSYNC_PORT', '4477') }}" readonly
+                                        style="opacity: 0.7; cursor: not-allowed; max-width: 120px;">
+                                    <div class="help-text">Set via <code>KOSYNC_PORT</code> environment variable in docker-compose.yml. Use a different port than 4477 to enable split-port mode.</div>
+                                </div>
                                 <div style="display: flex; gap: 16px; flex-wrap: wrap;">
                                     <div style="flex: 1; min-width: 200px;">
                                         <h4>LAN Address</h4>
