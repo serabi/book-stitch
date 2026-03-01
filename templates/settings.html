@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Settings - Book Stitch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/settings.css">
+</head>
+
+<body>
+    <div class="top-nav">
+        <div class="logo-section">
+            <a href="/" class="brand-link">
+                <img src="/static/icon.png" alt="Book Stitch" class="app-icon">
+                <h1>Book Stitch</h1>
+            </a>
+
+            <div class="library-links">
+                {% if abs_server %}
+                <a href="{{ abs_server }}" class="nav-icon-link" target="_blank" title="Audiobookshelf">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    </svg>
+                </a>
+                {% endif %}
+
+                {% if booklore_server %}
+                <a href="{{ booklore_server }}" class="nav-icon-link" target="_blank" title="Ebook Library">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                </a>
+                {% endif %}
+
+                {% if shelfmark_url and get_bool('SHELFMARK_ENABLED') %}
+                <a href="/shelfmark" class="nav-icon-link" title="Shelfmark Tool">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+                        <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                    </svg>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="nav-actions">
+            <a href="/" class="btn">&larr; Dashboard</a>
+            <a href="/logs" class="btn">Logs</a>
+        </div>
+    </div>
+
+    {% if message %}
+    <div class="flash-bar {% if is_error %}flash-error{% else %}flash-success{% endif %}">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/settings" id="settingsForm">
+        <div class="settings-shell">
+
+            <!-- ═══ Sidebar ═══ -->
+            <nav class="settings-sidebar" role="tablist">
+                <span class="sidebar-label">Configuration</span>
+
+                <button type="button" class="sidebar-tab active" role="tab" onclick="switchTab('general')" data-tab="general">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    General
+                </button>
+
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('abs')" data-tab="abs">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    Audiobookshelf
+                </button>
+
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('clients')" data-tab="clients">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    Sync Clients
+                </button>
+
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('sync')" data-tab="sync">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Sync Behavior
+                </button>
+
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('notifications')" data-tab="notifications">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    Notifications
+                </button>
+
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('tools')" data-tab="tools">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                    Tools
+                </button>
+
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('advanced')" data-tab="advanced">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    Advanced
+                </button>
+            </nav>
+
+            <!-- ═══ Content ═══ -->
+            <div class="settings-content">
+
+                <!-- ─── General ─── -->
+                <div class="tab-panel active" id="panel-general">
+                    <div class="panel-header">
+                        <h2>General</h2>
+                        <p>Timezone, logging, and system paths.</p>
+                    </div>
+
+                    <div class="field-grid">
+                        <div class="form-group">
+                            <label>Timezone</label>
+                            <input type="text" name="TZ" value="{{ get_val('TZ') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Log Level</label>
+                            <select name="LOG_LEVEL">
+                                {% for level in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] %}
+                                <option value="{{ level }}" {% if get_val('LOG_LEVEL')==level %}selected{% endif %}>{{ level }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="section-label">System Paths</div>
+                    <div class="field-grid" style="margin-top: 12px;">
+                        <div class="form-group">
+                            <label>Data Directory</label>
+                            <input type="text" name="DATA_DIR" value="{{ get_val('DATA_DIR') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Books Directory</label>
+                            <input type="text" name="BOOKS_DIR" value="{{ get_val('BOOKS_DIR') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Audiobooks Directory</label>
+                            <input type="text" name="AUDIOBOOKS_DIR" value="{{ get_val('AUDIOBOOKS_DIR') }}">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Audiobookshelf ─── -->
+                <div class="tab-panel" id="panel-abs">
+                    <div class="panel-header">
+                        <h2>Audiobookshelf</h2>
+                        <p>Connection to your Audiobookshelf server.</p>
+                    </div>
+
+                    <div class="field-grid">
+                        <div class="form-group full-width">
+                            <label>Server URL</label>
+                            <input type="text" name="ABS_SERVER" value="{{ get_val('ABS_SERVER') }}">
+                        </div>
+                        <div class="form-group full-width">
+                            <label>API Token</label>
+                            <input type="password" name="ABS_KEY" value="{{ get_val('ABS_KEY') }}">
+                        </div>
+
+                        <div class="form-group full-width">
+                            <label>ABS Libraries</label>
+                            <div id="abs_library_picker">
+                                <button type="button" class="btn" onclick="fetchAbsLibraries()" style="margin-bottom: 8px;">Fetch Libraries</button>
+                                <div id="abs_library_list"></div>
+                            </div>
+                            <input type="hidden" name="ABS_LIBRARY_IDS" id="abs_library_ids_input"
+                                   value="{{ get_val('ABS_LIBRARY_IDS') }}">
+                            <div class="help-text">Select which libraries to search. Leave empty to search all.</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Collection Name (Auto-Add)</label>
+                            <input type="text" name="ABS_COLLECTION_NAME" value="{{ get_val('ABS_COLLECTION_NAME') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Progress Offset (Seconds)</label>
+                            <input type="number" name="ABS_PROGRESS_OFFSET_SECONDS"
+                                value="{{ get_val('ABS_PROGRESS_OFFSET_SECONDS') }}">
+                            <div class="help-text">Rewind progress sent to ABS (e.g. -60)</div>
+                        </div>
+
+                        <div class="checkbox-wrapper full-width">
+                            <input type="checkbox" id="abs_socket_enabled" name="ABS_SOCKET_ENABLED" {% if
+                                get_bool('ABS_SOCKET_ENABLED') %}checked{% endif %}>
+                            <label for="abs_socket_enabled">Enable ABS Socket.IO Listener</label>
+                        </div>
+                        <div class="full-width">
+                            <div class="help-text">Listens to real-time events from Audiobookshelf via Socket.IO. When a user starts or stops playback, the bridge is notified instantly instead of waiting for the next sync cycle.</div>
+                        </div>
+                        <div class="form-group" id="abs_socket_debounce_group">
+                            <label>Socket Debounce (Seconds)</label>
+                            <input type="number" name="ABS_SOCKET_DEBOUNCE_SECONDS"
+                                value="{{ get_val('ABS_SOCKET_DEBOUNCE_SECONDS') }}">
+                            <div class="help-text">Debounce delay for Socket.IO events</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Sync Clients ─── -->
+                <div class="tab-panel" id="panel-clients">
+                    <div class="panel-header">
+                        <h2>Sync Clients</h2>
+                        <p>Configure ebook and reading progress sources.</p>
+                    </div>
+
+                    <!-- KOSync -->
+                    {% set kosync_configured = get_val('KOSYNC_SERVER') != '' %}
+                    {% set kosync_enabled = get_bool('KOSYNC_ENABLED') or (kosync_configured and get_val('KOSYNC_ENABLED') == '') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-kosync);"></span> KOSync</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_kosync" name="KOSYNC_ENABLED"
+                                        onchange="toggleSection('kosync_body', this.checked)" {% if kosync_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="kosync_body" class="sub-section-body {% if not kosync_enabled %}collapsed{% endif %}">
+
+                            <div class="checkbox-wrapper full-width">
+                                <input type="checkbox" id="kosync_use_builtin" onchange="toggleKosyncServerMode()" checked>
+                                <label for="kosync_use_builtin">Use Built-in KOSync Bridge (Recommended)</label>
+                            </div>
+
+                            <div id="kosync_public_url_group" class="info-box full-width">
+                                <h4>Public URL (Put this in KOReader)</h4>
+                                <div class="input-row">
+                                    <input type="text" id="public_kosync_url" aria-label="Public KOSync URL" value=""
+                                        onclick="this.select()">
+                                    <button type="button" class="btn" onclick="copyPublicUrl()" title="Copy to clipboard">Copy</button>
+                                </div>
+                                <div class="help-text" style="margin-top: 6px;">Replace 'localhost' with your server IP or Domain if accessing remotely.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label>Target KOSync URL</label>
+                                <input type="text" name="KOSYNC_SERVER" id="kosync_server_input"
+                                    value="{{ get_val('KOSYNC_SERVER') }}">
+                                <div class="help-text" id="kosync_server_help">Internal URL the bridge connects to.</div>
+                            </div>
+
+                            <div class="section-divider"></div>
+                            <div class="section-label">User Credentials</div>
+
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" name="KOSYNC_USER" value="{{ get_val('KOSYNC_USER') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" name="KOSYNC_KEY" value="{{ get_val('KOSYNC_KEY') }}">
+                                <div class="help-text">This will be your KOSync password in KOReader.</div>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Hash Method</label>
+                                <select name="KOSYNC_HASH_METHOD">
+                                    <option value="content" {% if get_val('KOSYNC_HASH_METHOD')=='content' %}selected{% endif %}>Content (Slower/Accurate)</option>
+                                    <option value="filename" {% if get_val('KOSYNC_HASH_METHOD')=='filename' %}selected{% endif %}>Filename (Fast)</option>
+                                </select>
+                            </div>
+                            <div class="checkbox-wrapper full-width">
+                                <input type="checkbox" id="kosync_pct" name="KOSYNC_USE_PERCENTAGE_FROM_SERVER" {% if
+                                    get_bool('KOSYNC_USE_PERCENTAGE_FROM_SERVER') %}checked{% endif %}>
+                                <label for="kosync_pct">Use Percentage from Server (Ignore Text Matching)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Storyteller -->
+                    {% set storyteller_configured = get_val('STORYTELLER_API_URL') != '' %}
+                    {% set storyteller_enabled = get_bool('STORYTELLER_ENABLED') or (storyteller_configured and get_val('STORYTELLER_ENABLED') == '') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-storyteller);"></span> Storyteller</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_storyteller" name="STORYTELLER_ENABLED"
+                                        onchange="toggleSection('storyteller_body', this.checked)" {% if storyteller_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="storyteller_body" class="sub-section-body {% if not storyteller_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>API URL</label>
+                                <input type="text" name="STORYTELLER_API_URL" value="{{ get_val('STORYTELLER_API_URL') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" name="STORYTELLER_USER" value="{{ get_val('STORYTELLER_USER') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" name="STORYTELLER_PASSWORD" value="{{ get_val('STORYTELLER_PASSWORD') }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Booklore -->
+                    {% set booklore_configured = get_val('BOOKLORE_SERVER') != '' %}
+                    {% set booklore_enabled = get_bool('BOOKLORE_ENABLED') or (booklore_configured and get_val('BOOKLORE_ENABLED') == '') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-booklore);"></span> Booklore</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_booklore" name="BOOKLORE_ENABLED"
+                                        onchange="toggleSection('booklore_body', this.checked)" {% if booklore_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="booklore_body" class="sub-section-body {% if not booklore_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>Server URL</label>
+                                <input type="text" name="BOOKLORE_SERVER" value="{{ get_val('BOOKLORE_SERVER') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" name="BOOKLORE_USER" value="{{ get_val('BOOKLORE_USER') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" name="BOOKLORE_PASSWORD" value="{{ get_val('BOOKLORE_PASSWORD') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Shelf Name</label>
+                                <input type="text" name="BOOKLORE_SHELF_NAME" value="{{ get_val('BOOKLORE_SHELF_NAME') }}">
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Booklore Library ID (Optional)</label>
+                                <div style="display: flex; gap: 10px;">
+                                    <input type="text" name="BOOKLORE_LIBRARY_ID" value="{{ get_val('BOOKLORE_LIBRARY_ID') }}"
+                                        placeholder="e.g. 1" style="flex: 1;">
+                                    <button class="btn" type="button" onclick="checkBookloreLibs()">Find IDs</button>
+                                </div>
+                                <div class="help-text">Restricts sync to a specific library (e.g., 1). Leave empty to sync all.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CWA -->
+                    {% set cwa_configured = get_val('CWA_SERVER') != '' %}
+                    {% set cwa_enabled = get_bool('CWA_ENABLED') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-cwa);"></span> Calibre-Web Automated</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_cwa" name="CWA_ENABLED"
+                                        onchange="toggleSection('cwa_body', this.checked)" {% if cwa_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="cwa_body" class="sub-section-body {% if not cwa_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>Server URL</label>
+                                <input type="text" name="CWA_SERVER" value="{{ get_val('CWA_SERVER') }}">
+                                <div class="help-text">URL to your Calibre-Web Automated instance (e.g. http://192.168.1.100:8083)</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" name="CWA_USERNAME" value="{{ get_val('CWA_USERNAME') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" name="CWA_PASSWORD" value="{{ get_val('CWA_PASSWORD') }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hardcover -->
+                    {% set hardcover_configured = get_val('HARDCOVER_TOKEN') != '' %}
+                    {% set hardcover_enabled = get_bool('HARDCOVER_ENABLED') or (hardcover_configured and get_val('HARDCOVER_ENABLED') == '') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-hardcover);"></span> Hardcover.app</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_hardcover" name="HARDCOVER_ENABLED"
+                                        onchange="toggleSection('hardcover_body', this.checked)" {% if hardcover_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="hardcover_body" class="sub-section-body {% if not hardcover_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>API Token</label>
+                                <input type="password" name="HARDCOVER_TOKEN" value="{{ get_val('HARDCOVER_TOKEN') }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Sync Behavior ─── -->
+                <div class="tab-panel" id="panel-sync">
+                    <div class="panel-header">
+                        <h2>Sync Behavior</h2>
+                        <p>Timing, thresholds, and real-time sync options.</p>
+                    </div>
+
+                    <div class="field-grid">
+                        <div class="form-group">
+                            <label>Sync Period (Minutes)</label>
+                            <input type="number" name="SYNC_PERIOD_MINS" value="{{ get_val('SYNC_PERIOD_MINS') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Min ABS Change (Seconds)</label>
+                            <input type="number" name="SYNC_DELTA_ABS_SECONDS"
+                                value="{{ get_val('SYNC_DELTA_ABS_SECONDS') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Min Ebook Change (%)</label>
+                            <input type="number" step="0.1" name="SYNC_DELTA_KOSYNC_PERCENT"
+                                value="{{ get_val('SYNC_DELTA_KOSYNC_PERCENT') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Client Diff Threshold (%)</label>
+                            <input type="number" step="0.1" name="SYNC_DELTA_BETWEEN_CLIENTS_PERCENT"
+                                value="{{ get_val('SYNC_DELTA_BETWEEN_CLIENTS_PERCENT') }}">
+                        </div>
+
+                        <div class="checkbox-wrapper full-width">
+                            <input type="checkbox" id="xpath_fallback" name="XPATH_FALLBACK_TO_PREVIOUS_SEGMENT" {% if
+                                get_bool('XPATH_FALLBACK_TO_PREVIOUS_SEGMENT') %}checked{% endif %}>
+                            <label for="xpath_fallback">XPath Fallback (Try previous segment if match fails)</label>
+                        </div>
+                        <div class="checkbox-wrapper full-width">
+                            <input type="checkbox" id="abs_ebook" name="SYNC_ABS_EBOOK" {% if get_bool('SYNC_ABS_EBOOK')
+                                %}checked{% endif %}>
+                            <label for="abs_ebook">Enable ABS Ebook Sync (Bi-directional)</label>
+                        </div>
+                        <div class="checkbox-wrapper full-width">
+                            <input type="checkbox" id="reprocess_on_clear" name="REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT" {% if
+                                get_bool('REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT') %}checked{% endif %}>
+                            <label for="reprocess_on_clear">Regenerate Missing Data on Reset</label>
+                        </div>
+                        <div class="full-width">
+                            <div class="help-text">
+                                When resetting your progress, check for missing sync data. If found, the system will attempt
+                                to regenerate it (which may require re-transcription).
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Instant Sync sub-section -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3>Instant Sync</h3>
+                            <div class="toggle-switch-wrapper">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_instant_sync" name="INSTANT_SYNC_ENABLED"
+                                        onchange="toggleSection('instant_sync_body', this.checked)"
+                                        {% if get_bool('INSTANT_SYNC_ENABLED') %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="instant_sync_body" class="sub-section-body {% if not get_bool('INSTANT_SYNC_ENABLED') %}collapsed{% endif %}">
+                            <div class="full-width">
+                                <div class="help-text" style="margin-bottom: 12px;">
+                                    Triggers immediate sync on ABS playback or KOReader progress. Disable to rely solely on polling.
+                                </div>
+                            </div>
+
+                            <div class="section-label">Per-Client Polling</div>
+                            <div class="full-width">
+                                <div class="help-text" style="margin-bottom: 8px;">
+                                    <em>Global</em> uses the main sync interval. <em>Custom</em> sets a separate check frequency per client.
+                                </div>
+                            </div>
+
+                            {% if get_bool('STORYTELLER_ENABLED') %}
+                            <div class="form-group">
+                                <label>Storyteller Poll Mode</label>
+                                <select name="STORYTELLER_POLL_MODE" id="storyteller_poll_mode"
+                                        onchange="togglePollSeconds('storyteller_poll_seconds_row', this.value)">
+                                    <option value="global" {% if get_val('STORYTELLER_POLL_MODE', 'global') == 'global' %}selected{% endif %}>Global</option>
+                                    <option value="custom" {% if get_val('STORYTELLER_POLL_MODE') == 'custom' %}selected{% endif %}>Custom</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="storyteller_poll_seconds_row"
+                                 {% if get_val('STORYTELLER_POLL_MODE') != 'custom' %}style="opacity: 0.45; pointer-events: none;"{% endif %}>
+                                <label>Storyteller Poll Interval (seconds)</label>
+                                <input type="number" name="STORYTELLER_POLL_SECONDS" min="10"
+                                       value="{{ get_val('STORYTELLER_POLL_SECONDS', '45') }}">
+                                <div class="help-text">Recommended: 30-60s for Storyteller (active reading source).</div>
+                            </div>
+                            {% endif %}
+
+                            {% if get_bool('BOOKLORE_ENABLED') %}
+                            <div class="form-group">
+                                <label>Booklore Poll Mode</label>
+                                <select name="BOOKLORE_POLL_MODE" id="booklore_poll_mode"
+                                        onchange="togglePollSeconds('booklore_poll_seconds_row', this.value)">
+                                    <option value="global" {% if get_val('BOOKLORE_POLL_MODE', 'global') == 'global' %}selected{% endif %}>Global</option>
+                                    <option value="custom" {% if get_val('BOOKLORE_POLL_MODE') == 'custom' %}selected{% endif %}>Custom</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="booklore_poll_seconds_row"
+                                 {% if get_val('BOOKLORE_POLL_MODE') != 'custom' %}style="opacity: 0.45; pointer-events: none;"{% endif %}>
+                                <label>Booklore Poll Interval (seconds)</label>
+                                <input type="number" name="BOOKLORE_POLL_SECONDS" min="10"
+                                       value="{{ get_val('BOOKLORE_POLL_SECONDS', '300') }}">
+                                <div class="help-text">Recommended: 300s for Booklore.</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Notifications ─── -->
+                <div class="tab-panel" id="panel-notifications">
+                    <div class="panel-header">
+                        <h2>Notifications</h2>
+                        <p>Configure alert and notification channels.</p>
+                    </div>
+
+                    {% set telegram_configured = get_val('TELEGRAM_BOT_TOKEN') != '' %}
+                    {% set telegram_enabled = get_bool('TELEGRAM_ENABLED') or (telegram_configured and get_val('TELEGRAM_ENABLED') == '') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3>Telegram</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_telegram" name="TELEGRAM_ENABLED"
+                                        onchange="toggleSection('telegram_body', this.checked)" {% if telegram_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="telegram_body" class="sub-section-body {% if not telegram_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>Bot Token</label>
+                                <input type="password" name="TELEGRAM_BOT_TOKEN" value="{{ get_val('TELEGRAM_BOT_TOKEN') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Chat ID</label>
+                                <input type="text" name="TELEGRAM_CHAT_ID" value="{{ get_val('TELEGRAM_CHAT_ID') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Min Log Level</label>
+                                <select name="TELEGRAM_LOG_LEVEL">
+                                    {% for level in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] %}
+                                    <option value="{{ level }}" {% if get_val('TELEGRAM_LOG_LEVEL', 'ERROR')==level %}selected{% endif %}>{{ level }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Tools ─── -->
+                <div class="tab-panel" id="panel-tools">
+                    <div class="panel-header">
+                        <h2>Tools</h2>
+                        <p>Optional features and utilities.</p>
+                    </div>
+
+                    <!-- Shelfmark -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3>Shelfmark View</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_shelfmark" aria-label="Enable Shelfmark"
+                                        name="SHELFMARK_ENABLED" {% if get_bool('SHELFMARK_ENABLED') or
+                                        (get_val('SHELFMARK_URL') !='' and get_val('SHELFMARK_ENABLED')=='' ) %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="sub-section-body">
+                            <div class="form-group full-width">
+                                <label>Shelfmark URL</label>
+                                <input type="text" name="SHELFMARK_URL" value="{{ get_val('SHELFMARK_URL') }}">
+                                <div class="help-text">URL to display in the Shelfmark tab (e.g. your Shelfmark instance URL)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Suggestions -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3>Suggestions</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_suggestions" name="SUGGESTIONS_ENABLED" {% if
+                                        get_bool('SUGGESTIONS_ENABLED') %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="sub-section-body">
+                            <div class="full-width">
+                                <div class="help-text">
+                                    When enabled, the system will look for unmapped audiobooks with progress and suggest
+                                    matching ebooks from your library.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Suggestion Cleanup -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3>Suggestion Cleanup</h3>
+                        </div>
+                        <div class="sub-section-body">
+                            <div class="full-width">
+                                <div class="cleanup-group">
+                                    <button type="button" class="btn btn-danger" onclick="clearStaleSuggestions()">
+                                        Clear Stale Suggestions
+                                    </button>
+                                    <p class="help-text flex-1 m-0">
+                                        Deletes all suggestions for books that are not currently in your bridge library.
+                                        This helps clear out junk suggestions and allows the bridge to re-suggest them if needed.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Advanced ─── -->
+                <div class="tab-panel" id="panel-advanced">
+                    <div class="panel-header">
+                        <h2>Advanced</h2>
+                        <p>Job retries, matching thresholds, and transcription engine.</p>
+                    </div>
+
+                    <div class="field-grid">
+                        <div class="form-group">
+                            <label>Job Max Retries</label>
+                            <input type="number" name="JOB_MAX_RETRIES" value="{{ get_val('JOB_MAX_RETRIES') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Job Retry Delay (Mins)</label>
+                            <input type="number" name="JOB_RETRY_DELAY_MINS" value="{{ get_val('JOB_RETRY_DELAY_MINS') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Fuzzy Match Threshold</label>
+                            <input type="number" step="0.1" name="FUZZY_MATCH_THRESHOLD"
+                                value="{{ get_val('FUZZY_MATCH_THRESHOLD') }}">
+                        </div>
+                        <div class="form-group">
+                            <label>SMIL Validation Threshold (%)</label>
+                            <input type="number" step="1" min="0" max="100" name="SMIL_VALIDATION_THRESHOLD"
+                                value="{{ get_val('SMIL_VALIDATION_THRESHOLD', '60') }}">
+                            <div class="help-text">Minimum token match % to accept EPUB SMIL data. Lower = more lenient.</div>
+                        </div>
+                    </div>
+
+                    <!-- Transcription -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3>Transcription Engine</h3>
+                        </div>
+                        <div class="sub-section-body">
+                            <div class="form-group">
+                                <label>Transcription Provider</label>
+                                <select name="TRANSCRIPTION_PROVIDER">
+                                    <option value="local" {% if get_val('TRANSCRIPTION_PROVIDER')=='local' %}selected{% endif %}>
+                                        Local Whisper
+                                    </option>
+                                    <option value="deepgram" {% if get_val('TRANSCRIPTION_PROVIDER')=='deepgram' %}selected{% endif %}>
+                                        Deepgram (Cloud)
+                                    </option>
+                                    <option value="whispercpp" {% if get_val('TRANSCRIPTION_PROVIDER')=='whispercpp' %}selected{% endif %}>
+                                        Whisper.cpp (Server)
+                                    </option>
+                                </select>
+                                <div class="help-text">
+                                    Local = faster-whisper. Deepgram = cloud. Whisper.cpp = external HTTP server.
+                                </div>
+                            </div>
+
+                            <!-- Whisper.cpp -->
+                            <div id="group_whispercpp" class="dynamic-group full-width" style="display:contents;">
+                                <div class="form-group full-width">
+                                    <label>Whisper.cpp Server URL</label>
+                                    <input type="text" name="WHISPER_CPP_URL" value="{{ get_val('WHISPER_CPP_URL', '') }}"
+                                        placeholder="http://192.168.178.132:11080/audio/transcriptions">
+                                    <div class="help-text">Example: http://HOST:11080/audio/transcriptions</div>
+                                </div>
+                            </div>
+
+                            <!-- Deepgram -->
+                            <div id="group_deepgram" class="dynamic-group full-width" style="display:contents;">
+                                <div class="form-group">
+                                    <label>Deepgram API Key</label>
+                                    <input type="password" name="DEEPGRAM_API_KEY" value="{{ get_val('DEEPGRAM_API_KEY') }}"
+                                        placeholder="dg_...">
+                                    <div class="help-text">Get your key at <a href="https://console.deepgram.com"
+                                            target="_blank" rel="noopener noreferrer">console.deepgram.com</a></div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deepgram_model">Deepgram Model</label>
+                                    <select name="DEEPGRAM_MODEL" id="deepgram_model">
+                                        <option value="nova-2" {% if get_val('DEEPGRAM_MODEL')=='nova-2' %}selected{% endif %}>Nova-2 (Best accuracy)</option>
+                                        <option value="nova-3" {% if get_val('DEEPGRAM_MODEL')=='nova-3' %}selected{% endif %}>Nova-3 (Latest)</option>
+                                        <option value="base" {% if get_val('DEEPGRAM_MODEL')=='base' %}selected{% endif %}>Base (Fastest)</option>
+                                        <option value="enhanced" {% if get_val('DEEPGRAM_MODEL')=='enhanced' %}selected{% endif %}>Enhanced</option>
+                                    </select>
+                                    <div class="help-text">Nova-2 recommended. See <a
+                                            href="https://developers.deepgram.com/docs/models" target="_blank"
+                                            rel="noopener noreferrer">Deepgram Models</a></div>
+                                    <div class="alert alert-warning" id="gpu_warning" style="display:none; margin-top:10px;">
+                                        <strong>NVIDIA GPU Selected:</strong>
+                                        <ul style="margin: 5px 0 0 20px; font-size: 0.9em;">
+                                            <li>Ensure <code>INSTALL_GPU: "true"</code> is set in docker-compose.yml (this builds the container with CUDA libraries).</li>
+                                            <li>Ensure the <strong>NVIDIA Container Toolkit</strong> is installed on your host system (this allows Docker to access your GPU).</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Whisper Model (shared) -->
+                            <div id="group_whisper_model" class="dynamic-group full-width" style="display:contents;">
+                                <div class="form-group">
+                                    <label>Whisper Model</label>
+                                    <select name="WHISPER_MODEL">
+                                        {% for model in ['tiny', 'base', 'small', 'medium', 'large-v2', 'large-v3'] %}
+                                        <option value="{{ model }}" {% if get_val('WHISPER_MODEL')==model %}selected{% endif %}>{{ model }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <div class="help-text">Model size for Local Whisper and Whisper.cpp Server. Larger = better accuracy but slower.</div>
+                                </div>
+                            </div>
+
+                            <!-- Local Whisper -->
+                            <div id="group_local" class="dynamic-group full-width" style="display:contents;">
+                                <div class="form-group">
+                                    <label>Whisper Device</label>
+                                    <select name="WHISPER_DEVICE">
+                                        <option value="cpu" {% if get_val('WHISPER_DEVICE')=='cpu' %}selected{% endif %}>CPU</option>
+                                        <option value="cuda" {% if get_val('WHISPER_DEVICE')=='cuda' %}selected{% endif %}>GPU (NVIDIA)</option>
+                                    </select>
+                                    <div class="help-text">Use CUDA for NVIDIA GPU. Default is CPU.</div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Whisper Compute Type</label>
+                                    <select name="WHISPER_COMPUTE_TYPE">
+                                        <option value="auto" {% if get_val('WHISPER_COMPUTE_TYPE')=='auto' %}selected{% endif %}>Auto (int8 CPU / float16 GPU)</option>
+                                        <option value="int8" {% if get_val('WHISPER_COMPUTE_TYPE')=='int8' %}selected{% endif %}>int8 (Fast, CPU-optimized)</option>
+                                        <option value="float16" {% if get_val('WHISPER_COMPUTE_TYPE')=='float16' %}selected{% endif %}>float16 (Fast, GPU-optimized)</option>
+                                        <option value="float32" {% if get_val('WHISPER_COMPUTE_TYPE')=='float32' %}selected{% endif %}>float32 (Highest accuracy)</option>
+                                    </select>
+                                    <div class="help-text">Use int8 for CPU, float16 for GPU.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /settings-content -->
+        </div><!-- /settings-shell -->
+
+        <div class="submit-bar">
+            <span class="restart-warn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                Application will restart on save
+            </span>
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+        </div>
+    </form>
+
+    <script>
+        /* ─── Tab Switching ─── */
+        function switchTab(tabId) {
+            document.querySelectorAll('.sidebar-tab').forEach(function(t) { t.classList.remove('active'); });
+            document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+
+            document.querySelector('[data-tab="' + tabId + '"]').classList.add('active');
+            var panel = document.getElementById('panel-' + tabId);
+            panel.classList.add('active');
+
+            panel.style.animation = 'none';
+            panel.offsetHeight;
+            panel.style.animation = '';
+
+            if (window.innerWidth <= 768) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        /* ─── Preserved Functions ─── */
+
+        function checkBookloreLibs() {
+            var btn = event.target;
+            var originalText = btn.textContent;
+            btn.textContent = 'Scanning...';
+            btn.disabled = true;
+
+            fetch('/api/booklore/libraries')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        return;
+                    }
+                    if (data.length === 0) {
+                        alert('No libraries found. Check connection or try syncing first.');
+                        return;
+                    }
+
+                    var msg = "Found Libraries:\n\n";
+                    data.forEach(function(lib) {
+                        msg += 'ID: ' + lib.id + '\nName: ' + lib.name + '\n------------------\n';
+                    });
+                    alert(msg);
+                })
+                .catch(function(err) { alert('Failed to fetch libraries: ' + err); })
+                .finally(function() {
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                });
+        }
+
+        function toggleSection(bodyId, isChecked) {
+            var body = document.getElementById(bodyId);
+            if (isChecked) {
+                body.classList.remove('collapsed');
+            } else {
+                body.classList.add('collapsed');
+            }
+        }
+
+        function togglePollSeconds(rowId, mode) {
+            var row = document.getElementById(rowId);
+            if (!row) return;
+            if (mode === 'custom') {
+                row.style.opacity = '';
+                row.style.pointerEvents = '';
+            } else {
+                row.style.opacity = '0.45';
+                row.style.pointerEvents = 'none';
+            }
+        }
+
+        function toggleKosyncServerMode() {
+            var useBuiltin = document.getElementById('kosync_use_builtin').checked;
+            var internalInput = document.getElementById('kosync_server_input');
+            var publicGroup = document.getElementById('kosync_public_url_group');
+
+            if (useBuiltin) {
+                if (publicGroup) publicGroup.classList.remove('hidden');
+                internalInput.value = "http://127.0.0.1:{{ get_val('KOSYNC_PORT', '4477') }}";
+                internalInput.setAttribute('readonly', 'readonly');
+                internalInput.style.opacity = "0.7";
+                internalInput.style.cursor = "not-allowed";
+            } else {
+                if (publicGroup) publicGroup.classList.add('hidden');
+                internalInput.removeAttribute('readonly');
+                internalInput.style.opacity = "1";
+                internalInput.style.cursor = "text";
+            }
+        }
+
+        function copyPublicUrl() {
+            var copyText = document.getElementById("public_kosync_url");
+            copyText.select();
+            copyText.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(copyText.value);
+            var originalBg = copyText.style.backgroundColor;
+            copyText.style.backgroundColor = "rgba(124, 58, 237, 0.3)";
+            setTimeout(function() { copyText.style.backgroundColor = originalBg; }, 200);
+        }
+
+        async function clearStaleSuggestions() {
+            if (!confirm("Are you sure you want to clear stale suggestions?\n\nThis will permanently delete all suggestions for books that are not currently matched in your bridge. Books you are already syncing will be preserved.")) {
+                return;
+            }
+
+            try {
+                var response = await fetch('/api/suggestions/clear_stale', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                var data = await response.json();
+                if (data.success) {
+                    alert('Success! Cleared ' + data.count + ' stale suggestions.');
+                } else {
+                    alert('Failed to clear suggestions: ' + (data.error || 'Unknown error'));
+                }
+            } catch (err) {
+                console.error('Error clearing suggestions:', err);
+                alert('An error occurred while clearing suggestions. Check console for details.');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            var configuredPort = "{{ get_val('KOSYNC_PORT', '4477') }}";
+            var suggestedUrl = 'http://localhost:' + configuredPort;
+
+            var publicUrlInput = document.getElementById('public_kosync_url');
+            publicUrlInput.value = suggestedUrl;
+            publicUrlInput.removeAttribute('readonly');
+            publicUrlInput.style.cursor = "text";
+
+            initDynamicForms();
+
+            var kosyncServerVal = document.getElementById('kosync_server_input').value;
+            var builtinCheckbox = document.getElementById('kosync_use_builtin');
+            if (kosyncServerVal === "http://127.0.0.1:{{ get_val('KOSYNC_PORT', '4477') }}" || kosyncServerVal === "") {
+                builtinCheckbox.checked = true;
+            } else {
+                builtinCheckbox.checked = false;
+            }
+            toggleKosyncServerMode();
+        });
+
+        function initDynamicForms() {
+            var providerSelect = document.querySelector('select[name="TRANSCRIPTION_PROVIDER"]');
+            if (providerSelect) {
+                providerSelect.addEventListener('change', toggleProviderSettings);
+                toggleProviderSettings();
+            }
+
+            var deviceSelect = document.querySelector('select[name="WHISPER_DEVICE"]');
+            if (deviceSelect) {
+                deviceSelect.addEventListener('change', function () {
+                    if (this.value === 'cuda') {
+                        alert("To use an NVIDIA GPU, you must modify your docker-compose.yml to include the 'deploy' block with 'capabilities: [gpu]' and ensure the NVIDIA Container Toolkit is installed on your host.");
+                    }
+                });
+            }
+        }
+
+        async function fetchAbsLibraries() {
+            var listEl = document.getElementById('abs_library_list');
+            var hiddenInput = document.getElementById('abs_library_ids_input');
+            listEl.textContent = 'Loading...';
+            try {
+                var r = await fetch('/api/abs/libraries');
+                var libs = await r.json();
+                if (libs.error) {
+                    listEl.textContent = libs.error;
+                    listEl.style.color = 'var(--color-error)';
+                    return;
+                }
+                var currentIds = (hiddenInput.value || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+                listEl.textContent = '';
+                listEl.style.color = '';
+                libs.forEach(function(lib) {
+                    var div = document.createElement('div');
+                    div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;';
+                    var cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.value = lib.id;
+                    cb.checked = currentIds.includes(lib.id);
+                    cb.addEventListener('change', updateAbsLibraryIds);
+                    var lbl = document.createElement('label');
+                    lbl.style.cursor = 'pointer';
+                    lbl.textContent = lib.name + ' (' + lib.mediaType + ')';
+                    div.appendChild(cb);
+                    div.appendChild(lbl);
+                    listEl.appendChild(div);
+                });
+                if (libs.length === 0) {
+                    listEl.textContent = 'No libraries found';
+                    listEl.style.color = 'var(--color-text-muted)';
+                }
+            } catch (e) {
+                listEl.textContent = 'Failed to fetch: ' + e.message;
+                listEl.style.color = 'var(--color-error)';
+            }
+        }
+
+        function updateAbsLibraryIds() {
+            var checkboxes = document.querySelectorAll('#abs_library_list input[type="checkbox"]:checked');
+            var ids = Array.from(checkboxes).map(function(cb) { return cb.value; });
+            document.getElementById('abs_library_ids_input').value = ids.join(',');
+        }
+
+        function toggleProviderSettings() {
+            var provider = document.querySelector('select[name="TRANSCRIPTION_PROVIDER"]').value;
+
+            var groupLocal = document.getElementById('group_local');
+            var groupDeepgram = document.getElementById('group_deepgram');
+            var groupWhisperCpp = document.getElementById('group_whispercpp');
+            var groupWhisperModel = document.getElementById('group_whisper_model');
+
+            if (groupLocal) groupLocal.classList.add('hidden');
+            if (groupDeepgram) groupDeepgram.classList.add('hidden');
+            if (groupWhisperCpp) groupWhisperCpp.classList.add('hidden');
+            if (groupWhisperModel) groupWhisperModel.classList.add('hidden');
+
+            if (provider === 'local') {
+                if (groupLocal) groupLocal.classList.remove('hidden');
+                if (groupWhisperModel) groupWhisperModel.classList.remove('hidden');
+            } else if (provider === 'deepgram' && groupDeepgram) {
+                groupDeepgram.classList.remove('hidden');
+            } else if (provider === 'whispercpp') {
+                if (groupWhisperCpp) groupWhisperCpp.classList.remove('hidden');
+                if (groupWhisperModel) groupWhisperModel.classList.remove('hidden');
+            }
+        }
+    </script>
+    <script>
+        // --- Unsaved Changes Guard ---
+        var isFormDirty = false;
+
+        function markDirty() {
+            isFormDirty = true;
+        }
+
+        function setupDirtyCheck() {
+            var inputs = document.querySelectorAll('input, select, textarea');
+            inputs.forEach(function(input) {
+                input.addEventListener('change', markDirty);
+                input.addEventListener('input', markDirty);
+            });
+
+            window.addEventListener('beforeunload', function (e) {
+                if (isFormDirty) {
+                    var msg = "You have unsaved changes. Are you sure you want to leave?";
+                    e.returnValue = msg;
+                    return msg;
+                }
+            });
+
+            var form = document.querySelector('form');
+            if (form) {
+                form.addEventListener('submit', function () {
+                    isFormDirty = false;
+                });
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', setupDirtyCheck);
+    </script>
+</body>
+
+</html>

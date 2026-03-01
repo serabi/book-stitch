@@ -1,0 +1,85 @@
+/* Book Stitch - Base Reset & Typography */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+  padding: 0;
+}
+
+a {
+  color: var(--color-primary-hover);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+
+a:hover {
+  color: var(--color-primary);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.5);
+}
+
+/* Selection */
+::selection {
+  background: rgba(124, 58, 237, 0.3);
+  color: var(--color-text);
+}
+
+/* Utility classes */
+.hidden {
+  display: none !important;
+}
+
+.pe-none {
+  pointer-events: none !important;
+}
+
+.cursor-pointer {
+  cursor: pointer !important;
+}
+
+.color-inherit {
+  color: inherit !important;
+}
+
+.text-inherit-no-deco {
+  text-decoration: none !important;
+  color: inherit !important;
+}
+
+.grayscale-muted {
+  opacity: 0.4 !important;
+  filter: grayscale(100%) !important;
+}
+
+.mt-20 { margin-top: 20px !important; }
+.mt-80 { margin-top: 80px !important; }
+.mb-16 { margin-bottom: 16px !important; }
+.m-0 { margin: 0 !important; }
+.flex-1 { flex: 1; }
+
+.d-inline { display: inline !important; }
+.w-100 { width: 100% !important; }

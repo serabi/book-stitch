@@ -1,0 +1,183 @@
+"""API blueprint — /api/status, /api/suggestions/*, /api/storyteller/*, /api/booklore/*."""
+
+import json
+import logging
+import os
+
+from flask import Blueprint, request, jsonify
+
+from src.blueprints.helpers import get_container, get_database_service
+
+logger = logging.getLogger(__name__)
+
+api_bp = Blueprint('api', __name__)
+
+
+# ---------------- Status ----------------
+
+@api_bp.route('/api/status')
+def api_status():
+    """Return status of all books from database service"""
+    database_service = get_database_service()
+    books = database_service.get_all_books()
+
+    mappings = []
+    for book in books:
+        states = database_service.get_states_for_book(book.abs_id)
+        state_by_client = {state.client_name: state for state in states}
+
+        mapping = {
+            'abs_id': book.abs_id,
+            'abs_title': book.abs_title,
+            'ebook_filename': book.ebook_filename,
+            'kosync_doc_id': book.kosync_doc_id,
+            'transcript_file': book.transcript_file,
+            'status': book.status,
+            'sync_mode': getattr(book, 'sync_mode', 'audiobook'),
+            'duration': book.duration,
+            'storyteller_uuid': book.storyteller_uuid,
+            'states': {}
+        }
+
+        for client_name, state in state_by_client.items():
+            pct_val = round(state.percentage * 100, 1) if state.percentage is not None else 0
+
+            mapping['states'][client_name] = {
+                'timestamp': state.timestamp or 0,
+                'percentage': pct_val,
+                'xpath': getattr(state, 'xpath', None),
+                'last_updated': state.last_updated
+            }
+
+            if client_name == 'kosync':
+                mapping['kosync_pct'] = pct_val
+                mapping['kosync_xpath'] = getattr(state, 'xpath', None)
+            elif client_name == 'abs':
+                mapping['abs_pct'] = pct_val
+                mapping['abs_ts'] = state.timestamp
+            elif client_name == 'storyteller':
+                mapping['storyteller_pct'] = pct_val
+                mapping['storyteller_xpath'] = getattr(state, 'xpath', None)
+            elif client_name == 'booklore':
+                mapping['booklore_pct'] = pct_val
+                mapping['booklore_xpath'] = getattr(state, 'xpath', None)
+
+        mappings.append(mapping)
+
+    return jsonify({"mappings": mappings})
+
+
+# ---------------- Suggestions ----------------
+
+@api_bp.route('/api/suggestions', methods=['GET'])
+def get_suggestions():
+    database_service = get_database_service()
+    suggestions = database_service.get_all_pending_suggestions()
+    result = []
+    for s in suggestions:
+        try:
+            matches = json.loads(s.matches_json) if s.matches_json else []
+        except Exception as e:
+            logger.debug(f"Failed to parse matches_json for suggestion '{s.source_id}': {e}")
+            matches = []
+
+        result.append({
+            "id": s.id,
+            "source_id": s.source_id,
+            "title": s.title,
+            "author": s.author,
+            "cover_url": s.cover_url,
+            "matches": matches,
+            "created_at": s.created_at.isoformat()
+        })
+    return jsonify(result)
+
+
+@api_bp.route('/api/suggestions/<source_id>/dismiss', methods=['POST'])
+def dismiss_suggestion(source_id):
+    database_service = get_database_service()
+    if database_service.dismiss_suggestion(source_id):
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Not found"}), 404
+
+
+@api_bp.route('/api/suggestions/<source_id>/ignore', methods=['POST'])
+def ignore_suggestion(source_id):
+    database_service = get_database_service()
+    if database_service.ignore_suggestion(source_id):
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Not found"}), 404
+
+
+@api_bp.route('/api/suggestions/clear_stale', methods=['POST'])
+def clear_stale_suggestions():
+    database_service = get_database_service()
+    count = database_service.clear_stale_suggestions()
+    logger.info(f"Cleared {count} stale suggestions from database")
+    return jsonify({"success": True, "count": count})
+
+
+# ---------------- Storyteller ----------------
+
+@api_bp.route('/api/storyteller/search', methods=['GET'])
+def api_storyteller_search():
+    container = get_container()
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({"error": "Query parameter 'q' is required"}), 400
+    results = container.storyteller_client().search_books(query)
+    return jsonify(results)
+
+
+@api_bp.route('/api/storyteller/link/<abs_id>', methods=['POST'])
+def api_storyteller_link(abs_id):
+    database_service = get_database_service()
+
+    data = request.get_json()
+    if not data or 'uuid' not in data:
+        return jsonify({"error": "Missing 'uuid' in JSON payload"}), 400
+
+    storyteller_uuid = data['uuid']
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"error": "Book not found"}), 404
+
+    # Handle explicit unlinking
+    if storyteller_uuid == "none" or not storyteller_uuid:
+        logger.info(f"Unlinking Storyteller for '{book.abs_title}'")
+        book.storyteller_uuid = None
+        book.status = 'pending'
+        database_service.save_book(book)
+        return jsonify({"message": "Storyteller unlinked successfully", "filename": book.ebook_filename}), 200
+
+    book.storyteller_uuid = storyteller_uuid
+    book.status = 'pending'
+    database_service.save_book(book)
+    database_service.dismiss_suggestion(abs_id)
+    return jsonify({"message": "Linked successfully"}), 200
+
+
+# ---------------- ABS ----------------
+
+@api_bp.route('/api/abs/libraries', methods=['GET'])
+def get_abs_libraries():
+    """Return available ABS libraries."""
+    container = get_container()
+    if not container.abs_client().is_configured():
+        return jsonify({"error": "ABS not configured"}), 400
+
+    libraries = container.abs_client().get_libraries()
+    return jsonify(libraries)
+
+
+# ---------------- Booklore ----------------
+
+@api_bp.route('/api/booklore/libraries', methods=['GET'])
+def get_booklore_libraries():
+    """Return available Booklore libraries."""
+    container = get_container()
+    if not container.booklore_client().is_configured():
+        return jsonify({"error": "Booklore not configured"}), 400
+
+    libraries = container.booklore_client().get_libraries()
+    return jsonify(libraries)

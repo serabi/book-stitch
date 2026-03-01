@@ -1,0 +1,379 @@
+/* Book Stitch - Match + Batch Match page specific styles */
+
+/* Override container width for match pages */
+.container {
+  max-width: 1600px;
+}
+
+/* Search section */
+.search-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin: 30px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.search-section form {
+  display: flex;
+  gap: 0;
+  max-width: 800px;
+  width: 100%;
+}
+
+.search-section .search-box {
+  flex: 1;
+  padding: 16px 20px;
+  font-size: 16px;
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.search-section .btn {
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin-top: 0 !important;
+}
+
+/* Section styling */
+.section {
+  margin: 40px 0;
+}
+
+.section h3 {
+  font-family: var(--font-heading);
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--color-text);
+}
+
+.section-number {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  background: var(--gradient-primary);
+  border-radius: 50%;
+  text-align: center;
+  line-height: 32px;
+  margin-right: 12px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Audiobook grid (portrait 2/3 covers) */
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 24px;
+  margin: 20px 0;
+}
+
+/* Resource grid (square cards) */
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+/* Audiobook option card */
+.audiobook-option {
+  cursor: pointer;
+  border: 2px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  transition: all var(--transition-smooth);
+  background: var(--color-surface);
+  overflow: hidden;
+  position: relative;
+}
+
+.audiobook-option:hover {
+  border-color: var(--color-primary-border);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.2);
+}
+
+.audiobook-option.selected {
+  border: 3px solid var(--color-primary-hover) !important;
+  background: var(--color-primary-light);
+  box-shadow: none;
+}
+
+.audiobook-option.selected::after {
+  content: '\2713';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  background: var(--color-primary-hover);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  z-index: 2;
+  box-shadow: 0 2px 8px var(--color-primary-glow);
+}
+
+/* Ghost card */
+.ghost-card {
+  border: 2px dashed var(--color-border) !important;
+  background: transparent !important;
+}
+
+.ghost-card:hover {
+  border-color: var(--color-primary-border) !important;
+  background: rgba(124, 58, 237, 0.05) !important;
+}
+
+.ghost-card.selected {
+  border-color: rgba(124, 58, 237, 0.6) !important;
+  background: rgba(124, 58, 237, 0.08) !important;
+}
+
+/* Resource card (square) */
+.resource-card {
+  aspect-ratio: 1/1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.resource-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.resource-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.resource-subtitle {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.2;
+}
+
+.resource-card.ghost-card .resource-icon { color: var(--color-text-faint); }
+.resource-card.ghost-card .resource-title { color: var(--color-text-muted); }
+
+/* Audiobook cover */
+.audiobook-cover-container {
+  width: 100%;
+  aspect-ratio: 2/3;
+  overflow: hidden;
+  position: relative;
+}
+
+.audiobook-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.audiobook-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--color-bg-raised) 0%, var(--color-bg) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 56px;
+}
+
+.audiobook-info {
+  padding: 12px;
+}
+
+.audiobook-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+/* Hidden radio */
+input[type="radio"] {
+  opacity: 0;
+  position: absolute;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* Submit container */
+.submit-container {
+  text-align: center;
+  margin: 40px 0 20px 0;
+}
+
+/* 3-Column layout (match.html) */
+.selection-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 40px;
+  position: relative;
+}
+
+/* Scrollable content */
+.scrollable-content {
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.scrollable-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollable-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollable-content::-webkit-scrollbar-thumb {
+  background: var(--color-primary-border);
+  border-radius: 3px;
+}
+
+/* 2-Column layout (batch_match.html) */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 40px;
+  align-items: start;
+}
+
+/* Queue area (batch_match.html) */
+.queue-area {
+  position: sticky;
+  top: 120px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+}
+
+.queue-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--color-border-light);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.queue-header h3 {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  margin: 0;
+}
+
+.queue-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  transition: all var(--transition-bounce);
+}
+
+.queue-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.queue-item-remove {
+  background: var(--color-error-light);
+  border: none;
+  color: var(--color-error);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.queue-footer {
+  padding: 16px;
+  border-top: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+}
+
+/* Ebook select (batch_match.html) */
+.ebook-select {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* Matching grid (batch_match.html) */
+.matching-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .selection-container {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .queue-area {
+    position: relative;
+    top: 0;
+    max-height: 600px;
+  }
+}
+
+@media (max-width: 768px) {
+  .media-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 16px;
+  }
+
+  .resource-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 10px;
+  }
+
+  .mt-16 {
+    margin-top: 16px !important;
+  }
+}

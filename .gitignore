@@ -1,0 +1,43 @@
+# Personal configuration with credentials
+docker-compose.yml*
+.env
+
+.run
+# Data directories
+/data/
+*.db
+*.json
+epub_cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+cwa_debug.log
+
+# Local documentation and screenshots
+docs/
+screenshots/
+
+# Local System Rules
+.cursorrules
+BRANCH_STATUS.md
+CLAUDE.md

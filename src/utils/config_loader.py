@@ -1,0 +1,182 @@
+
+import os
+import logging
+from src.db.database_service import DatabaseService
+
+logger = logging.getLogger(__name__)
+
+# Full list of settings to manage
+ALL_SETTINGS = [
+    # ABS
+    'ABS_SERVER', 'ABS_KEY', 'ABS_LIBRARY_IDS',
+
+    # Optional ABS
+    'ABS_COLLECTION_NAME', 'ABS_PROGRESS_OFFSET_SECONDS',
+    'ABS_SOCKET_ENABLED', 'ABS_SOCKET_DEBOUNCE_SECONDS',
+
+    # KOSync
+    'KOSYNC_ENABLED', 'KOSYNC_SERVER', 'KOSYNC_USER', 'KOSYNC_KEY',
+    'KOSYNC_HASH_METHOD', 'KOSYNC_USE_PERCENTAGE_FROM_SERVER',
+
+    # Storyteller
+    'STORYTELLER_ENABLED', 'STORYTELLER_API_URL', 'STORYTELLER_USER', 'STORYTELLER_PASSWORD',
+
+    # Booklore
+    'BOOKLORE_ENABLED', 'BOOKLORE_SERVER', 'BOOKLORE_USER', 'BOOKLORE_PASSWORD', 'BOOKLORE_SHELF_NAME', 'BOOKLORE_LIBRARY_ID',
+
+    # CWA (Calibre-Web Automated)
+    'CWA_ENABLED', 'CWA_SERVER', 'CWA_USERNAME', 'CWA_PASSWORD',
+
+    # Hardcover
+    'HARDCOVER_ENABLED', 'HARDCOVER_TOKEN',
+
+    # Telegram
+    'TELEGRAM_ENABLED', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'TELEGRAM_LOG_LEVEL',
+
+    # Shelfmark
+    'SHELFMARK_ENABLED', 'SHELFMARK_URL',
+
+    # Sync Behavior
+    'SYNC_PERIOD_MINS', 'SYNC_DELTA_ABS_SECONDS', 'SYNC_DELTA_KOSYNC_PERCENT',
+    'SYNC_DELTA_BETWEEN_CLIENTS_PERCENT',
+    'XPATH_FALLBACK_TO_PREVIOUS_SEGMENT', 'SYNC_ABS_EBOOK',
+    'FUZZY_MATCH_THRESHOLD', 'SUGGESTIONS_ENABLED',
+    'INSTANT_SYNC_ENABLED', 'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT',
+    'SMIL_VALIDATION_THRESHOLD',
+    'STORYTELLER_POLL_MODE', 'STORYTELLER_POLL_SECONDS',
+    'BOOKLORE_POLL_MODE', 'BOOKLORE_POLL_SECONDS',
+
+    # System
+    'TZ', 'LOG_LEVEL', 'DATA_DIR', 'BOOKS_DIR',
+    'AUDIOBOOKS_DIR',
+    'EBOOK_CACHE_SIZE',
+    'JOB_MAX_RETRIES', 'JOB_RETRY_DELAY_MINS', 'WHISPER_MODEL',
+    'WHISPER_DEVICE', 'WHISPER_COMPUTE_TYPE',
+    'TRANSCRIPTION_PROVIDER', 'DEEPGRAM_API_KEY', 'DEEPGRAM_MODEL', 'WHISPER_CPP_URL'
+]
+
+# Default values
+DEFAULT_CONFIG = {
+    'TZ': 'America/New_York',
+    'LOG_LEVEL': 'INFO',
+    'DATA_DIR': '/data',
+    'BOOKS_DIR': '/books',
+    'ABS_COLLECTION_NAME': 'Synced with KOReader',
+    'ABS_LIBRARY_IDS': '',
+    'BOOKLORE_SHELF_NAME': 'Kobo',
+    'SYNC_PERIOD_MINS': '5',
+    'SYNC_DELTA_ABS_SECONDS': '60',
+    'SYNC_DELTA_KOSYNC_PERCENT': '0.5',
+    'SYNC_DELTA_BETWEEN_CLIENTS_PERCENT': '0.5',
+    'FUZZY_MATCH_THRESHOLD': '80',
+    'WHISPER_MODEL': 'tiny',
+    'WHISPER_DEVICE': 'auto',
+    'WHISPER_COMPUTE_TYPE': 'auto',
+    'TRANSCRIPTION_PROVIDER': 'local',
+    'WHISPER_CPP_URL': '',
+    'DEEPGRAM_API_KEY': '',
+    'DEEPGRAM_MODEL': 'nova-2',
+    'JOB_MAX_RETRIES': '5',
+    'JOB_RETRY_DELAY_MINS': '15',
+    'AUDIOBOOKS_DIR': '/audiobooks',
+    'ABS_PROGRESS_OFFSET_SECONDS': '0',
+    'EBOOK_CACHE_SIZE': '3',
+    'KOSYNC_HASH_METHOD': 'content',
+    'TELEGRAM_LOG_LEVEL': 'ERROR',
+    'SHELFMARK_ENABLED': 'false',
+    'SHELFMARK_URL': '',
+    'KOSYNC_ENABLED': 'false',
+    'STORYTELLER_ENABLED': 'false',
+    'BOOKLORE_ENABLED': 'false',
+    'BOOKLORE_LIBRARY_ID': '',
+    'CWA_ENABLED': 'false',
+    'CWA_SERVER': '',
+    'CWA_USERNAME': '',
+    'CWA_PASSWORD': '',
+    'HARDCOVER_ENABLED': 'false',
+    'TELEGRAM_ENABLED': 'false',
+    'SUGGESTIONS_ENABLED': 'false',
+    'KOSYNC_USE_PERCENTAGE_FROM_SERVER': 'false',
+    'SYNC_ABS_EBOOK': 'false',
+    'XPATH_FALLBACK_TO_PREVIOUS_SEGMENT': 'false',
+    'ABS_SOCKET_ENABLED': 'true',
+    'ABS_SOCKET_DEBOUNCE_SECONDS': '30',
+    'INSTANT_SYNC_ENABLED': 'true',
+    'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT': 'true',
+    'SMIL_VALIDATION_THRESHOLD': '60',
+    'STORYTELLER_POLL_MODE': 'global',
+    'STORYTELLER_POLL_SECONDS': '45',
+    'BOOKLORE_POLL_MODE': 'global',
+    'BOOKLORE_POLL_SECONDS': '300',
+}
+
+class ConfigLoader:
+    """
+    Loads configuration from database and updates environment variables.
+    Settings in the database take precedence over environment variables,
+    except for critical paths that might be needed to connect to the DB itself.
+    """
+
+    @staticmethod
+    def bootstrap_config(db_service: DatabaseService):
+        """
+        If settings table is empty, populate it from os.environ or defaults.
+        This provides a smooth migration for existing users.
+        """
+        try:
+            # Check if we have any settings
+            existing_settings = db_service.get_all_settings()
+            if existing_settings:
+                # Already bootstrapped
+                return
+
+            logger.info("Bootstrapping configuration from environment variables...")
+            
+            count = 0
+            for key in ALL_SETTINGS:
+                # Priority: 1. Env Var, 2. Default, 3. Empty string
+                val = os.environ.get(key, DEFAULT_CONFIG.get(key, ""))
+                
+                # Check for None explicitly
+                if val is None:
+                    val = ""
+                
+                db_service.set_setting(key, str(val))
+                count += 1
+            
+            logger.info(f"Bootstrapped {count} settings to database")
+
+        except Exception as e:
+            logger.error(f"Error bootstrapping config: {e}")
+
+    @staticmethod
+    def load_settings(db_service: DatabaseService):
+        """
+        Load all settings from database and update os.environ.
+        
+        Args:
+            db_service: Initialized DatabaseService instance
+        """
+        try:
+            settings = db_service.get_all_settings()
+            count = 0
+            
+            for key, value in settings.items():
+                # Apply validation or type conversion if needed (mostly string for env vars)
+                val_str = str(value) if value is not None else ""
+                
+                # Preserve existing non-empty env vars when DB value is blank.
+                if val_str != "":
+                    os.environ[key] = val_str
+                else:
+                    existing_env = os.environ.get(key, "")
+                    if not existing_env:
+                        os.environ[key] = ""
+                
+                count += 1
+            
+            logger.info(f"Loaded {count} settings from database")
+            
+        except Exception as e:
+            logger.error(f"Error loading settings from database: {e}")
+            # Do not re-raise, fall back to existing env vars

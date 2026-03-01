@@ -1,0 +1,233 @@
+/* Book Stitch - Logs page specific styles */
+
+/* Override container for logs */
+.container {
+  max-width: 1400px;
+}
+
+/* Page header */
+.page-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.page-header h1 {
+  font-family: var(--font-heading);
+  font-size: 36px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.page-header p {
+  font-size: 18px;
+  color: var(--color-text-muted);
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-bottom: 30px;
+  padding: 25px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+}
+
+.controls .control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.controls .control-group label {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.controls .control-group input,
+.controls .control-group select {
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  font-size: 14px;
+  min-width: 120px;
+}
+
+.controls .control-group input:focus,
+.controls .control-group select:focus {
+  outline: none;
+  border-color: var(--color-primary-hover);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.3);
+}
+
+.search-input {
+  min-width: 250px;
+}
+
+/* Log stats */
+.log-stats {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* Log container */
+.log-container {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-header {
+  padding: 15px 20px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.log-content {
+  flex: 1;
+  overflow-y: auto;
+  font-family: 'SF Mono', Consolas, 'Monaco', 'Liberation Mono', 'Lucida Console', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.log-line {
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--color-border-light);
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-line:hover {
+  background: var(--color-surface);
+}
+
+.log-timestamp {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  min-width: 140px;
+  font-weight: 500;
+}
+
+.log-level {
+  min-width: 60px;
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.log-level.DEBUG {
+  background: rgba(108, 117, 125, 0.3);
+  color: #ADB5BD;
+}
+
+.log-level.INFO {
+  background: var(--color-info-light);
+  color: var(--color-info);
+}
+
+.log-level.WARNING {
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+}
+
+.log-level.ERROR {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.log-level.CRITICAL {
+  background: rgba(249, 112, 102, 0.5);
+  color: var(--color-text);
+}
+
+.log-message {
+  flex: 1;
+  color: var(--color-text);
+}
+
+.log-module {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  min-width: 80px;
+  text-align: center;
+  background: var(--color-surface);
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-right: 10px;
+}
+
+/* Loading */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100px;
+  color: var(--color-text-muted);
+}
+
+/* Auto refresh */
+.auto-refresh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auto-refresh input[type="checkbox"] {
+  transform: scale(1.2);
+}
+
+/* Load more */
+.load-more {
+  text-align: center;
+  padding: 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .controls {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .log-line {
+    flex-direction: column;
+    gap: 5px;
+    align-items: flex-start;
+  }
+
+  .log-timestamp,
+  .log-level {
+    min-width: auto;
+  }
+
+  .btn-sm {
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+  }
+}
