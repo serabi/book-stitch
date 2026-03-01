@@ -59,7 +59,7 @@ def index():
     all_booklore_books = database_service.get_all_booklore_books()
     booklore_by_filename = {}
     for bl_book in all_booklore_books:
-        booklore_by_filename[bl_book.filename] = bl_book
+        booklore_by_filename[bl_book.filename.lower()] = bl_book
 
     integrations = {}
     sync_clients = container.sync_clients()
