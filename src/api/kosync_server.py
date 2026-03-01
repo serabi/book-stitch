@@ -1,5 +1,7 @@
 # KoSync Server - Extracted from web_server.py for clean code separation
 # Implements KOSync protocol compatible with kosync-dotnet
+import hmac
+import ipaddress
 import logging
 import os
 import threading
@@ -103,7 +105,7 @@ def kosync_auth_required(f):
 
         expected_hash = hash_kosync_key(expected_password)
 
-        if user and expected_user and user.lower() == expected_user.lower() and (key == expected_password or key == expected_hash):
+        if user and expected_user and user.lower() == expected_user.lower() and hmac.compare_digest(key, expected_hash):
             return f(*args, **kwargs)
 
         logger.warning(f"KOSync Integrated Server: Unauthorized access attempt from '{request.remote_addr}' (user: '{user}')")
@@ -140,7 +142,7 @@ def kosync_users_auth():
 
     expected_hash = hash_kosync_key(expected_password)
 
-    if user.lower() == expected_user.lower() and (key == expected_password or key == expected_hash):
+    if user.lower() == expected_user.lower() and hmac.compare_digest(key, expected_hash):
         logger.debug(f"KOSync Auth: User '{user}' authenticated successfully")
         return jsonify({"username": user}), 200
 
@@ -165,8 +167,7 @@ def kosync_users_login():
     return jsonify({
         "id": 1,
         "username": os.environ.get("KOSYNC_USER", "user"),
-        "active": True,
-        "token": os.environ.get("KOSYNC_KEY", "")
+        "active": True
     }), 200
 
 
@@ -742,9 +743,57 @@ def _run_get_auto_discovery(doc_id: str):
         _active_scans.discard(doc_id)
 
 
+# ---------------- Admin Auth ----------------
+
+_PRIVATE_NETWORKS = (
+    ipaddress.ip_network('10.0.0.0/8'),
+    ipaddress.ip_network('172.16.0.0/12'),
+    ipaddress.ip_network('192.168.0.0/16'),
+    ipaddress.ip_network('127.0.0.0/8'),
+    ipaddress.ip_network('::1/128'),
+    ipaddress.ip_network('fd00::/8'),
+)
+
+
+def _is_private_ip(addr: str) -> bool:
+    """Check if an address is on a private/local network."""
+    try:
+        ip = ipaddress.ip_address(addr)
+        return any(ip in net for net in _PRIVATE_NETWORKS)
+    except ValueError:
+        return False
+
+
+def admin_or_local_required(f):
+    """Allow private IPs through; require KOSync credentials from public IPs."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if _is_private_ip(request.remote_addr):
+            return f(*args, **kwargs)
+
+        # Public IP — require KOSync credentials
+        user = request.headers.get('x-auth-user')
+        key = request.headers.get('x-auth-key')
+        expected_user = os.environ.get("KOSYNC_USER")
+        expected_password = os.environ.get("KOSYNC_KEY")
+
+        if not expected_user or not expected_password:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        expected_hash = hash_kosync_key(expected_password)
+        if (user and expected_user and user.lower() == expected_user.lower()
+                and key and hmac.compare_digest(key, expected_hash)):
+            return f(*args, **kwargs)
+
+        logger.warning(f"KOSync Admin: Unauthorized access attempt from public IP '{request.remote_addr}'")
+        return jsonify({"error": "Unauthorized"}), 401
+    return decorated_function
+
+
 # ---------------- KOSync Document Management API ----------------
 
 @kosync_admin_bp.route('/api/kosync-documents', methods=['GET'])
+@admin_or_local_required
 def api_get_kosync_documents():
     """Get all KOSync documents with their link status."""
     docs = _database_service.get_all_kosync_documents()
@@ -776,6 +825,7 @@ def api_get_kosync_documents():
 
 
 @kosync_admin_bp.route('/api/kosync-documents/<doc_hash>/link', methods=['POST'])
+@admin_or_local_required
 def api_link_kosync_document(doc_hash):
     """Link a KOSync document to an ABS book."""
     data = request.json
@@ -815,6 +865,7 @@ def api_link_kosync_document(doc_hash):
 
 
 @kosync_admin_bp.route('/api/kosync-documents/<doc_hash>/unlink', methods=['POST'])
+@admin_or_local_required
 def api_unlink_kosync_document(doc_hash):
     """Remove the ABS book link from a KOSync document."""
     success = _database_service.unlink_kosync_document(doc_hash)
@@ -826,6 +877,7 @@ def api_unlink_kosync_document(doc_hash):
 
 
 @kosync_admin_bp.route('/api/kosync-documents/<doc_hash>', methods=['DELETE'])
+@admin_or_local_required
 def api_delete_kosync_document(doc_hash):
     """Delete a KOSync document."""
     success = _database_service.delete_kosync_document(doc_hash)
