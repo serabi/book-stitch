@@ -910,8 +910,15 @@ class SyncManager:
         - API noise on short books (0.3s changes don't count)
         - API noise on long books (BookLore's 20s rounding errors filtered)
         - Missing real progress on all books (30s+ changes do count)
+        - A newly-added client reporting 0% from being elected leader
         """
-        delta_pct = config[client_name].delta
+        state = config[client_name]
+        delta_pct = state.delta
+        current_pct = state.current.get('pct', 0) or 0
+
+        # Reject backward jumps to 0% — this is a new/reset client, not real reading
+        if current_pct < 0.001 and state.previous_pct > 0.01:
+            return False
 
         # Quick check: percentage threshold
         MIN_PCT_THRESHOLD = 0.0005  # 0.05%
