@@ -1215,7 +1215,15 @@ class SyncManager:
                     client_name.lower() not in prev_states_by_client
                     for client_name in config.keys()
                 )
-                if significant_diff and not any_significant_delta and not char_delta_triggered and not new_client_in_config:
+                # A client stuck at 0% while others have real progress needs catch-up
+                # syncing (e.g. newly-added integration whose first sync saved 0%).
+                # The 0% client won't be elected leader — _has_significant_delta
+                # rejects backward jumps — but the real leader should push to it.
+                client_needs_catchup = significant_diff and any(
+                    (cfg.current.get('pct', 0) or 0) < 0.001 and max_progress > 0.05
+                    for cfg in config.values()
+                )
+                if significant_diff and not any_significant_delta and not char_delta_triggered and not new_client_in_config and not client_needs_catchup:
                     logger.debug(f"'{abs_id}' '{title_snip}' Discrepancy exists ({max_progress*100:.1f}% vs {min_progress*100:.1f}%) but no recent client activity detected. Waiting for a new read event to determine true leader")
                     continue
 

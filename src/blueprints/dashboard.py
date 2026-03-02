@@ -56,10 +56,11 @@ def index():
     hardcover_by_book = {h.abs_id: h for h in all_hardcover}
 
     # Fetch Booklore metadata for ebook-only title/author enrichment
+    # Collect a list per filename so dual instances don't overwrite each other
     all_booklore_books = database_service.get_all_booklore_books()
     booklore_by_filename = {}
     for bl_book in all_booklore_books:
-        booklore_by_filename[bl_book.filename.lower()] = bl_book
+        booklore_by_filename.setdefault(bl_book.filename.lower(), []).append(bl_book)
 
     integrations = {}
     sync_clients = container.sync_clients()
@@ -83,10 +84,12 @@ def index():
             book_type = 'linked'
 
         # Look up Booklore metadata by ebook_filename or original_ebook_filename
+        # Prefer entries that have a title, since we use this for display enrichment
         bl_meta = None
         for fn in (book.ebook_filename, getattr(book, 'original_ebook_filename', None)):
             if fn:
-                bl_meta = booklore_by_filename.get(fn.lower())
+                candidates = booklore_by_filename.get(fn.lower(), [])
+                bl_meta = next((b for b in candidates if b.title), candidates[0] if candidates else None)
                 if bl_meta:
                     break
 

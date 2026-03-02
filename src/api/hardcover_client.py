@@ -61,7 +61,7 @@ class HardcoverClient:
         logger.info(f"Hardcover client connection verified, user id: {user_id}")
         return True
 
-    def query(self, query: str, variables: dict = None) -> dict | None:
+    def query(self, query: str, variables: dict | None = None) -> dict | None:
         if not self.token:
             return None
 
@@ -183,7 +183,7 @@ class HardcoverClient:
             }
         return None
 
-    def search_by_title_author(self, title: str, author: str = None) -> dict | None:
+    def search_by_title_author(self, title: str, author: str | None = None) -> dict | None:
         """Search by title and author, returning the best fuzzy match."""
         # Clean the input title for better matching comparison
         clean_input_title = clean_book_title(title)
@@ -536,7 +536,7 @@ class HardcoverClient:
         return None
 
     def update_status(
-        self, book_id: int, status_id: int, edition_id: int = None
+        self, book_id: int, status_id: int, edition_id: int | None = None
     ) -> dict | None:
         """
         Create/update user_book status.

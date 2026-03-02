@@ -4,9 +4,9 @@ import logging
 import os
 import threading
 
-from flask import Blueprint, redirect, render_template, request, session, url_for
+from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 
-from src.blueprints.helpers import get_database_service, restart_server
+from src.blueprints.helpers import get_container, get_database_service, restart_server
 
 logger = logging.getLogger(__name__)
 
@@ -86,3 +86,12 @@ def settings():
     return render_template('settings.html',
                            message=message,
                            is_error=is_error)
+
+
+@settings_bp.route('/api/kosync/test', methods=['POST'])
+def test_kosync_connection():
+    """Test connection to the configured KoSync server."""
+    container = get_container()
+    kosync_client = container.kosync_client()
+    success = kosync_client.check_connection()
+    return jsonify({'success': success})

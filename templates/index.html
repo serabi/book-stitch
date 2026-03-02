@@ -121,10 +121,10 @@
                 {% endif %}
 
                 {# Storyteller section - hide for audio-only #}
-                {% if bt != 'audio-only' and integrations.storyteller and (mapping.states.storyteller is defined or
-                mapping.storyteller_legacy_link or mapping.storyteller_uuid) %}
+                {% if bt != 'audio-only' and integrations.storyteller %}
                 <div class="service-item" title="Storyteller">
-                    <img src="/static/storyteller.png" alt="ST" class="service-icon">
+                    <img src="/static/storyteller.png" alt="ST" class="service-icon
+                        {%- if not mapping.storyteller_uuid and not mapping.storyteller_legacy_link and mapping.states.storyteller is not defined %} grayscale-muted{% endif %}">
                     <span class="service-name">Storyteller</span>
                     {% if mapping.storyteller_legacy_link %}
                     <span class="service-value cursor-pointer" style="color: #FF9800;"
@@ -137,6 +137,12 @@
                         }}%</span>
                     {% elif mapping.storyteller_uuid %}
                     <span class="service-value" title="Linked via UUID">0.0%</span>
+                    {% else %}
+                    <span class="service-value cursor-pointer color-inherit"
+                        onclick='openStorytellerModal({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'
+                        title="Click to search and link a Storyteller book">
+                        <span class="link-icon">+</span>
+                    </span>
                     {% endif %}
                 </div>
                 {% endif %}

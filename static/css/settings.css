@@ -600,3 +600,28 @@ input:checked + .slider:before {
     align-items: flex-start;
   }
 }
+
+/* ─── KOSync ─── */
+#kosync_external_group .input-row {
+  display: flex;
+  gap: 10px;
+}
+
+#kosync_external_group .input-row input {
+  flex: 1;
+}
+
+.test-result {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.test-result.success {
+  color: var(--color-green, #22c55e);
+}
+
+.test-result.error {
+  color: var(--color-red, #ef4444);
+}
