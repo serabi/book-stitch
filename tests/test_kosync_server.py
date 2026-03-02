@@ -4,10 +4,12 @@ Verifies compatibility with kosync-dotnet behavior.
 """
 import os
 import shutil
+import tempfile
 import time
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
 
 # Set test environment
 TEST_DIR = '/tmp/test_kosync'
@@ -145,6 +147,49 @@ class TestKosyncDocument(unittest.TestCase):
         self.assertIsNone(retrieved)
 
 
+class _KosyncMockContainer:
+    """Lightweight mock container to avoid importing epubcfi (Docker-only)."""
+
+    def __init__(self):
+        self.mock_sync_manager = Mock()
+        self.mock_abs_client = Mock()
+        self.mock_booklore_client = Mock()
+        self.mock_database_service = Mock()
+        self.mock_database_service.get_all_settings.return_value = {}
+
+        self.mock_sync_manager.abs_client = self.mock_abs_client
+        self.mock_sync_manager.booklore_client = self.mock_booklore_client
+        self.mock_sync_manager.get_abs_title.return_value = 'Test Book'
+        self.mock_sync_manager.get_duration.return_value = 3600
+
+    def sync_manager(self):
+        return self.mock_sync_manager
+
+    def abs_client(self):
+        return self.mock_abs_client
+
+    def booklore_client(self):
+        return self.mock_booklore_client
+
+    def ebook_parser(self):
+        return Mock()
+
+    def database_service(self):
+        return self.mock_database_service
+
+    def sync_clients(self):
+        return {}
+
+    def data_dir(self):
+        return Path(TEST_DIR)
+
+    def books_dir(self):
+        return Path(TEST_DIR) / 'books'
+
+    def epub_cache_dir(self):
+        return Path(TEST_DIR) / 'epub_cache'
+
+
 class TestKosyncEndpoints(unittest.TestCase):
     """Test KOSync HTTP endpoints."""
 
@@ -152,12 +197,12 @@ class TestKosyncEndpoints(unittest.TestCase):
     def setUpClass(cls):
         # Setup DB one time
         cls.db_path = os.path.join(TEST_DIR, 'test.db')
-        # Ensure DB service is initialized in web_server logic
-        # We need to monkeypatch the global database_service in web_server
         from src import web_server
         web_server.database_service = DatabaseService(cls.db_path)
+        # Use MockContainer to avoid epubcfi import chain
+        cls.mock_container = _KosyncMockContainer()
         if not hasattr(web_server, 'app'):
-            web_server.app, _ = web_server.create_app()
+            web_server.app, _ = web_server.create_app(test_container=cls.mock_container)
         cls.app = web_server.app
         cls.client = cls.app.test_client()
 

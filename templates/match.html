@@ -27,7 +27,7 @@
             <p class="subtitle">Linking audiobook to: <strong>{{ link_title }}</strong></p>
             {% else %}
             <h2>Create New Mapping</h2>
-            <p class="subtitle">Link an audiobook with its matching ebook for synchronized reading</p>
+            <p class="subtitle">Create a new book mapping for synchronized reading progress</p>
             {% endif %}
         </div>
 
@@ -49,6 +49,7 @@
         <form method="POST" action="/match" id="mappingForm">
             <!-- Hidden action field for special modes -->
             <input type="hidden" name="action" id="input_action" value="">
+            <input type="hidden" name="storyteller_title" id="input_storyteller_title" value="">
 
             {% if attach_to %}
             <!-- Attach ebook mode: hidden inputs -->
@@ -64,7 +65,8 @@
                 {% if not attach_to %}
                 <!-- GRID COL 1: Audiobook -->
                 <div class="section">
-                    <h3><span class="section-number">1</span>Audiobook {% if not link_to %}(Required){% endif %}</h3>
+                    <h3><span class="section-number">1</span>Audiobook</h3>
+                    <p class="section-hint">Select an audiobook from your ABS library</p>
                     <div class="scrollable-content">
                         {% if audiobooks %}
                         <div class="media-grid">
@@ -101,9 +103,10 @@
                 {% endif %}
 
                 {% if not link_to and not attach_to %}
-                <!-- GRID COL 2: Storyteller (Preferred) -->
+                <!-- GRID COL 2: Storyteller -->
                 <div class="section">
-                    <h3><span class="section-number">2</span>Storyteller (Preferred)</h3>
+                    <h3><span class="section-number">2</span>Storyteller</h3>
+                    <p class="section-hint">Sync with Storyteller for narrated ebooks</p>
                     <div class="scrollable-content">
                         {% if storyteller_books %}
                         <div class="resource-grid">
@@ -138,7 +141,6 @@
                         <div class="empty-state">
                             <div class="empty-state-icon"></div>
                             <h3>No Storyteller books</h3>
-                            <p>Select 'None' to use standard ebook</p>
                         </div>
                         <input type="hidden" name="storyteller_uuid" value="">
                         {% endif %}
@@ -149,9 +151,10 @@
                 {% endif %}
 
                 {% if not link_to %}
-                <!-- GRID COL 3: Standard Ebook -->
+                <!-- GRID COL 3: eBook Source -->
                 <div class="section">
-                    <h3><span class="section-number">{% if attach_to %}1{% elif storyteller_books %}3{% else %}2{% endif %}</span>Standard Ebook</h3>
+                    <h3><span class="section-number">{% if attach_to %}1{% elif storyteller_books %}3{% else %}2{% endif %}</span>eBook Source</h3>
+                    <p class="section-hint">Select an ebook to sync reading progress</p>
                     <div class="scrollable-content">
                         {% if ebooks %}
                         <div class="resource-grid">
@@ -163,7 +166,15 @@
                                 data-source-id="{{ eb.source_id }}" onclick="selectItem(this, 'ebook_filename')">
                                 <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match
                                     %}checked{% endif %}>
+                                {% if eb.cover_url %}
+                                <div class="resource-cover-container">
+                                    <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
+                                        onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                                    <div class="resource-icon hidden"></div>
+                                </div>
+                                {% else %}
                                 <div class="resource-icon"></div>
+                                {% endif %}
                                 <div class="resource-title" title="{{ eb.display_name }}">
                                     {{ eb.title }}{% if eb.subtitle %}: {{ eb.subtitle }}{% endif %}
                                 </div>
@@ -206,17 +217,17 @@
                 <button type="submit" class="btn btn-success" id="submitBtn" disabled>
                     Create Mapping
                 </button>
-                <button type="submit" class="btn btn-primary" id="audioOnlyBtn"
-                    style="margin-left: 10px; background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); border: none;"
+                <button type="submit" class="btn btn-warning" id="audioOnlyBtn"
+                    style="margin-left: 10px;"
                     disabled
                     onclick="document.getElementById('input_action').value='audio_only';">
                     Audio Only
                 </button>
-                <button type="submit" class="btn btn-primary" id="ebookOnlyBtn"
-                    style="margin-left: 10px; background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%); border: none;"
+                <button type="submit" class="btn btn-purple" id="ebookOnlyBtn"
+                    style="margin-left: 10px;"
                     disabled
                     onclick="document.getElementById('input_action').value='ebook_only';">
-                    Ebook Only
+                    Add Book
                 </button>
                 {% endif %}
                 <div id="validationMsg" style="margin-top: 10px; color: #ff6b6b; display: none;"></div>
@@ -243,6 +254,15 @@
             element.classList.add('selected');
             const radio = element.querySelector('input[type="radio"]');
             if (radio) radio.checked = true;
+
+            // Populate storyteller_title hidden input
+            if (groupName === 'storyteller_uuid') {
+                const titleEl = element.querySelector('.resource-title');
+                const stInput = document.getElementById('input_storyteller_title');
+                if (stInput) {
+                    stInput.value = (radio && radio.value) ? (titleEl ? titleEl.textContent.trim() : '') : '';
+                }
+            }
 
             validateForm();
         }
@@ -315,7 +335,7 @@
                 // Ebook only
                 ebookOnlyBtn.disabled = false;
                 ebookOnlyBtn.style.opacity = "1";
-                msg.textContent = "No audiobook selected — use 'Ebook Only' or select an audiobook";
+                msg.textContent = "No audiobook selected — use 'Add Book' or select an audiobook";
                 msg.style.display = "block";
             } else {
                 msg.textContent = "Please select an Audiobook and/or Text Source";

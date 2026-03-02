@@ -238,7 +238,7 @@ def get_kosync_id_for_ebook(ebook_filename, booklore_id=None, original_filename=
 class EbookResult:
     """Wrapper to provide consistent interface for ebooks from Booklore, CWA, ABS, or filesystem."""
 
-    def __init__(self, name, title=None, subtitle=None, authors=None, booklore_id=None, path=None, source=None, source_id=None):
+    def __init__(self, name, title=None, subtitle=None, authors=None, booklore_id=None, path=None, source=None, source_id=None, cover_url=None):
         self.name = name
         self.title = title or Path(name).stem
         self.subtitle = subtitle or ''
@@ -247,6 +247,7 @@ class EbookResult:
         self.path = path
         self.source = source
         self.source_id = source_id or booklore_id
+        self.cover_url = cover_url
         self.has_metadata = booklore_id is not None or (title is not None and title != name)
 
     @property
@@ -294,13 +295,16 @@ def get_searchable_ebooks(search_term):
                             continue
                         found_filenames.add(fname.lower())
                         found_stems.add(Path(fname).stem.lower())
+                        bl_id = b.get('id')
+                        cover = f"/api/cover-proxy/booklore/{bl_client.source_tag}/{bl_id}" if bl_id else None
                         results.append(EbookResult(
                             name=fname,
                             title=b.get('title'),
                             subtitle=b.get('subtitle'),
                             authors=b.get('authors'),
-                            booklore_id=b.get('id'),
-                            source=label
+                            booklore_id=bl_id,
+                            source=label,
+                            cover_url=cover
                         ))
         except Exception as e:
             logger.warning(f"Booklore ({bl_client.source_tag}) search failed: {e}")
@@ -323,7 +327,8 @@ def get_searchable_ebooks(search_term):
                                     title=ab.get('title'),
                                     authors=ab.get('author'),
                                     source='ABS',
-                                    source_id=ab.get('id')
+                                    source_id=ab.get('id'),
+                                    cover_url=f"/api/cover-proxy/{ab['id']}"
                                 ))
                                 found_filenames.add(fname.lower())
                                 if ab.get('title'):
