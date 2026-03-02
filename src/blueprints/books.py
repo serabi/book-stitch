@@ -482,6 +482,23 @@ def clear_progress(abs_id):
     return redirect(url_for('dashboard.index'))
 
 
+@books_bp.route('/api/retry-transcription/<abs_id>', methods=['POST'])
+def retry_transcription(abs_id):
+    database_service = get_database_service()
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"success": False, "error": "Book not found"}), 404
+
+    if book.status not in ('failed_retry_later', 'failed_permanent'):
+        return jsonify({"success": False, "error": "Book is not in a failed state"}), 400
+
+    logger.info(f"Retrying transcription for '{sanitize_log_data(book.abs_title or abs_id)}'")
+    database_service.delete_jobs_for_book(abs_id)
+    book.status = 'pending'
+    database_service.save_book(book)
+    return jsonify({"success": True})
+
+
 @books_bp.route('/api/sync-now/<abs_id>', methods=['POST'])
 def sync_now(abs_id):
     manager = get_manager()
