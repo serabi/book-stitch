@@ -184,6 +184,7 @@ class CleanFlaskIntegrationTest(unittest.TestCase):
         self.mock_database_service.get_all_states.return_value = mock_states
         self.mock_database_service.get_hardcover_details.return_value = None
         self.mock_database_service.get_all_hardcover_details.return_value = []
+        self.mock_database_service.get_all_booklore_books.return_value = []
         self.mock_database_service.get_all_pending_suggestions.return_value = []
 
         # Mock the sync_clients call for integrations
@@ -433,7 +434,7 @@ class CleanFlaskIntegrationTest(unittest.TestCase):
             self.assertIsNone(saved_book.transcript_file)
 
             self.mock_abs_client.add_to_collection.assert_called_once_with('test-audiobook-123', 'Synced with KOReader')
-            self.mock_booklore_client.add_to_shelf.assert_called_once_with('test-book.epub', 'Kobo')
+            self.mock_booklore_client.add_to_shelf.assert_called_once_with('test-book.epub')
             self.mock_storyteller_client.add_to_collection.assert_not_called()
 
             print("[OK] Match endpoint test passed with clean DI")
@@ -687,6 +688,76 @@ class CleanFlaskIntegrationTest(unittest.TestCase):
         self.mock_abs_client.add_to_collection.assert_called_once()
 
         print("[OK] Attach audiobook test passed")
+
+
+    def test_ebook_only_with_storyteller(self):
+        """Test ebook-only import with both ebook and Storyteller UUID."""
+        import src.blueprints.books
+        original_get_kosync = src.blueprints.books.get_kosync_id_for_ebook
+        src.blueprints.books.get_kosync_id_for_ebook = Mock(return_value='abcdef1234567890aabbccdd')
+
+        self.mock_booklore_client.is_configured.return_value = False
+
+        try:
+            response = self.client.post('/match', data={
+                'ebook_filename': 'combo-ebook.epub',
+                'ebook_display_name': 'Combo Book',
+                'storyteller_uuid': 'st-uuid-combo-123',
+                'action': 'ebook_only',
+            })
+
+            self.assertEqual(response.status_code, 302)
+            self.mock_database_service.save_book.assert_called_once()
+
+            saved_book = self.mock_database_service.save_book.call_args[0][0]
+            self.assertTrue(saved_book.abs_id.startswith('ebook-'))
+            self.assertEqual(saved_book.abs_title, 'Combo Book')
+            self.assertEqual(saved_book.ebook_filename, 'combo-ebook.epub')
+            self.assertEqual(saved_book.kosync_doc_id, 'abcdef1234567890aabbccdd')
+            self.assertEqual(saved_book.storyteller_uuid, 'st-uuid-combo-123')
+            self.assertEqual(saved_book.sync_mode, 'ebook_only')
+
+            print("[OK] Ebook-only with Storyteller test passed")
+        finally:
+            src.blueprints.books.get_kosync_id_for_ebook = original_get_kosync
+
+    def test_storyteller_only_match(self):
+        """Test Storyteller-only import creates book with synthetic ID and no ebook."""
+        import hashlib
+
+        response = self.client.post('/match', data={
+            'storyteller_uuid': 'st-uuid-only-456',
+            'storyteller_title': 'My Storyteller Book',
+            'action': 'ebook_only',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.mock_database_service.save_book.assert_called_once()
+
+        saved_book = self.mock_database_service.save_book.call_args[0][0]
+        expected_hash = hashlib.md5(b'st-uuid-only-456').hexdigest()[:16]
+        self.assertEqual(saved_book.abs_id, f'ebook-{expected_hash}')
+        self.assertEqual(saved_book.abs_title, 'My Storyteller Book')
+        self.assertIsNone(saved_book.ebook_filename)
+        self.assertIsNone(saved_book.kosync_doc_id)
+        self.assertEqual(saved_book.storyteller_uuid, 'st-uuid-only-456')
+        self.assertEqual(saved_book.sync_mode, 'ebook_only')
+
+        # Should not call dismiss_suggestion since kosync_doc_id is None
+        self.mock_database_service.dismiss_suggestion.assert_not_called()
+
+        print("[OK] Storyteller-only match test passed")
+
+    def test_ebook_only_requires_ebook_or_storyteller(self):
+        """Test that ebook_only action returns 400 when neither ebook nor Storyteller is provided."""
+        response = self.client.post('/match', data={
+            'action': 'ebook_only',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.mock_database_service.save_book.assert_not_called()
+
+        print("[OK] Ebook-only validation test passed")
 
 
 class FindEbookFileTest(unittest.TestCase):

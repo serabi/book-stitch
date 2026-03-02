@@ -149,6 +149,18 @@
   text-align: center;
 }
 
+.resource-cover-container {
+  width: 100%;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.resource-cover {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
 .resource-icon {
   font-size: 32px;
   line-height: 1;
@@ -216,6 +228,34 @@ input[type="radio"] {
   height: 0;
   margin: 0;
   padding: 0;
+}
+
+/* Section subtitle hints */
+.section-hint {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: -12px 0 12px 44px;
+}
+
+/* Button color variants */
+.btn-warning {
+  background: #F59E0B;
+  color: #fff;
+  border: none;
+}
+
+.btn-warning:hover {
+  background: #D97706;
+}
+
+.btn-purple {
+  background: #8B5CF6;
+  color: #fff;
+  border: none;
+}
+
+.btn-purple:hover {
+  background: #6D28D9;
 }
 
 /* Submit container */
@@ -331,17 +371,52 @@ input[type="radio"] {
   flex-shrink: 0;
 }
 
+.queue-item-cover {
+  width: 40px;
+  height: 60px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.queue-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.queue-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-ebook {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-label-audio {
+  color: #F59E0B;
+  font-size: 11px;
+}
+
+.queue-item-label-storyteller {
+  color: #a78bfa;
+  font-size: 11px;
+}
+
 /* Ebook select (batch_match.html) */
 .ebook-select {
   width: 100%;
   margin-top: 8px;
-}
-
-/* Matching grid (batch_match.html) */
-.matching-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 16px;
 }
 
 /* Responsive */

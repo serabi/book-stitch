@@ -462,6 +462,14 @@ class AudioTranscriber:
                     continue
 
                 duration = self.get_audio_duration(local_path)
+
+                # Skip corrupt or near-empty chunks (< 1 second has no meaningful content)
+                if duration < 1.0:
+                    logger.warning(f"   Skipping chunk {idx + 1}/{total_chunks} ({local_path.name}): duration {duration:.2f}s < 1s")
+                    cumulative_duration += duration
+                    chunks_completed = idx + 1
+                    continue
+
                 pct = (cumulative_duration / total_audio_duration * 100) if total_audio_duration > 0 else 0
                 logger.info(f"   [{pct:.0f}%] Transcribing chunk {idx + 1}/{total_chunks} ({duration/60:.1f} min)...")
 
@@ -477,8 +485,7 @@ class AudioTranscriber:
                         })
 
                 except Exception as e:
-                    logger.error(f"   Transcription failed for {local_path.name}: {e}")
-                    raise
+                    logger.warning(f"   Transcription failed for chunk {idx + 1}/{total_chunks} ({local_path.name}), skipping: {e}")
 
                 cumulative_duration += duration
                 chunks_completed = idx + 1

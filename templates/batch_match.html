@@ -41,34 +41,41 @@
                     <input type="hidden" name="storyteller_uuid" id="selected_storyteller_uuid" value="">
 
                     {% set single_ab_match = audiobooks|length == 1 %}
-                    <h3 class="section-title"><span class="section-number">1</span>Select Audiobook</h3>
-                    <div class="matching-grid">
-                        {% for ab in audiobooks %}
-                        <div class="book-card {% if single_ab_match %}selected{% endif %}" data-value="{{ ab.id }}"
-                            onclick="selectAudiobook(this, '{{ ab.id }}', '{{ get_title(ab) }}')">
-                            <div class="book-cover-container">
-                                {% if ab.cover_url %}
-                                <img src="{{ ab.cover_url }}" alt="Cover" class="book-cover"
-                                    onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
-                                <div class="book-cover-placeholder hidden"></div>
-                                {% else %}
-                                <div class="book-cover-placeholder"></div>
-                                {% endif %}
+                    <div class="section">
+                        <h3><span class="section-number">1</span>Audiobook</h3>
+                        <p class="section-hint">Select an audiobook from your ABS library</p>
+                        <div class="media-grid">
+                            {% for ab in audiobooks %}
+                            <div class="audiobook-option {% if single_ab_match %}selected{% endif %}" data-value="{{ ab.id }}"
+                                onclick="selectAudiobook(this, '{{ ab.id }}', '{{ get_title(ab) }}')">
+                                <div class="audiobook-cover-container">
+                                    {% if ab.cover_url %}
+                                    <img src="{{ ab.cover_url }}" alt="Cover" class="audiobook-cover"
+                                        onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                                    <div class="audiobook-cover-placeholder hidden"></div>
+                                    {% else %}
+                                    <div class="audiobook-cover-placeholder"></div>
+                                    {% endif %}
+                                </div>
+                                <div class="audiobook-info">
+                                    <div class="audiobook-title">{{ get_title(ab) }}</div>
+                                </div>
                             </div>
-                            <div class="book-title">{{ get_title(ab) }}</div>
+                            {% endfor %}
                         </div>
-                        {% endfor %}
                     </div>
 
                     {% if storyteller_books %}
                     {% set single_st_match = storyteller_books|length == 1 %}
-                    <h3 class="section-title"><span class="section-number">2</span>Storyteller (Preferred)</h3>
-                    <div class="resource-grid">
-                        <div class="resource-card st-card ghost-card {% if not single_st_match %}selected{% endif %}"
-                            id="st-none-card" data-value="" onclick="selectStoryteller(this, '')">
-                            <div class="resource-icon" style="color: rgba(255,255,255,0.35);"></div>
-                            <div class="resource-title" style="color: rgba(255,255,255,0.5);">None / Skip</div>
-                        </div>
+                    <div class="section">
+                        <h3><span class="section-number">2</span>Storyteller</h3>
+                        <p class="section-hint">Sync with Storyteller for narrated ebooks</p>
+                        <div class="resource-grid">
+                            <div class="resource-card st-card ghost-card {% if not single_st_match %}selected{% endif %}"
+                                id="st-none-card" data-value="" onclick="selectStoryteller(this, '')">
+                                <div class="resource-icon"></div>
+                                <div class="resource-title">None / Skip</div>
+                            </div>
                         {% for st in storyteller_books %}
                         <div class="resource-card st-card {% if single_st_match %}selected{% endif %}"
                             data-value="{{ st.uuid }}" onclick="selectStoryteller(this, '{{ st.uuid }}')">
@@ -81,14 +88,14 @@
                             {% endif %}
                         </div>
                         {% endfor %}
+                        </div>
                     </div>
                     {% endif %}
 
                     {% set single_eb_match = ebooks|length == 1 %}
-                    <h3 class="section-title"><span class="section-number">{% if storyteller_books %}3{% else %}2{%
-                            endif %}</span>Select Ebook <span
-                            style="font-size:12px; color:#aaa; font-weight:normal;">(optional if Storyteller
-                            selected)</span></h3>
+                    <div class="section">
+                        <h3><span class="section-number">{% if storyteller_books %}3{% else %}2{% endif %}</span>eBook Source</h3>
+                        <p class="section-hint">Select an ebook to sync reading progress</p>
                     {% if ebooks %}
                     <div class="resource-grid" id="ebook-card-grid">
                         {% for eb in ebooks %}
@@ -96,20 +103,36 @@
                             data-value="{{ eb.name }}"
                             data-display-name="{{ eb.display_name | replace("'", "\\'") }}"
                             onclick="selectEbookCard(this, '{{ eb.name }}', '{{ eb.display_name | replace("'", "\\'") }}')">
+                            {% if eb.cover_url %}
+                            <div class="resource-cover-container">
+                                <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
+                                    onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                                <div class="resource-icon hidden"></div>
+                            </div>
+                            {% else %}
                             <div class="resource-icon"></div>
+                            {% endif %}
                             <div class="resource-title" title="{{ eb.display_name }}">
                                 {{ eb.title }}{% if eb.subtitle %}: {{ eb.subtitle }}{% endif %}
                             </div>
                             {% if eb.authors %}
                             <div class="resource-subtitle">{{ eb.authors }}</div>
                             {% endif %}
+                            {% if eb.source %}
+                            {% set badge_cls = eb.source.lower().replace(' ', '') %}
+                            <span class="source-badge {{ badge_cls }}">{{ eb.source }}</span>
+                            {% endif %}
                         </div>
                         {% endfor %}
                     </div>
                     {% else %}
-                    <div style="color: rgba(255,255,255,0.4); font-size: 13px; margin: 12px 0;">No ebooks found for this
-                        search.</div>
+                    <div class="empty-state">
+                        <div class="empty-state-icon"></div>
+                        <h3>No ebooks found</h3>
+                        <p>Try a different search term</p>
+                    </div>
                     {% endif %}
+                    </div>
 
                     <button type="submit" class="btn btn-success add-to-queue-btn" id="addToQueueBtn" disabled>
                         Add to Queue
@@ -125,35 +148,37 @@
                 </div>
 
                 {% if queue %}
-                {% for item in queue %}
-                <div class="queue-item">
-                    <img src="{{ item.cover_url }}" alt="Cover" class="queue-item-cover"
-                        onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 60%22%3E%3Crect fill=%22%23667eea%22 width=%2240%22 height=%2260%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-size=%2224%22 fill=%22white%22%3E📖%3C/text%3E%3C/svg%3E';">
-                    <div class="queue-item-info">
-                        <p class="queue-item-title" title="{{ item.abs_title }}">{{ item.abs_title }}</p>
-                        {% if item.get('audio_only') %}
-                        <p class="queue-item-ebook">
-                            <span style="color: #F59E0B; font-size: 11px;">Audio Only</span>
-                        </p>
-                        {% elif item.storyteller_uuid %}
-                        <p class="queue-item-ebook">
-                            <span style="color: #a78bfa; font-size: 11px;">Storyteller</span>{% if item.ebook_display_name %} + {{ item.ebook_display_name }}{% endif %}
-                        </p>
-                        {% else %}
-                        <p class="queue-item-ebook" title="{{ item.ebook_filename }}">
-                            {{ item.ebook_display_name or item.ebook_filename }}
-                        </p>
-                        {% endif %}
+                <div class="queue-items">
+                    {% for item in queue %}
+                    <div class="queue-item">
+                        <img src="{{ item.cover_url }}" alt="" class="queue-item-cover"
+                            onerror="this.style.display='none';">
+                        <div class="queue-item-info">
+                            <p class="queue-item-title" title="{{ item.abs_title }}">{{ item.abs_title }}</p>
+                            {% if item.get('audio_only') %}
+                            <p class="queue-item-ebook">
+                                <span class="queue-item-label-audio">Audio Only</span>
+                            </p>
+                            {% elif item.storyteller_uuid %}
+                            <p class="queue-item-ebook">
+                                <span class="queue-item-label-storyteller">Storyteller</span>{% if item.ebook_display_name %} + {{ item.ebook_display_name }}{% endif %}
+                            </p>
+                            {% else %}
+                            <p class="queue-item-ebook" title="{{ item.ebook_filename }}">
+                                {{ item.ebook_display_name or item.ebook_filename }}
+                            </p>
+                            {% endif %}
+                        </div>
+                        <form method="POST" action="/batch-match" class="d-inline">
+                            <input type="hidden" name="action" value="remove_from_queue">
+                            <input type="hidden" name="abs_id" value="{{ item.abs_id }}">
+                            <button type="submit" class="queue-item-remove">&times;</button>
+                        </form>
                     </div>
-                    <form method="POST" action="/batch-match" class="d-inline">
-                        <input type="hidden" name="action" value="remove_from_queue">
-                        <input type="hidden" name="abs_id" value="{{ item.abs_id }}">
-                        <button type="submit" class="queue-item-remove">×</button>
-                    </form>
+                    {% endfor %}
                 </div>
-                {% endfor %}
 
-                <div class="queue-actions">
+                <div class="queue-footer">
                     <form method="POST" action="/batch-match">
                         <input type="hidden" name="action" value="process_queue">
                         <button type="submit" class="btn btn-success w-100">
@@ -170,9 +195,10 @@
                     </form>
                 </div>
                 {% else %}
-                <div class="empty-queue">
-                    <div class="empty-queue-icon"></div>
-                    <p>Queue is empty<br>Add items to get started</p>
+                <div class="empty-state">
+                    <div class="empty-state-icon"></div>
+                    <h3>Queue is empty</h3>
+                    <p>Add items to get started</p>
                 </div>
                 {% endif %}
             </div>
@@ -186,7 +212,7 @@
 
         // Initialise from server-side auto-selects (single-match logic)
         (function init() {
-            const preSelectedAb = document.querySelector('.book-card.selected');
+            const preSelectedAb = document.querySelector('.audiobook-option.selected');
             if (preSelectedAb) {
                 selectedAudiobookId = preSelectedAb.dataset.value;
                 document.getElementById('selected_audiobook_id').value = selectedAudiobookId;
@@ -206,7 +232,7 @@
         })();
 
         function selectAudiobook(element, id, title) {
-            document.querySelectorAll('.book-card').forEach(el => {
+            document.querySelectorAll('.audiobook-option').forEach(el => {
                 el.classList.remove('selected');
             });
             element.classList.add('selected');

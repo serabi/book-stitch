@@ -1,5 +1,6 @@
 """Books blueprint — match, batch_match, delete, clear_progress, sync_now, mark_complete, update_hash."""
 
+import hashlib
 import logging
 import os
 import threading
@@ -67,18 +68,31 @@ def match():
         if action == 'ebook_only':
             ebook_filename = request.form.get('ebook_filename')
             ebook_display_name = request.form.get('ebook_display_name', '')
-            if not ebook_filename:
-                return "Ebook filename is required", 400
-            booklore_id = None
-            matched_bl_client = None
-            bl_book, matched_bl_client = find_in_booklore(ebook_filename)
-            if bl_book:
-                booklore_id = bl_book.get('id')
-            kosync_doc_id = get_kosync_id_for_ebook(ebook_filename, booklore_id, bl_client=matched_bl_client)
-            if not kosync_doc_id:
-                return "Could not compute KOSync ID for ebook", 404
-            book_id = f"ebook-{kosync_doc_id[:16]}"
-            title = ebook_display_name or (bl_book.get('title') if bl_book else None) or Path(ebook_filename).stem
+            storyteller_uuid = request.form.get('storyteller_uuid') or None
+            storyteller_title = request.form.get('storyteller_title', '')
+
+            if not ebook_filename and not storyteller_uuid:
+                return "An ebook or Storyteller selection is required", 400
+
+            if ebook_filename:
+                # Ebook present (possibly with Storyteller too)
+                booklore_id = None
+                matched_bl_client = None
+                bl_book, matched_bl_client = find_in_booklore(ebook_filename)
+                if bl_book:
+                    booklore_id = bl_book.get('id')
+                kosync_doc_id = get_kosync_id_for_ebook(ebook_filename, booklore_id, bl_client=matched_bl_client)
+                if not kosync_doc_id:
+                    return "Could not compute KOSync ID for ebook", 404
+                book_id = f"ebook-{kosync_doc_id[:16]}"
+                title = ebook_display_name or (bl_book.get('title') if bl_book else None) or Path(ebook_filename).stem
+            else:
+                # Storyteller-only (no ebook file)
+                book_id = f"ebook-{hashlib.md5(storyteller_uuid.encode()).hexdigest()[:16]}"
+                title = storyteller_title or ebook_display_name or 'Storyteller Book'
+                ebook_filename = None
+                kosync_doc_id = None
+
             book = Book(
                 abs_id=book_id,
                 abs_title=title,
@@ -86,9 +100,11 @@ def match():
                 kosync_doc_id=kosync_doc_id,
                 status='active',
                 sync_mode='ebook_only',
+                storyteller_uuid=storyteller_uuid,
             )
             database_service.save_book(book)
-            database_service.dismiss_suggestion(kosync_doc_id)
+            if kosync_doc_id:
+                database_service.dismiss_suggestion(kosync_doc_id)
             return redirect(url_for('dashboard.index'))
 
         # --- Attach ebook to audio-only book ---
@@ -464,6 +480,23 @@ def clear_progress(abs_id):
         logger.error(f"Failed to clear progress for '{abs_id}': {e}")
 
     return redirect(url_for('dashboard.index'))
+
+
+@books_bp.route('/api/retry-transcription/<abs_id>', methods=['POST'])
+def retry_transcription(abs_id):
+    database_service = get_database_service()
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"success": False, "error": "Book not found"}), 404
+
+    if book.status not in ('failed_retry_later', 'failed_permanent'):
+        return jsonify({"success": False, "error": "Book is not in a failed state"}), 400
+
+    logger.info(f"Retrying transcription for '{sanitize_log_data(book.abs_title or abs_id)}'")
+    database_service.delete_jobs_for_book(abs_id)
+    book.status = 'pending'
+    database_service.save_book(book)
+    return jsonify({"success": True})
 
 
 @books_bp.route('/api/sync-now/<abs_id>', methods=['POST'])
