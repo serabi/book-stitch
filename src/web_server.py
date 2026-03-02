@@ -172,7 +172,7 @@ def inject_global_vars():
         return default_val if default_val is not None else ''
 
     def get_bool(key):
-        val = os.environ.get(key, 'false')
+        val = get_val(key, 'false')
         return val.lower() in ('true', '1', 'yes', 'on')
 
     return dict(

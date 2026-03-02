@@ -106,8 +106,7 @@
                         <p>Audiobookshelf connection and Storyteller sync.</p>
                     </div>
 
-                    {% set abs_configured = get_val('ABS_SERVER') != '' %}
-                    {% set abs_enabled = get_bool('ABS_ENABLED') or (abs_configured and get_val('ABS_ENABLED') == '') %}
+                    {% set abs_enabled = get_bool('ABS_ENABLED') %}
                     <div class="sub-section">
                         <div class="sub-section-header">
                             <h3><span class="accent-dot" style="background: var(--color-abs, #5c6bc0);"></span> Audiobookshelf</h3>
