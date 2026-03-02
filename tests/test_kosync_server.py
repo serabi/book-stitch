@@ -623,7 +623,7 @@ class TestKosyncEndpoints(unittest.TestCase):
             response = self.client.get('/users/auth', headers={
                 'x-auth-user': 'testuser',
                 'x-auth-key': 'wrongkey'
-            })
+            }, environ_base={'REMOTE_ADDR': '203.0.113.10'})
             if response.status_code == 429:
                 got_429 = True
                 break

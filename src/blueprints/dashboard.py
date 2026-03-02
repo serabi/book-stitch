@@ -60,6 +60,8 @@ def index():
     all_booklore_books = database_service.get_all_booklore_books()
     booklore_by_filename = {}
     for bl_book in all_booklore_books:
+        if not bl_book.filename:
+            continue
         booklore_by_filename.setdefault(bl_book.filename.lower(), []).append(bl_book)
 
     integrations = {}

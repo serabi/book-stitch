@@ -93,5 +93,9 @@ def test_kosync_connection():
     """Test connection to the configured KoSync server."""
     container = get_container()
     kosync_client = container.kosync_client()
-    success = kosync_client.check_connection()
+    try:
+        success = bool(kosync_client.check_connection())
+    except Exception as e:
+        logger.warning(f"KoSync connection test failed: {e}")
+        success = False
     return jsonify({'success': success})

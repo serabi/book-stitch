@@ -249,7 +249,13 @@ def _log_security_warnings():
                         "Set KOSYNC_PORT to a different port before exposing sync to the internet.")
 
     if public_url:
-        logger.info(f"KOSync public URL: {public_url}")
+        from urllib.parse import urlsplit, urlunsplit
+        parts = urlsplit(public_url)
+        safe_netloc = parts.hostname or ""
+        if parts.port:
+            safe_netloc = f"{safe_netloc}:{parts.port}"
+        safe_url = urlunsplit((parts.scheme, safe_netloc, parts.path or "", "", ""))
+        logger.info(f"KOSync public URL: {safe_url}")
     elif kosync_port and kosync_port != '4477':
         logger.info("Tip: Set KOSYNC_PUBLIC_URL in settings if you expose KOSync through a reverse proxy")
 

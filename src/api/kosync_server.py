@@ -29,6 +29,7 @@ _manager = None
 _hash_cache = None
 _ebook_dir = None
 _active_scans = set()
+_active_scans_lock = threading.Lock()
 
 # KoSync PUT debounce state
 _kosync_debounce: dict = {}  # {abs_id: {'last_event': float, 'title': str, 'synced': bool}}
@@ -151,7 +152,9 @@ def kosync_auth_required(f):
 
         expected_hash = hash_kosync_key(expected_password)
 
-        if user and expected_user and user.lower() == expected_user.lower() and hmac.compare_digest(key, expected_hash):
+        if (user and key and expected_user
+                and user.lower() == expected_user.lower()
+                and hmac.compare_digest(key, expected_hash)):
             return f(*args, **kwargs)
 
         logger.warning(f"KOSync Integrated Server: Unauthorized access attempt from '{request.remote_addr}' (user: '{user}')")
@@ -295,8 +298,12 @@ def kosync_get_progress(doc_id):
 
     # Step 4: Unknown hash — register stub and start background discovery
     auto_create = os.environ.get('AUTO_CREATE_EBOOK_MAPPING', 'true').lower() == 'true'
-    if auto_create and doc_id not in _active_scans and len(_active_scans) < _MAX_ACTIVE_SCANS:
-        _active_scans.add(doc_id)
+    start_discovery = False
+    with _active_scans_lock:
+        if auto_create and doc_id not in _active_scans and len(_active_scans) < _MAX_ACTIVE_SCANS:
+            _active_scans.add(doc_id)
+            start_discovery = True
+    if start_discovery:
         from src.db.models import KosyncDocument as KD
         stub = KD(document_hash=doc_id)
         _database_service.save_kosync_document(stub)
@@ -402,9 +409,13 @@ def kosync_put_progress():
         auto_create = os.environ.get('AUTO_CREATE_EBOOK_MAPPING', 'true').lower() == 'true'
 
         if auto_create:
-            if doc_hash not in _active_scans and len(_active_scans) < _MAX_ACTIVE_SCANS:
-                _active_scans.add(doc_hash)
+            start_discovery = False
+            with _active_scans_lock:
+                if doc_hash not in _active_scans and len(_active_scans) < _MAX_ACTIVE_SCANS:
+                    _active_scans.add(doc_hash)
+                    start_discovery = True
 
+            if start_discovery:
                 def run_auto_discovery(doc_hash_val):
                     try:
                         import json
@@ -516,8 +527,8 @@ def kosync_put_progress():
                     except Exception as e:
                         logger.error(f"Error in auto-discovery background task: {e}")
                     finally:
-                        if doc_hash_val in _active_scans:
-                            _active_scans.remove(doc_hash_val)
+                        with _active_scans_lock:
+                            _active_scans.discard(doc_hash_val)
 
                 threading.Thread(target=run_auto_discovery, args=(doc_hash,), daemon=True).start()
 
@@ -821,7 +832,8 @@ def _run_get_auto_discovery(doc_id: str):
     except Exception as e:
         logger.error(f"Error in GET auto-discovery: {e}")
     finally:
-        _active_scans.discard(doc_id)
+        with _active_scans_lock:
+            _active_scans.discard(doc_id)
 
 
 # ---------------- Admin Auth ----------------
@@ -846,7 +858,13 @@ def _is_private_ip(addr: str) -> bool:
 
 
 def admin_or_local_required(f):
-    """Allow private IPs through; require KOSync credentials from public IPs."""
+    """Allow private IPs through; require KOSync credentials from public IPs.
+
+    Safety: this decorator is only used on kosync_admin_bp routes, which are
+    registered exclusively on the LAN dashboard (port 4477). The internet-facing
+    sync port only serves kosync_sync_bp, so the proxy bypass here is never
+    reachable from outside the local network.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if _is_private_ip(request.remote_addr):
@@ -961,10 +979,9 @@ def api_unlink_kosync_document(doc_hash):
 @admin_or_local_required
 def api_delete_kosync_document(doc_hash):
     """Delete a KOSync document."""
+    _cleanup_cache_for_hash(doc_hash)  # Must run before delete (needs doc record for filename)
     success = _database_service.delete_kosync_document(doc_hash)
     if success:
-        # Cleanup cached EPUB for this hash
-        _cleanup_cache_for_hash(doc_hash)
         return jsonify({'success': True, 'message': 'Document deleted'})
     return jsonify({'error': 'Document not found'}), 404
 
