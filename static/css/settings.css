@@ -528,13 +528,13 @@ input:checked + .slider:before {
     position: relative;
     top: 0;
     flex-direction: row;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow-x: hidden;
     overflow-y: hidden;
     padding: 12px 16px;
-    gap: 4px;
+    gap: 6px;
     border-right: none;
     border-bottom: 1px solid var(--color-border-light);
-    scrollbar-width: none;
   }
 
   .sidebar-label {
