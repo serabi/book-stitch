@@ -666,16 +666,17 @@ class KoSyncClient:
         headers = kosync_auth_headers(self.user, self.auth_token)
         url = f"{self.base_url}/syncs/progress/{doc_id}"
         try:
-            r = self.session.get(url, headers=headers)
+            r = self.session.get(url, headers=headers, timeout=10)
             if r.status_code == 200:
                 data = r.json()
                 pct = float(data.get('percentage', 0))
                 # Grab the raw progress string (XPath)
                 xpath = data.get('progress')
                 return pct, xpath
+            else:
+                logger.warning(f"KoSync GET progress for '{doc_id[:8]}...' returned {r.status_code}")
         except Exception as e:
             logger.error(f"Error fetching KoSync progress for doc '{doc_id}': {e}")
-            pass
         return None, None
 
     def update_progress(self, doc_id, percentage, xpath=None):

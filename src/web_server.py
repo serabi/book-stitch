@@ -187,6 +187,9 @@ def sync_daemon():
 
         logger.info(f"Sync daemon started (period: {SYNC_PERIOD_MINS} minutes)")
 
+        # Wait for split-port server and other services to initialize
+        time.sleep(5)
+
         # Run initial sync cycle
         try:
             manager.sync_cycle()

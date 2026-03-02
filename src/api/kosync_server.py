@@ -134,7 +134,9 @@ def kosync_auth_required(f):
     """Decorator for KOSync authentication."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not _rate_limit_check(request.remote_addr, _AUTH_TOKEN_COST):
+        remote = request.remote_addr
+        is_loopback = remote in ('127.0.0.1', '::1')
+        if not is_loopback and not _rate_limit_check(remote, _AUTH_TOKEN_COST):
             return jsonify({"error": "Too many requests"}), 429
 
         user = request.headers.get('x-auth-user')
@@ -180,7 +182,8 @@ def kosync_healthcheck():
 @kosync_sync_bp.route('/koreader/users/auth', methods=['GET'])
 def kosync_users_auth():
     """KOReader auth check - validates credentials per kosync-dotnet spec"""
-    if not _rate_limit_check(request.remote_addr, _AUTH_TOKEN_COST):
+    remote = request.remote_addr
+    if remote not in ('127.0.0.1', '::1') and not _rate_limit_check(remote, _AUTH_TOKEN_COST):
         return jsonify({"message": "Too many requests"}), 429
 
     user = request.headers.get('x-auth-user')
@@ -211,7 +214,8 @@ def kosync_users_auth():
 @kosync_sync_bp.route('/koreader/users/create', methods=['POST'])
 def kosync_users_create():
     """Stub for KOReader user registration check"""
-    if not _rate_limit_check(request.remote_addr, _AUTH_TOKEN_COST):
+    remote = request.remote_addr
+    if remote not in ('127.0.0.1', '::1') and not _rate_limit_check(remote, _AUTH_TOKEN_COST):
         return jsonify({"error": "Too many requests"}), 429
 
     return jsonify({
@@ -224,7 +228,8 @@ def kosync_users_create():
 @kosync_sync_bp.route('/koreader/users/login', methods=['POST'])
 def kosync_users_login():
     """Stub for KOReader login check"""
-    if not _rate_limit_check(request.remote_addr, _AUTH_TOKEN_COST):
+    remote = request.remote_addr
+    if remote not in ('127.0.0.1', '::1') and not _rate_limit_check(remote, _AUTH_TOKEN_COST):
         return jsonify({"error": "Too many requests"}), 429
 
     return jsonify({
