@@ -19,6 +19,12 @@
 
 ## Frontend
 - [ ] Continue frontend improvements (UI/UX polish, responsiveness, design consistency)
+- [x] ~~Improve System Paths in Settings -> General~~ — Removed; paths and timezone are now Docker-only env vars
+- [ ] Add a "Trigger Sync" button to the UI
+  - Currently the only way to force a full sync cycle is restarting the container
+  - Per-book sync exists (`/api/sync-now/<abs_id>`) but no full-cycle trigger
+  - Add a button (settings page or dashboard) that calls a new `/api/sync-all` endpoint
+  - Endpoint should call `manager.sync_cycle()` in a background thread
 
 ## Reading History
 - [ ] Add reading history feature
@@ -115,17 +121,14 @@ itself has issues. Fixes are ordered by severity.
 - [ ] Persist Booklore source on Book records to avoid cross-instance drift
   - `find_in_booklore()` resolves by filename each time; if the same filename exists on both servers, later re-lookups (update hash, shelf ops) can bind to the wrong instance
   - Add a `booklore_source` column to `Book` and pass `source_tag` through match/import flows
-- [ ] Use composite key for `booklore_by_filename` in dashboard enrichment
-  - Currently `booklore_by_filename[filename]` silently overwrites one source with the other when dual instances have the same filename
-  - Use `(source, filename)` tuple key or collect a list per filename
+- [x] Use list-per-filename for `booklore_by_filename` in dashboard enrichment
 - [ ] Pin GitHub Actions SHAs in `.github/workflows/lint.yml`
   - `actions/checkout@v4` and `astral-sh/ruff-action@v3` use floating tags
   - Add explicit `permissions: contents: read` block
 - [ ] Fix ambiguous anchor matching in `ebook_utils.py` (line ~950)
   - `bs4_chapter_text.find(clean_anchor)` always picks the first occurrence; if `clean_anchor` repeats, can resolve to wrong position
   - Consider choosing the occurrence closest to `target_offset`
-- [ ] Clean up type annotations in `hardcover_client.py`
-  - Lines 64, 186, 539: parameters with `None` defaults should use `dict | None`, `str | None`, `int | None` to match existing `| None` return type style
+- [x] Clean up type annotations in `hardcover_client.py`
 
 ## Hardcover Integration
 - [ ] Improve Hardcover integration

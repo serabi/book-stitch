@@ -90,6 +90,15 @@
                     Sync Clients
                 </button>
 
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('kosync')" data-tab="kosync">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                        <path d="M8 7h8M8 11h6"/>
+                    </svg>
+                    KOSync
+                </button>
+
                 <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('sync')" data-tab="sync">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                     Sync Behavior
@@ -118,13 +127,15 @@
                 <div class="tab-panel active" id="panel-general">
                     <div class="panel-header">
                         <h2>General</h2>
-                        <p>Timezone, logging, and system paths.</p>
+                        <p>Logging and system info.</p>
                     </div>
 
                     <div class="field-grid">
                         <div class="form-group">
                             <label>Timezone</label>
-                            <input type="text" name="TZ" value="{{ get_val('TZ') }}">
+                            <input type="text" value="{{ get_val('TZ') }}" readonly
+                                style="opacity: 0.7; cursor: not-allowed;">
+                            <div class="help-text">Set via <code>TZ</code> environment variable in docker-compose.yml.</div>
                         </div>
                         <div class="form-group">
                             <label>Log Level</label>
@@ -133,22 +144,6 @@
                                 <option value="{{ level }}" {% if get_val('LOG_LEVEL')==level %}selected{% endif %}>{{ level }}</option>
                                 {% endfor %}
                             </select>
-                        </div>
-                    </div>
-
-                    <div class="section-label">System Paths</div>
-                    <div class="field-grid" style="margin-top: 12px;">
-                        <div class="form-group">
-                            <label>Data Directory</label>
-                            <input type="text" name="DATA_DIR" value="{{ get_val('DATA_DIR') }}">
-                        </div>
-                        <div class="form-group">
-                            <label>Books Directory</label>
-                            <input type="text" name="BOOKS_DIR" value="{{ get_val('BOOKS_DIR') }}">
-                        </div>
-                        <div class="form-group">
-                            <label>Audiobooks Directory</label>
-                            <input type="text" name="AUDIOBOOKS_DIR" value="{{ get_val('AUDIOBOOKS_DIR') }}">
                         </div>
                     </div>
                 </div>
@@ -214,96 +209,6 @@
                     <div class="panel-header">
                         <h2>Sync Clients</h2>
                         <p>Configure ebook and reading progress sources.</p>
-                    </div>
-
-                    <!-- KOSync -->
-                    {% set kosync_configured = get_val('KOSYNC_SERVER') != '' %}
-                    {% set kosync_enabled = get_bool('KOSYNC_ENABLED') or (kosync_configured and get_val('KOSYNC_ENABLED') == '') %}
-                    <div class="sub-section">
-                        <div class="sub-section-header">
-                            <h3><span class="accent-dot" style="background: var(--color-kosync);"></span> KOSync</h3>
-                            <div class="toggle-switch-wrapper">
-                                <span class="toggle-label">Enable</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="toggle_kosync" name="KOSYNC_ENABLED"
-                                        onchange="toggleSection('kosync_body', this.checked)" {% if kosync_enabled %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                        <div id="kosync_body" class="sub-section-body {% if not kosync_enabled %}collapsed{% endif %}">
-
-                            <div class="checkbox-wrapper full-width">
-                                <input type="checkbox" id="kosync_use_builtin" onchange="toggleKosyncServerMode()" checked>
-                                <label for="kosync_use_builtin">Use Built-in KOSync Bridge (Recommended)</label>
-                            </div>
-
-                            <div id="kosync_public_url_group" class="info-box full-width">
-                                <div class="form-group full-width" style="margin-bottom: 12px;">
-                                    <label>Sync Port</label>
-                                    <input type="text" value="{{ get_val('KOSYNC_PORT', '4477') }}" readonly
-                                        style="opacity: 0.7; cursor: not-allowed; max-width: 120px;">
-                                    <div class="help-text">Set via <code>KOSYNC_PORT</code> environment variable in docker-compose.yml. Use a different port than 4477 to enable split-port mode.</div>
-                                </div>
-                                <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-                                    <div style="flex: 1; min-width: 200px;">
-                                        <h4>LAN Address</h4>
-                                        <div class="input-row">
-                                            <input type="text" id="kosync_lan_address" aria-label="KOSync LAN Address"
-                                                value="" readonly style="opacity: 0.7; cursor: not-allowed;"
-                                                onclick="this.select()">
-                                            <button type="button" class="btn" onclick="copyInputValue('kosync_lan_address')" title="Copy to clipboard">Copy</button>
-                                        </div>
-                                        <div class="help-text" style="margin-top: 6px;">For devices on your local network.</div>
-                                    </div>
-                                    <div style="flex: 1; min-width: 200px;">
-                                        <h4>Public URL</h4>
-                                        <div class="input-row">
-                                            <input type="text" name="KOSYNC_PUBLIC_URL" id="public_kosync_url"
-                                                aria-label="Public KOSync URL"
-                                                value="{{ get_val('KOSYNC_PUBLIC_URL') }}"
-                                                placeholder="https://sync.example.com"
-                                                onclick="this.select()">
-                                            <button type="button" class="btn" onclick="copyInputValue('public_kosync_url')" title="Copy to clipboard">Copy</button>
-                                        </div>
-                                        <div class="help-text" style="margin-top: 6px;">For remote access via reverse proxy. Saved to settings.</div>
-                                    </div>
-                                </div>
-                                <div class="help-text" style="margin-top: 8px;">Use the LAN address for devices on your local network. Set the Public URL if you expose KOSync through a reverse proxy for remote access.</div>
-                            </div>
-
-                            <div class="form-group full-width">
-                                <label>Target KOSync URL</label>
-                                <input type="text" name="KOSYNC_SERVER" id="kosync_server_input"
-                                    value="{{ get_val('KOSYNC_SERVER') }}">
-                                <div class="help-text" id="kosync_server_help">Internal URL the bridge connects to.</div>
-                            </div>
-
-                            <div class="section-divider"></div>
-                            <div class="section-label">User Credentials</div>
-
-                            <div class="form-group">
-                                <label>Username</label>
-                                <input type="text" name="KOSYNC_USER" value="{{ get_val('KOSYNC_USER') }}">
-                            </div>
-                            <div class="form-group">
-                                <label>Password</label>
-                                <input type="password" name="KOSYNC_KEY" value="{{ get_val('KOSYNC_KEY') }}">
-                                <div class="help-text">This will be your KOSync password in KOReader.</div>
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Hash Method</label>
-                                <select name="KOSYNC_HASH_METHOD">
-                                    <option value="content" {% if get_val('KOSYNC_HASH_METHOD')=='content' %}selected{% endif %}>Content (Slower/Accurate)</option>
-                                    <option value="filename" {% if get_val('KOSYNC_HASH_METHOD')=='filename' %}selected{% endif %}>Filename (Fast)</option>
-                                </select>
-                            </div>
-                            <div class="checkbox-wrapper full-width">
-                                <input type="checkbox" id="kosync_pct" name="KOSYNC_USE_PERCENTAGE_FROM_SERVER" {% if
-                                    get_bool('KOSYNC_USE_PERCENTAGE_FROM_SERVER') %}checked{% endif %}>
-                                <label for="kosync_pct">Use Percentage from Server (Ignore Text Matching)</label>
-                            </div>
-                        </div>
                     </div>
 
                     <!-- Storyteller -->
@@ -488,6 +393,149 @@
                             <div class="form-group full-width">
                                 <label>API Token</label>
                                 <input type="password" name="HARDCOVER_TOKEN" value="{{ get_val('HARDCOVER_TOKEN') }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── KOSync ─── -->
+                {% set kosync_configured = get_val('KOSYNC_SERVER') != '' %}
+                {% set kosync_enabled = get_bool('KOSYNC_ENABLED') or (kosync_configured and get_val('KOSYNC_ENABLED') == '') %}
+                <div class="tab-panel" id="panel-kosync">
+                    <div class="panel-header">
+                        <h2>KOSync</h2>
+                        <p>KOReader sync server and sync engine source.</p>
+                    </div>
+
+                    <!-- Section A: KOSync Server -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-kosync);"></span> KOSync Server</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_kosync" name="KOSYNC_ENABLED"
+                                        onchange="toggleSection('kosync_body', this.checked)" {% if kosync_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="kosync_body" class="sub-section-body {% if not kosync_enabled %}collapsed{% endif %}">
+
+                            <div class="info-box full-width" style="border-left: 3px solid var(--color-kosync); background: rgba(124, 58, 237, 0.06);">
+                                <strong>Security Note</strong>
+                                <p style="margin: 6px 0 0;">Book Stitch's web dashboard has no built-in authentication. Only expose the KOSync sync endpoint to the internet &mdash; it uses password-based authentication. Use split-port mode or a reverse proxy that restricts access to the <code>/syncs/</code> and <code>/healthcheck</code> paths only.</p>
+                            </div>
+
+                            <div class="section-divider"></div>
+                            <div class="section-label">User Credentials</div>
+
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" name="KOSYNC_USER" value="{{ get_val('KOSYNC_USER') }}">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" name="KOSYNC_KEY" value="{{ get_val('KOSYNC_KEY') }}">
+                                <div class="help-text">This will be your KOSync password in KOReader.</div>
+                            </div>
+
+                            <div class="section-divider"></div>
+                            <div class="section-label">Network / Access</div>
+
+                            <div class="form-group full-width" style="margin-bottom: 12px;">
+                                <label>Sync Port</label>
+                                <input type="text" value="{{ get_val('KOSYNC_PORT', '4477') }}" readonly
+                                    style="opacity: 0.7; cursor: not-allowed; max-width: 120px;">
+                                <div class="help-text">Set via <code>KOSYNC_PORT</code> environment variable in docker-compose.yml. Use a different port than 4477 to enable split-port mode.</div>
+                            </div>
+                            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 200px;">
+                                    <h4>LAN Address</h4>
+                                    <div class="input-row">
+                                        <input type="text" id="kosync_lan_address" aria-label="KOSync LAN Address"
+                                            value="" readonly style="opacity: 0.7; cursor: not-allowed;"
+                                            onclick="this.select()">
+                                        <button type="button" class="btn" onclick="copyInputValue('kosync_lan_address')" title="Copy to clipboard">Copy</button>
+                                    </div>
+                                    <div class="help-text" style="margin-top: 6px;">For devices on your local network.</div>
+                                </div>
+                                <div style="flex: 1; min-width: 200px;">
+                                    <h4>Public URL</h4>
+                                    <div class="input-row">
+                                        <input type="text" name="KOSYNC_PUBLIC_URL" id="public_kosync_url"
+                                            aria-label="Public KOSync URL"
+                                            value="{{ get_val('KOSYNC_PUBLIC_URL') }}"
+                                            placeholder="https://sync.example.com"
+                                            onclick="this.select()">
+                                        <button type="button" class="btn" onclick="copyInputValue('public_kosync_url')" title="Copy to clipboard">Copy</button>
+                                    </div>
+                                    <div class="help-text" style="margin-top: 6px;">For remote access via reverse proxy. Saved to settings.</div>
+                                </div>
+                            </div>
+                            <div class="help-text full-width" style="margin-top: 8px;">Use the LAN address for devices on your local network. Set the Public URL if you expose KOSync through a reverse proxy for remote access.</div>
+                        </div>
+                    </div>
+
+                    <!-- Section B: Sync Engine Source -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-kosync);"></span> Sync Engine Source</h3>
+                        </div>
+                        <div class="sub-section-body">
+                            <p class="help-text full-width" style="margin-bottom: 12px;">Controls where Book Stitch's sync engine reads KoSync data from.</p>
+
+                            <div class="full-width" style="display: flex; flex-direction: column; gap: 12px;">
+                                <label class="radio-card" style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
+                                    <input type="radio" name="kosync_source_mode" value="builtin" id="kosync_mode_builtin" onchange="toggleKosyncSourceMode()" checked>
+                                    <div>
+                                        <strong>Built-in</strong>
+                                        <div class="help-text" style="margin-top: 2px;">Use this server's own KoSync data. The sync engine reads directly from the built-in KoSync bridge.</div>
+                                    </div>
+                                </label>
+                                <label class="radio-card" style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
+                                    <input type="radio" name="kosync_source_mode" value="external" id="kosync_mode_external" onchange="toggleKosyncSourceMode()">
+                                    <div>
+                                        <strong>External Server</strong>
+                                        <div class="help-text" style="margin-top: 2px;">Connect to a separate KoSync-compatible server (e.g. kosync-dotnet).</div>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <input type="hidden" name="KOSYNC_SERVER" id="kosync_server_input" value="{{ get_val('KOSYNC_SERVER') }}">
+
+                            <div id="kosync_external_group" class="full-width hidden" style="margin-top: 12px;">
+                                <div class="form-group full-width">
+                                    <label>Server URL</label>
+                                    <div class="input-row">
+                                        <input type="text" id="kosync_external_url"
+                                            value="{{ get_val('KOSYNC_SERVER') }}"
+                                            placeholder="http://kosync-server:5000">
+                                        <button type="button" class="btn" id="kosync_test_btn" onclick="testKosyncConnection()">Test Connection</button>
+                                    </div>
+                                    <span id="kosync_test_result"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section C: Advanced -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-kosync);"></span> Advanced</h3>
+                        </div>
+                        <div class="sub-section-body">
+                            <div class="form-group full-width">
+                                <label>Hash Method</label>
+                                <select name="KOSYNC_HASH_METHOD">
+                                    <option value="content" {% if get_val('KOSYNC_HASH_METHOD')=='content' %}selected{% endif %}>Content (Slower/Accurate)</option>
+                                    <option value="filename" {% if get_val('KOSYNC_HASH_METHOD')=='filename' %}selected{% endif %}>Filename (Fast)</option>
+                                </select>
+                            </div>
+                            <div class="checkbox-wrapper full-width">
+                                <input type="checkbox" id="kosync_pct" name="KOSYNC_USE_PERCENTAGE_FROM_SERVER" {% if
+                                    get_bool('KOSYNC_USE_PERCENTAGE_FROM_SERVER') %}checked{% endif %}>
+                                <label for="kosync_pct">Use Percentage from Server (Ignore Text Matching)</label>
                             </div>
                         </div>
                     </div>
@@ -968,23 +1016,43 @@
             }
         }
 
-        function toggleKosyncServerMode() {
-            var useBuiltin = document.getElementById('kosync_use_builtin').checked;
-            var internalInput = document.getElementById('kosync_server_input');
-            var publicGroup = document.getElementById('kosync_public_url_group');
+        function toggleKosyncSourceMode() {
+            var isBuiltin = document.getElementById('kosync_mode_builtin').checked;
+            var hiddenInput = document.getElementById('kosync_server_input');
+            var externalGroup = document.getElementById('kosync_external_group');
+            var externalUrl = document.getElementById('kosync_external_url');
 
-            if (useBuiltin) {
-                if (publicGroup) publicGroup.classList.remove('hidden');
-                internalInput.value = "http://127.0.0.1:{{ get_val('KOSYNC_PORT', '4477') }}";
-                internalInput.setAttribute('readonly', 'readonly');
-                internalInput.style.opacity = "0.7";
-                internalInput.style.cursor = "not-allowed";
+            if (isBuiltin) {
+                hiddenInput.value = "http://127.0.0.1:{{ get_val('KOSYNC_PORT', '4477') }}";
+                externalGroup.classList.add('hidden');
             } else {
-                if (publicGroup) publicGroup.classList.add('hidden');
-                internalInput.removeAttribute('readonly');
-                internalInput.style.opacity = "1";
-                internalInput.style.cursor = "text";
+                externalGroup.classList.remove('hidden');
+                if (externalUrl.value && externalUrl.value !== "http://127.0.0.1:{{ get_val('KOSYNC_PORT', '4477') }}") {
+                    hiddenInput.value = externalUrl.value;
+                } else {
+                    externalUrl.value = '';
+                    hiddenInput.value = '';
+                }
             }
+        }
+
+        async function testKosyncConnection() {
+            var btn = document.getElementById('kosync_test_btn');
+            var result = document.getElementById('kosync_test_result');
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            result.textContent = '';
+            try {
+                var r = await fetch('/api/kosync/test', { method: 'POST' });
+                var data = await r.json();
+                result.textContent = data.success ? '\u2713 Connected' : '\u2717 Failed';
+                result.className = 'test-result ' + (data.success ? 'success' : 'error');
+            } catch (e) {
+                result.textContent = '\u2717 Error';
+                result.className = 'test-result error';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Test Connection';
         }
 
         function copyInputValue(inputId) {
@@ -1024,23 +1092,34 @@
             var lanAddress = window.location.protocol + '//' + window.location.hostname + ':' + configuredPort;
 
             var lanInput = document.getElementById('kosync_lan_address');
-            lanInput.value = lanAddress;
+            if (lanInput) lanInput.value = lanAddress;
 
             var publicUrlInput = document.getElementById('public_kosync_url');
-            if (!publicUrlInput.value) {
+            if (publicUrlInput && !publicUrlInput.value) {
                 publicUrlInput.placeholder = lanAddress;
             }
 
             initDynamicForms();
 
             var kosyncServerVal = document.getElementById('kosync_server_input').value;
-            var builtinCheckbox = document.getElementById('kosync_use_builtin');
+            var builtinRadio = document.getElementById('kosync_mode_builtin');
+            var externalRadio = document.getElementById('kosync_mode_external');
+            var externalUrl = document.getElementById('kosync_external_url');
             if (kosyncServerVal === "http://127.0.0.1:{{ get_val('KOSYNC_PORT', '4477') }}" || kosyncServerVal === "") {
-                builtinCheckbox.checked = true;
+                builtinRadio.checked = true;
+                externalRadio.checked = false;
             } else {
-                builtinCheckbox.checked = false;
+                builtinRadio.checked = false;
+                externalRadio.checked = true;
+                if (externalUrl) externalUrl.value = kosyncServerVal;
             }
-            toggleKosyncServerMode();
+            toggleKosyncSourceMode();
+
+            if (externalUrl) {
+                externalUrl.addEventListener('input', function() {
+                    document.getElementById('kosync_server_input').value = this.value;
+                });
+            }
         });
 
         function initDynamicForms() {
