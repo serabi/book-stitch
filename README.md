@@ -190,12 +190,19 @@ python -m src.web_server
 
 The server starts at `http://localhost:4477`. The database is created at `data/database.db`.
 
-Tests run with pytest:
+### Running tests
+
+Tests must run inside Docker because the suite depends on `epubcfi` (a C-extension
+package installed in the image) and `ffmpeg`. Use the included wrapper script:
 
 ```bash
-pytest tests/
-pytest tests/test_abs_socket_listener.py -v  # single file
+./run-tests.sh                                    # full suite
+./run-tests.sh tests/test_abs_socket_listener.py -v  # single file, verbose
+./run-tests.sh -k "test_sync_cycle"               # filter by name
 ```
+
+If the `book-stitch` container is running, tests execute there via `docker exec`
+(fastest). Otherwise the script falls back to `docker compose -f docker-compose.test.yml run --rm test`.
 
 ---
 
