@@ -308,7 +308,7 @@ class CleanFlaskIntegrationTest(unittest.TestCase):
         )
 
         self.mock_database_service.get_all_books.return_value = [test_book]
-        self.mock_database_service.get_states_for_book.return_value = []
+        self.mock_database_service.get_all_states.return_value = []
 
         # Make HTTP request
         response = self.client.get('/api/status')

@@ -20,10 +20,15 @@ def api_status():
     database_service = get_database_service()
     books = database_service.get_all_books()
 
+    # Bulk-fetch all states to avoid N+1 queries (one per book)
+    all_states = database_service.get_all_states()
+    states_by_book = {}
+    for state in all_states:
+        states_by_book.setdefault(state.abs_id, []).append(state)
+
     mappings = []
     for book in books:
-        states = database_service.get_states_for_book(book.abs_id)
-        state_by_client = {state.client_name: state for state in states}
+        state_by_client = {state.client_name: state for state in states_by_book.get(book.abs_id, [])}
 
         mapping = {
             'abs_id': book.abs_id,

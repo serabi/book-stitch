@@ -21,7 +21,9 @@ def serve_cover(filename):
     # 1. Check if file exists
     cover_path = COVERS_DIR / filename
     if cover_path.exists():
-        return send_from_directory(COVERS_DIR, filename)
+        resp = send_from_directory(COVERS_DIR, filename)
+        resp.headers['Cache-Control'] = 'public, max-age=86400, immutable'
+        return resp
 
     # 2. Try to extract
     database_service = get_database_service()
@@ -34,7 +36,9 @@ def serve_cover(filename):
             full_book_path = parser.resolve_book_path(book.ebook_filename)
 
             if parser.extract_cover(full_book_path, cover_path):
-                return send_from_directory(COVERS_DIR, filename)
+                resp = send_from_directory(COVERS_DIR, filename)
+                resp.headers['Cache-Control'] = 'public, max-age=86400, immutable'
+                return resp
         except Exception as e:
             logger.debug(f"Lazy cover extraction failed: {e}")
 
@@ -55,7 +59,9 @@ def proxy_cover(abs_id):
 
         req = requests.get(url, stream=True, timeout=10)
         if req.status_code == 200:
-            return Response(req.iter_content(chunk_size=1024), content_type=req.headers.get('content-type', 'image/jpeg'))
+            resp = Response(req.iter_content(chunk_size=1024), content_type=req.headers.get('content-type', 'image/jpeg'))
+            resp.headers['Cache-Control'] = 'public, max-age=86400, immutable'
+            return resp
         else:
             return "Cover not found", 404
     except Exception as e:
@@ -83,7 +89,9 @@ def proxy_booklore_cover(source_tag, book_id):
         url = f"{bl_client.base_url}/api/v1/books/{book_id}/cover"
         req = requests.get(url, headers={"Authorization": f"Bearer {token}"}, stream=True, timeout=10)
         if req.status_code == 200:
-            return Response(req.iter_content(chunk_size=1024), content_type=req.headers.get('content-type', 'image/jpeg'))
+            resp = Response(req.iter_content(chunk_size=1024), content_type=req.headers.get('content-type', 'image/jpeg'))
+            resp.headers['Cache-Control'] = 'public, max-age=86400, immutable'
+            return resp
         else:
             return "Cover not found", 404
     except Exception as e:

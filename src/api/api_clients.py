@@ -14,6 +14,10 @@ class ABSClient:
         # Configuration is now dynamic via properties (no caching)
         self.session = requests.Session()
         self.timeout = 30
+        # TTL cache for get_all_audiobooks() — avoids 1+N ABS requests on every dashboard load
+        self._audiobooks_cache = None
+        self._audiobooks_cache_time = 0
+        self._AUDIOBOOKS_CACHE_TTL = 300  # 5 minutes
 
     @property
     def base_url(self):
@@ -80,20 +84,41 @@ class ABSClient:
 
     def get_all_audiobooks(self):
         if not self.is_configured(): return []
+
+        # Return cached result if still fresh
+        now = time.time()
+        if self._audiobooks_cache is not None and (now - self._audiobooks_cache_time) < self._AUDIOBOOKS_CACHE_TTL:
+            return self._audiobooks_cache
+
         self._update_session_headers()
         lib_url = f"{self.base_url}/api/libraries"
         try:
             r = self.session.get(lib_url, timeout=self.timeout)
-            if r.status_code != 200: return []
+            if r.status_code != 200:
+                # Return stale cache on failure instead of empty list
+                if self._audiobooks_cache is not None:
+                    logger.warning("ABS library fetch failed, returning stale cache")
+                    return self._audiobooks_cache
+                return []
             libraries = r.json().get('libraries', [])
             all_audiobooks = []
             for lib in libraries:
                 r_items = self.get_audiobooks_for_lib(lib['id'])
                 all_audiobooks.extend(r_items)
+            self._audiobooks_cache = all_audiobooks
+            self._audiobooks_cache_time = time.time()
             return all_audiobooks
         except Exception as e:
             logger.error(f"Exception fetching audiobooks: {e}")
+            if self._audiobooks_cache is not None:
+                logger.warning("Returning stale audiobooks cache after exception")
+                return self._audiobooks_cache
             return []
+
+    def invalidate_audiobooks_cache(self):
+        """Clear the audiobooks cache so the next call fetches fresh data."""
+        self._audiobooks_cache = None
+        self._audiobooks_cache_time = 0
 
     def get_audiobooks_for_lib(self, lib: str):
         if not self.is_configured(): return []
