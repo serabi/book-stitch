@@ -16,51 +16,7 @@
 </head>
 
 <body>
-    <div class="top-nav">
-        <div class="logo-section">
-            <a href="/" class="brand-link">
-                <img src="/static/icon.png" alt="Book Stitch" class="app-icon">
-                <h1>Book Stitch</h1>
-            </a>
-
-            <div class="library-links">
-                {% if abs_server %}
-                <a href="{{ abs_server }}" class="nav-icon-link" target="_blank" title="Audiobookshelf">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
-                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                    </svg>
-                </a>
-                {% endif %}
-
-                {% if booklore_server %}
-                <a href="{{ booklore_server }}" class="nav-icon-link" target="_blank" title="Ebook Library">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-                    </svg>
-                </a>
-                {% endif %}
-
-                {% if shelfmark_url and get_bool('SHELFMARK_ENABLED') %}
-                <a href="/shelfmark" class="nav-icon-link" title="Shelfmark Tool">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-                        <line x1="7" y1="7" x2="7.01" y2="7"></line>
-                    </svg>
-                </a>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="nav-actions">
-            <a href="/" class="btn">&larr; Dashboard</a>
-            <a href="/logs" class="btn">Logs</a>
-        </div>
-    </div>
+    {% include 'partials/navbar.html' %}
 
     {% if message %}
     <div class="flash-bar {% if is_error %}flash-error{% else %}flash-success{% endif %}">
@@ -80,14 +36,14 @@
                     General
                 </button>
 
-                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('abs')" data-tab="abs">
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('audiobooks')" data-tab="audiobooks">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                    Audiobookshelf
+                    Audiobooks
                 </button>
 
-                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('clients')" data-tab="clients">
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('ebooks')" data-tab="ebooks">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    Sync Clients
+                    Ebooks
                 </button>
 
                 <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('kosync')" data-tab="kosync">
@@ -143,11 +99,11 @@
                     </div>
                 </div>
 
-                <!-- ─── Audiobookshelf ─── -->
-                <div class="tab-panel" id="panel-abs">
+                <!-- ─── Audiobooks ─── -->
+                <div class="tab-panel" id="panel-audiobooks">
                     <div class="panel-header">
-                        <h2>Audiobookshelf</h2>
-                        <p>Connection to your Audiobookshelf server.</p>
+                        <h2>Audiobooks</h2>
+                        <p>Audiobookshelf connection and Storyteller sync.</p>
                     </div>
 
                     <div class="field-grid">
@@ -216,14 +172,6 @@
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- ─── Sync Clients ─── -->
-                <div class="tab-panel" id="panel-clients">
-                    <div class="panel-header">
-                        <h2>Sync Clients</h2>
-                        <p>Configure ebook and reading progress sources.</p>
-                    </div>
 
                     <!-- Storyteller -->
                     {% set storyteller_configured = get_val('STORYTELLER_API_URL') != '' %}
@@ -254,6 +202,14 @@
                                 <input type="password" name="STORYTELLER_PASSWORD" value="{{ get_val('STORYTELLER_PASSWORD') }}">
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- ─── Ebooks ─── -->
+                <div class="tab-panel" id="panel-ebooks">
+                    <div class="panel-header">
+                        <h2>Ebooks</h2>
+                        <p>Booklore and Calibre-Web Automated.</p>
                     </div>
 
                     <!-- Booklore -->
@@ -311,7 +267,7 @@
                     {% set booklore2_enabled = get_bool('BOOKLORE_2_ENABLED') or (booklore2_configured and get_val('BOOKLORE_2_ENABLED') == '') %}
                     <div class="sub-section">
                         <div class="sub-section-header">
-                            <h3><span class="accent-dot" style="background: var(--color-booklore);"></span> Booklore 2</h3>
+                            <h3><span class="accent-dot" style="background: var(--color-booklore);"></span> Booklore — Secondary</h3>
                             <div class="toggle-switch-wrapper">
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
@@ -345,7 +301,7 @@
                                 <input type="text" name="BOOKLORE_2_SHELF_NAME" value="{{ get_val('BOOKLORE_2_SHELF_NAME') }}">
                             </div>
                             <div class="form-group full-width">
-                                <label>Booklore 2 Library ID (Optional)</label>
+                                <label>Booklore — Secondary Library ID (Optional)</label>
                                 <div style="display: flex; gap: 10px;">
                                     <input type="text" name="BOOKLORE_2_LIBRARY_ID" value="{{ get_val('BOOKLORE_2_LIBRARY_ID') }}"
                                         placeholder="e.g. 1" style="flex: 1;">
@@ -388,28 +344,6 @@
                         </div>
                     </div>
 
-                    <!-- Hardcover -->
-                    {% set hardcover_configured = get_val('HARDCOVER_TOKEN') != '' %}
-                    {% set hardcover_enabled = get_bool('HARDCOVER_ENABLED') or (hardcover_configured and get_val('HARDCOVER_ENABLED') == '') %}
-                    <div class="sub-section">
-                        <div class="sub-section-header">
-                            <h3><span class="accent-dot" style="background: var(--color-hardcover);"></span> Hardcover.app</h3>
-                            <div class="toggle-switch-wrapper">
-                                <span class="toggle-label">Enable</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="toggle_hardcover" name="HARDCOVER_ENABLED"
-                                        onchange="toggleSection('hardcover_body', this.checked)" {% if hardcover_enabled %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                        <div id="hardcover_body" class="sub-section-body {% if not hardcover_enabled %}collapsed{% endif %}">
-                            <div class="form-group full-width">
-                                <label>API Token</label>
-                                <input type="password" name="HARDCOVER_TOKEN" value="{{ get_val('HARDCOVER_TOKEN') }}">
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- ─── KOSync ─── -->
@@ -601,7 +535,7 @@
                 <div class="tab-panel" id="panel-tools">
                     <div class="panel-header">
                         <h2>Tools</h2>
-                        <p>Optional features and utilities.</p>
+                        <p>Optional features, utilities, and Hardcover.app.</p>
                     </div>
 
                     <!-- Shelfmark -->
@@ -666,6 +600,29 @@
                                         This helps clear out junk suggestions and allows the bridge to re-suggest them if needed.
                                     </p>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hardcover -->
+                    {% set hardcover_configured = get_val('HARDCOVER_TOKEN') != '' %}
+                    {% set hardcover_enabled = get_bool('HARDCOVER_ENABLED') or (hardcover_configured and get_val('HARDCOVER_ENABLED') == '') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-hardcover);"></span> Hardcover.app</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_hardcover" name="HARDCOVER_ENABLED"
+                                        onchange="toggleSection('hardcover_body', this.checked)" {% if hardcover_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="hardcover_body" class="sub-section-body {% if not hardcover_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>API Token</label>
+                                <input type="password" name="HARDCOVER_TOKEN" value="{{ get_val('HARDCOVER_TOKEN') }}">
                             </div>
                         </div>
                     </div>

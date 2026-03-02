@@ -14,56 +14,7 @@
 </head>
 
 <body>
-    <!-- Top Navigation -->
-    <div class="top-nav">
-        <div class="logo-section">
-            <a href="/" class="brand-link">
-                <img src="/static/icon.png" alt="Book Stitch" class="app-icon">
-                <h1>Book Stitch</h1>
-            </a>
-
-            <div class="library-links">
-                {% if abs_server %}
-                <a href="{{ abs_server }}" class="nav-icon-link" target="_blank" title="Audiobookshelf">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
-                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                    </svg>
-                </a>
-                {% endif %}
-
-                {% if booklore_server %}
-                <a href="{{ booklore_server }}" class="nav-icon-link" target="_blank" title="Ebook Library">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-                    </svg>
-                </a>
-                {% endif %}
-
-                {% if shelfmark_url %}
-                <a href="/shelfmark" class="nav-icon-link" title="Shelfmark Tool">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-                        <line x1="7" y1="7" x2="7.01" y2="7"></line>
-                    </svg>
-                </a>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="nav-actions">
-            <a href="https://github.com/serabi/book-stitch" class="btn" target="_blank"
-                rel="noopener noreferrer">Docs</a>
-            <a href="/" class="btn">← Dashboard</a>
-            <a href="/logs" class="btn">Logs</a>
-            <a href="/settings" class="btn">Settings</a>
-            <a href="/match" class="btn">Add Book</a>
-        </div>
-    </div>
+    {% include 'partials/navbar.html' %}
 
     <!-- Main Container -->
     <div class="container">
