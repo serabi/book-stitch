@@ -1,21 +1,40 @@
 # Book Stitch — TODO
 
 ## Code Cleanup
-- [ ] Remove last 5 emojis from codebase:
-  - `src/blueprints/books.py` lines 518, 545, 552 — flash messages use ❌/✅
-  - `src/sync_manager.py` line 1262 — `📊` in status line logged via logger.info
-  - `src/api/booklore_client.py` line 771 — `📚` in Booklore shelf API payload
+- [x] Remove last 5 emojis from codebase
+- [x] Clean up dead code in Storyteller API client
+
+## Developer Experience
+- [x] Docker-first test runner (`run-tests.sh`, `docker-compose.test.yml`)
+  - Routes all tests through Docker for `epubcfi` and `ffmpeg` dependencies
+  - Claude Code hook blocks bare `pytest` and redirects to `./run-tests.sh`
+  - Updated CLAUDE.md and README with testing conventions
 
 ## ABS Integration — Remove "Required" Assumptions
-- [ ] Rewrite `QUICKSTART.md` — currently assumes ABS is mandatory
-  - ABS_SERVER, ABS_KEY, ABS_LIBRARY_ID marked as `# REQUIRED` in the compose template
-  - Step 1 is "Get Your API Keys" — assumes ABS is the starting point
-  - References "Book Linker" (removed with Forge) and port 8080 (should be 4477)
-  - Uses emojis throughout
-  - Should reflect that ABS is optional and users can start with ebook-only or any combination
-- [ ] Review settings UI — ABS is tab 1 with no indication it's optional
-  - Other integrations have enable/disable toggles; ABS does not
-  - Consider adding an `ABS_ENABLED` toggle or at minimum labeling it as optional
+
+### QUICKSTART.md
+- [x] Remove `# REQUIRED` from ABS env vars in compose template
+- [x] Rewrite Step 1 — replaced ABS-first flow with "Choose Your Services" approach
+- [x] Remove "Book Linker" reference
+- [x] Fix port references to 4477
+- [x] Remove emojis throughout
+- [x] Add ebook-only and audio-only setup paths
+
+### Settings UI
+- [x] Add `ABS_ENABLED` toggle to settings (matches Storyteller/Booklore pattern)
+
+### Backend / Sync Engine
+- [x] Fix `abs_sync_client.py` `is_configured()` — delegates to `ABSClient.is_configured()`
+- [x] Add `ABS_ENABLED` to `config_loader.py` `ALL_SETTINGS` and `DEFAULT_CONFIG`
+- [x] Add `ABS_ENABLED` to `settings_bp.py` `bool_keys` list
+- [x] `sync_manager.py` `_setup_sync_clients` — resolved by `is_configured()` fix
+- [x] `ABSClient.is_configured()` checks `ABS_ENABLED` env var
+- [x] `ABSEbookSyncClient.is_configured()` checks ABS availability before `SYNC_ABS_EBOOK`
+- [x] Extracted `ABSService` wrapper with `is_available()` guards
+- [x] Created `abs_bp` blueprint for ABS-specific routes (libraries, cover proxy)
+- [x] Migrated all direct `abs_client` calls in blueprints to use `abs_service`
+- [x] Guarded Hardcover automatch and resolve when ABS disabled
+- [x] Fix `sync_manager.py` cross-format normalization (line ~280): `if not has_abs or not ebook_clients: return None` assumes ABS is always present — ebook-only books should still normalize between ebook clients
 
 ## Frontend
 - [ ] Continue frontend improvements (UI/UX polish, responsiveness, design consistency)
@@ -45,10 +64,9 @@
   - Could aggregate from the existing `State` table and sync logs
 
 ## Storyteller Integration
-- [ ] Clean up dead code in `src/api/storyteller_api.py`
-  - `find_book_by_title()`, `get_progress_by_filename()`, `update_progress_by_filename()`,
-    `get_progress()`, `get_progress_with_fragment()` are all legacy filename-based methods
-  - Sync client now uses UUID-based methods exclusively — these are unused
+- [x] Clean up dead code in `src/api/storyteller_api.py`
+  - Removed `find_book_by_title()`, `get_progress_by_filename()`, `update_progress_by_filename()`,
+    `get_progress()`, `get_progress_with_fragment()` and supporting `_filename_to_book_cache`
 - [ ] Remove legacy link migration logic in `src/blueprints/dashboard.py` (lines 155-158)
   - Detects books with Storyteller state but no UUID, shows re-link prompt
   - `storyteller_legacy_link` flag carried through to `templates/index.html`
@@ -76,3 +94,12 @@
   - Better edition matching (ASIN, ISBN-13, manual override)
   - Richer metadata sync (cover art, series info)
   - Read status tracking (want to read, currently reading, finished)
+
+## Smart Match Suggestions
+- [ ] Auto-suggest likely book pairings when linking
+  - Pre-compute candidate matches across all services by title/author similarity:
+    - ABS audiobook ↔ ebook file
+    - ABS audiobook ↔ Storyteller book
+    - Ebook file ↔ Storyteller book
+  - Surface suggestions in the match UI to reduce manual searching
+  - Purely internal matching intelligence — does not create or push anything to external services

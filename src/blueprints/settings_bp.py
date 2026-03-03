@@ -19,6 +19,7 @@ def settings():
 
     if request.method == 'POST':
         bool_keys = [
+            'ABS_ENABLED',
             'KOSYNC_USE_PERCENTAGE_FROM_SERVER',
             'SYNC_ABS_EBOOK',
             'XPATH_FALLBACK_TO_PREVIOUS_SEGMENT',
@@ -37,6 +38,12 @@ def settings():
         ]
 
         current_settings = database_service.get_all_settings()
+
+        secret_keys = {
+            'ABS_KEY', 'STORYTELLER_PASSWORD', 'BOOKLORE_PASSWORD', 'BOOKLORE_2_PASSWORD',
+            'CWA_PASSWORD', 'KOSYNC_KEY', 'TELEGRAM_BOT_TOKEN', 'HARDCOVER_TOKEN',
+            'DEEPGRAM_API_KEY',
+        }
 
         # 1. Handle Boolean Toggles
         for key in bool_keys:
@@ -60,6 +67,9 @@ def settings():
                 lower_val = clean_value.lower()
                 if not (lower_val.startswith("http://") or lower_val.startswith("https://")):
                     clean_value = f"http://{clean_value}"
+
+            if not clean_value and key in secret_keys:
+                continue  # preserve existing secret
 
             if clean_value:
                 database_service.set_setting(key, clean_value)

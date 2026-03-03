@@ -13,6 +13,7 @@ var hardcoverModalState = {
 
 function linkHardcover(event) {
     event.stopPropagation();
+    if (typeof closeActionPanel === 'function') closeActionPanel();
     hardcoverModalState.absId = event.currentTarget.dataset.absId;
     hardcoverModalState.bookData = null;
     hardcoverModalState.selectedEditionId = null;

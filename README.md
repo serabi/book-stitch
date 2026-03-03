@@ -4,7 +4,7 @@
 
 ![Book Stitch](static/icon.png)
 
-**Sync your audiobooks with your ebooks.**
+**Sync your audiobooks with your ebooks across your various self-hosted services.**
 
 [![License](https://img.shields.io/github/license/serabi/book-stitch)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/serabi/book-stitch)](https://github.com/serabi/book-stitch/releases)
@@ -16,11 +16,11 @@
 
 ## What is this?
 
-If you listen to audiobooks on a regular basis on [Audiobookshelf](https://www.audiobookshelf.org/) or [Storyteller](add link)during the day and then pick up the same book via KoReader or Kobo before bed, you know how frustrating it can be to find your place in the book. 
+If you listen to audiobooks on a regular basis on [Audiobookshelf](https://www.audiobookshelf.org/) or [Storyteller](https://storyteller-platform.gitlab.io/storyteller/) during the day and then pick up the same book via KoReader or Kobo before bed, you know how frustrating it can be to find your place in the book. 
 
 The goal of Book Stitch fixes that. It's a self-hosted, Docker based sync engine that links your audiobook position to the matching spot in the ebook (and vice versa), then pushes that position to every app you use. It works by transcribing a segment of the audiobook audio and fuzzy-matching it against the EPUB text. Once that alignment map is built, converting between a timestamp and a page position is instant.
 
-Major kudos and credit goes to [abs-kosync-bridge](link) for being the inspiration for this project. This project is a fork of that project, revamped with more of a focus on tracking _what_ you read. It can also work as a bridge between ABS and Hardcover.app, for example. 
+Major kudos and credit goes to [abs-kosync-bridge](link) for being the inspiration for this project. This project is a fork of that project that was inspired by me realizing that my focus was more on tracking _what_ I read, and having a tool that would be flexible for my personal needs. I'm releasing it as open source in case anyone else finds it useful, and I'm open to suggestions and contributions.  
 
 ### Supported platforms
 
@@ -28,7 +28,7 @@ Major kudos and credit goes to [abs-kosync-bridge](link) for being the inspirati
 |---|---|
 | [Audiobookshelf](https://www.audiobookshelf.org/) | Main audiobook server |
 | [KOReader](https://koreader.rocks/) (via KoSync) | E-ink reader progress (Boox, Kobo, jailbroken Kindle, etc.) |
-| [Storyteller](https://smoores.gitlab.io/storyteller/) | Audiobook companion app with synced EPUB |
+| [Storyteller](https://storyteller-platform.gitlab.io/storyteller/) | Audiobook companion app with synced EPUB |
 | [Booklore](https://github.com/booklore) | Ebook library and shelf manager |
 | [Hardcover](https://hardcover.app/) | Book tracking service (write-only) |
 
@@ -49,16 +49,16 @@ services:
       - TZ=America/New_York
     volumes:
       - ./data:/data           # Database, cache, logs
-      - /path/to/ebooks:/books # Your EPUB library
+      # - /path/to/ebooks:/books:ro  # Optional — only needed for cross-format sync without Booklore/CWA
     ports:
       - "4477:4477"            # Web dashboard
 ```
 
 Start the container, open `http://your-server:4477`, and configure everything from the settings page. No environment variables needed beyond `TZ` — all settings live in the web UI and persist in the database.
 
-**Please note that this service is not designed to be exposed outside a local area network.**
+**Please note that this service is not designed to be exposed outside a local area network. It does not have authentication (except for KoSync). Please be careful deploying it and follow best security practices.**
 
-> **Full installation guide, including GPU setup, split-port security, and advanced options:** coming soon.
+> **Full installation guide** including GPU setup, split-port security, and advanced options coming soon.
 
 ---
 
@@ -66,7 +66,7 @@ Start the container, open `http://your-server:4477`, and configure everything fr
 
 Book Stitch runs three sync layers simultaneously, from fastest to slowest:
 
-1. **Instant sync** — Listens to Audiobookshelf's Socket.IO stream and KOReader's KoSync updates in real time. When you pause an audiobook or close your e-reader, Book Stitch picks up the change within seconds.
+1. **Instant sync** — Listens to Audiobookshelf's Socket.IO stream and KOReader's KoSync updates in real time. When you pause an audiobook or push an update from KoReader via KoSync, Book Stitch picks up the change within seconds.
 
 2. **Per-client polling** — Lightweight checks against individual services (Storyteller, Booklore) at their own intervals. Only triggers a sync when the position has actually changed.
 
@@ -80,7 +80,7 @@ When a position change is detected, Book Stitch converts it to every other forma
 
 The first time you link an audiobook to its EPUB, Book Stitch needs to build an alignment map. Here's what happens:
 
-1. A segment of the audiobook is transcribed using [Whisper](https://github.com/openai/whisper) (local), [Deepgram](https://deepgram.com/) (cloud), or [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) (external server).
+1. A segment of the audiobook is transcribed using [Whisper](https://github.com/openai/whisper) (local/part of the Docker container), [Deepgram](https://deepgram.com/) (cloud), or [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) (external server).
 2. The transcript is fuzzy-matched against the EPUB text to find corresponding positions.
 3. The resulting map is cached. After this, position conversion is instant — no re-transcription needed.
 
@@ -92,7 +92,7 @@ You can use a local Whisper model (runs on CPU or NVIDIA GPU) or offload to a cl
 
 Book Stitch can expose the KoSync API on a separate port from the admin dashboard. This keeps the sync endpoint available to your e-reader over the internet while the dashboard stays on your local network.
 
-**Important:** Port 4477 (the dashboard) must stay on your LAN. Only the `KOSYNC_PORT` is safe to forward.
+**Important:** Port 4477 (the dashboard) must stay on your LAN. Only the `KOSYNC_PORT` can be exposed via a reverse proxy as it does have an authentication layer built in.
 
 ### Setup
 
@@ -101,7 +101,7 @@ environment:
   - KOSYNC_PORT=5758
 ports:
   - "4477:4477"   # Dashboard — LAN only, do NOT forward
-  - "5758:5758"   # Sync API — safe to expose
+  - "5758:5758"   # Sync API — has authentication 
 ```
 
 ### TLS requirement
@@ -140,6 +140,7 @@ Book Stitch needs access to your EPUB files for alignment. Three options, in ord
 ## Building
 
 ### Docker (recommended)
+_Docker image coming soon_
 
 Clone the repository and build the image:
 
@@ -190,12 +191,19 @@ python -m src.web_server
 
 The server starts at `http://localhost:4477`. The database is created at `data/database.db`.
 
-Tests run with pytest:
+### Running tests
+
+Tests must run inside Docker because the suite depends on `epubcfi` (a C-extension
+package installed in the image) and `ffmpeg`. Use the included wrapper script:
 
 ```bash
-pytest tests/
-pytest tests/test_abs_socket_listener.py -v  # single file
+./run-tests.sh                                    # full suite
+./run-tests.sh tests/test_abs_socket_listener.py -v  # single file, verbose
+./run-tests.sh -k "test_sync_cycle"               # filter by name
 ```
+
+If the `book-stitch` container is running, tests execute there via `docker exec`
+(fastest). Otherwise the script falls back to `docker compose -f docker-compose.test.yml run --rm test`.
 
 ---
 

@@ -43,7 +43,9 @@ class ABSClient:
         self.session.headers.update(self.headers)
 
     def is_configured(self):
-        """Check if ABS is configured with URL and token."""
+        """Check if ABS is enabled and configured with URL and token."""
+        if os.environ.get("ABS_ENABLED", "true").lower() == 'false':
+            return False
         return bool(self.base_url and self.token)
 
     def check_connection(self):

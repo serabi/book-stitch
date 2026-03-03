@@ -41,3 +41,6 @@ screenshots/
 .cursorrules
 BRANCH_STATUS.md
 CLAUDE.md
+
+# Claude Code local settings (personal permissions/config)
+.claude/settings.local.json

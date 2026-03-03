@@ -17,6 +17,7 @@ from src.api.cwa_client import CWAClient
 from src.api.hardcover_client import HardcoverClient
 from src.api.storyteller_api import StorytellerAPIClient
 from src.db.database_service import DatabaseService
+from src.services.abs_service import ABSService
 from src.services.alignment_service import AlignmentService
 from src.services.library_service import LibraryService
 from src.services.migration_service import MigrationService
@@ -69,6 +70,12 @@ class Container(containers.DeclarativeContainer):
 
     # API Clients
     abs_client = providers.Singleton(ABSClient)
+
+    # ABS Service (guarded wrapper)
+    abs_service = providers.Singleton(
+        ABSService,
+        abs_client
+    )
 
     kosync_client = providers.Singleton(KoSyncClient)
 

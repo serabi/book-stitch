@@ -771,7 +771,7 @@ class BookloreClient:
                 # Create shelf
                 create_response = self._make_request("POST", "/api/v1/shelves", {
                     "name": shelf_name,
-                    "icon": "📚",
+                    "icon": "pi pi-book",
                     "iconType": "PRIME_NG"
                 })
                 if not create_response or create_response.status_code != 201:

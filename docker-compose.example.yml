@@ -22,7 +22,8 @@ services:
     volumes:
       # === REQUIRED ===
       - ./data:/data                    # App data (database, cache)
-      - /path/to/ebooks:/books          # Your EPUB library (Required unless using CWA/Booklore exclusively)
+      # === OPTIONAL ===
+      # - /path/to/ebooks:/books:ro     # Only needed for cross-format sync without Booklore/CWA
 
     ports:
       - "8080:4477"   # Admin Dashboard (Keep Internal/LAN)

@@ -1,4 +1,7 @@
-"""API blueprint — /api/status, /api/suggestions/*, /api/storyteller/*, /api/booklore/*."""
+"""API blueprint — /api/status, /api/suggestions/*, /api/storyteller/*, /api/booklore/*.
+
+ABS-specific routes (/api/abs/*, /api/cover-proxy/*) are in abs_bp.py.
+"""
 
 import json
 import logging
@@ -159,19 +162,6 @@ def api_storyteller_link(abs_id):
     database_service.save_book(book)
     database_service.dismiss_suggestion(abs_id)
     return jsonify({"message": "Linked successfully"}), 200
-
-
-# ---------------- ABS ----------------
-
-@api_bp.route('/api/abs/libraries', methods=['GET'])
-def get_abs_libraries():
-    """Return available ABS libraries."""
-    container = get_container()
-    if not container.abs_client().is_configured():
-        return jsonify({"error": "ABS not configured"}), 400
-
-    libraries = container.abs_client().get_libraries()
-    return jsonify(libraries)
 
 
 # ---------------- Booklore ----------------

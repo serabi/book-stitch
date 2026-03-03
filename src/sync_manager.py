@@ -131,7 +131,7 @@ class SyncManager:
             logger.debug("CWA not available (library_service or cwa_client missing)")
 
         # Check ABS ebook search capability
-        if self.abs_client:
+        if self.abs_client and self.abs_client.is_configured():
             try:
                 # Just verify methods exist (don't actually search during startup)
                 if hasattr(self.abs_client, 'get_ebook_files') and hasattr(self.abs_client, 'search_ebooks'):
@@ -277,9 +277,51 @@ class SyncManager:
         has_abs = 'ABS' in config
         ebook_clients = [k for k in config.keys() if k != 'ABS']
 
-        if not has_abs or not ebook_clients:
-            # Same-format sync, raw percentages are fine
+        if not ebook_clients:
+            # ABS-only, nothing to compare across formats
             return None
+
+        if not has_abs:
+            # Ebook-only path: normalize via character offsets in the shared EPUB
+            if not book.ebook_filename or len(ebook_clients) < 2:
+                return None
+            try:
+                book_path = self.ebook_parser.resolve_book_path(book.ebook_filename)
+                full_text, _ = self.ebook_parser.extract_text_and_map(book_path)
+                total_text_len = len(full_text)
+            except Exception as e:
+                logger.debug(f"'{book.abs_id}' Could not load ebook for normalization: {e}")
+                return None
+            if not total_text_len:
+                return None
+            normalized = {}
+            for client_name in ebook_clients:
+                client = self.sync_clients.get(client_name)
+                if not client:
+                    continue
+                client_state = config[client_name]
+                client_pct = client_state.current.get('pct', 0)
+                try:
+                    client_pct = max(0.0, min(1.0, float(client_pct)))
+                except (TypeError, ValueError):
+                    client_pct = 0.0
+                try:
+                    text_snippet = client.get_text_from_current_state(book, client_state)
+                    if text_snippet:
+                        loc = self.ebook_parser.find_text_location(
+                            book.ebook_filename, text_snippet,
+                            hint_percentage=client_pct
+                        )
+                        if loc and loc.match_index is not None:
+                            normalized[client_name] = loc.match_index
+                            logger.debug(f"'{book.abs_id}' Normalized '{client_name}' {client_pct:.2%} -> char {loc.match_index}")
+                            continue
+                except Exception as e:
+                    logger.debug(f"'{book.abs_id}' Text-based normalization failed for '{client_name}': {e}")
+                # Fallback: percentage-derived offset
+                normalized[client_name] = int(client_pct * total_text_len)
+                logger.debug(f"'{book.abs_id}' Normalized '{client_name}' {client_pct:.2%} -> char {int(client_pct * total_text_len)} (pct fallback)")
+            return normalized if len(normalized) > 1 else None
 
         if not book.transcript_file:
             logger.debug(f"'{book.abs_id}' No transcript available for cross-format normalization")
@@ -986,7 +1028,8 @@ class SyncManager:
                     leader = max(normalized_candidates, key=normalized_candidates.get)
                     leader_ts = normalized_candidates[leader]
                     leader_pct = vals[leader]
-                    logger.info(f"'{abs_id}' '{title_snip}' {leader} leads at {config[leader].value_formatter(leader_pct)} (normalized: {leader_ts:.1f}s)")
+                    norm_label = f"{leader_ts:.1f}s" if 'ABS' in config else f"char {leader_ts}"
+                    logger.info(f"'{abs_id}' '{title_snip}' {leader} leads at {config[leader].value_formatter(leader_pct)} (normalized: {norm_label})")
                 else:
                     # Fallback to percentage-based comparison among candidates
                     leader = max(candidates, key=candidates.get)
@@ -1267,7 +1310,7 @@ class SyncManager:
                         prev = cfg.previous_pct
                         curr = cfg.current.get('pct')
                         label, fmt = cfg.display
-                        status_lines.append(f"📊 {label}: {fmt.format(prev=prev, curr=curr)}")
+                        status_lines.append(f"{label}: {fmt.format(prev=prev, curr=curr)}")
 
                 for line in status_lines:
                     logger.info(line)

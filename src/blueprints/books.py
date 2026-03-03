@@ -13,6 +13,7 @@ from src.blueprints.helpers import (
     audiobook_matches_search,
     cleanup_mapping_resources,
     find_in_booklore,
+    get_abs_service,
     get_audiobooks_conditionally,
     get_container,
     get_database_service,
@@ -42,8 +43,11 @@ def match():
 
         # --- Audio-only import (no ebook required) ---
         if action == 'audio_only':
+            abs_service = get_abs_service()
+            if not abs_service.is_available():
+                return "ABS is not configured", 400
             abs_id = request.form.get('audiobook_id')
-            audiobooks = container.abs_client().get_all_audiobooks()
+            audiobooks = abs_service.get_audiobooks()
             selected_ab = next((ab for ab in audiobooks if ab['id'] == abs_id), None)
             if not selected_ab:
                 return "Audiobook not found", 404
@@ -57,7 +61,7 @@ def match():
                 sync_mode='audiobook',
             )
             database_service.save_book(book)
-            container.abs_client().add_to_collection(abs_id, ABS_COLLECTION_NAME)
+            abs_service.add_to_collection(abs_id, ABS_COLLECTION_NAME)
             hardcover_sync_client = container.sync_clients().get('Hardcover')
             if hardcover_sync_client and hardcover_sync_client.is_configured():
                 hardcover_sync_client._automatch_hardcover(book)
@@ -137,6 +141,9 @@ def match():
 
         # --- Attach audiobook to ebook-only book ---
         if action == 'attach_audiobook':
+            abs_service = get_abs_service()
+            if not abs_service.is_available():
+                return "ABS is not configured", 400
             link_book_id = request.form.get('link_book_id')
             abs_id = request.form.get('audiobook_id')
             if not link_book_id or not abs_id:
@@ -144,7 +151,7 @@ def match():
             book = database_service.get_book(link_book_id)
             if not book:
                 return "Book not found", 404
-            audiobooks = container.abs_client().get_all_audiobooks()
+            audiobooks = abs_service.get_audiobooks()
             selected_ab = next((ab for ab in audiobooks if ab['id'] == abs_id), None)
             if not selected_ab:
                 return "Audiobook not found", 404
@@ -162,18 +169,19 @@ def match():
             database_service.save_book(new_book)
             database_service.migrate_book_data(link_book_id, abs_id)
             database_service.delete_book(link_book_id)
-            container.abs_client().add_to_collection(abs_id, ABS_COLLECTION_NAME)
+            abs_service.add_to_collection(abs_id, ABS_COLLECTION_NAME)
             hardcover_sync_client = container.sync_clients().get('Hardcover')
             if hardcover_sync_client and hardcover_sync_client.is_configured():
                 hardcover_sync_client._automatch_hardcover(new_book)
             return redirect(url_for('dashboard.index'))
 
         # --- Standard flow (requires audiobook) ---
+        abs_service = get_abs_service()
         abs_id = request.form.get('audiobook_id')
         selected_filename = request.form.get('ebook_filename')
         ebook_filename = selected_filename
         original_ebook_filename = None
-        audiobooks = container.abs_client().get_all_audiobooks()
+        audiobooks = abs_service.get_audiobooks()
         selected_ab = next((ab for ab in audiobooks if ab['id'] == abs_id), None)
         if not selected_ab:
             return "Audiobook not found", 404
@@ -240,7 +248,7 @@ def match():
         if hardcover_sync_client and hardcover_sync_client.is_configured():
             hardcover_sync_client._automatch_hardcover(book)
 
-        container.abs_client().add_to_collection(abs_id, ABS_COLLECTION_NAME)
+        abs_service.add_to_collection(abs_id, ABS_COLLECTION_NAME)
         if bl_match_client:
             shelf_filename = original_ebook_filename or ebook_filename
             try:
@@ -278,13 +286,14 @@ def match():
         if link_book:
             link_title = link_book.abs_title or link_to
 
+    abs_service = get_abs_service()
     audiobooks, ebooks, storyteller_books = [], [], []
     if search:
         if not attach_to:
             audiobooks = get_audiobooks_conditionally()
             audiobooks = [ab for ab in audiobooks if audiobook_matches_search(ab, search)]
             for ab in audiobooks:
-                ab['cover_url'] = f"{container.abs_client().base_url}/api/items/{ab['id']}/cover?token={container.abs_client().token}"
+                ab['cover_url'] = abs_service.get_cover_proxy_url(ab['id'])
 
         if not link_to:
             ebooks = get_searchable_ebooks(search)
@@ -310,6 +319,8 @@ def batch_match():
 
     ABS_COLLECTION_NAME = os.environ.get("ABS_COLLECTION_NAME", "Synced with KOReader")
 
+    abs_service = get_abs_service()
+
     if request.method == 'POST':
         action = request.form.get('action')
         if action == 'add_to_queue':
@@ -318,7 +329,7 @@ def batch_match():
             ebook_filename = request.form.get('ebook_filename', '')
             ebook_display_name = request.form.get('ebook_display_name', ebook_filename)
             storyteller_uuid = request.form.get('storyteller_uuid', '')
-            audiobooks = container.abs_client().get_all_audiobooks()
+            audiobooks = abs_service.get_audiobooks()
             selected_ab = next((ab for ab in audiobooks if ab['id'] == abs_id), None)
             if selected_ab:
                 if not any(item['abs_id'] == abs_id for item in session['queue']):
@@ -330,7 +341,7 @@ def batch_match():
                         "ebook_display_name": ebook_display_name,
                         "storyteller_uuid": storyteller_uuid,
                         "duration": manager.get_duration(selected_ab),
-                        "cover_url": f"{container.abs_client().base_url}/api/items/{abs_id}/cover?token={container.abs_client().token}",
+                        "cover_url": abs_service.get_cover_proxy_url(abs_id),
                         "audio_only": is_audio_only,
                     })
                     session.modified = True
@@ -358,7 +369,7 @@ def batch_match():
                         sync_mode='audiobook',
                     )
                     database_service.save_book(book)
-                    container.abs_client().add_to_collection(item['abs_id'], ABS_COLLECTION_NAME)
+                    abs_service.add_to_collection(item['abs_id'], ABS_COLLECTION_NAME)
                     hardcover_sync_client = container.sync_clients().get('Hardcover')
                     if hardcover_sync_client and hardcover_sync_client.is_configured():
                         hardcover_sync_client._automatch_hardcover(book)
@@ -407,7 +418,7 @@ def batch_match():
                 if hardcover_sync_client and hardcover_sync_client.is_configured():
                     hardcover_sync_client._automatch_hardcover(book)
 
-                container.abs_client().add_to_collection(item['abs_id'], ABS_COLLECTION_NAME)
+                abs_service.add_to_collection(item['abs_id'], ABS_COLLECTION_NAME)
                 if bl_match_client:
                     shelf_filename = original_ebook_filename or ebook_filename
                     try:
@@ -435,7 +446,7 @@ def batch_match():
         audiobooks = get_audiobooks_conditionally()
         audiobooks = [ab for ab in audiobooks if audiobook_matches_search(ab, search)]
         for ab in audiobooks:
-            ab['cover_url'] = f"{container.abs_client().base_url}/api/items/{ab['id']}/cover?token={container.abs_client().token}"
+            ab['cover_url'] = abs_service.get_cover_proxy_url(ab['id'])
 
         ebooks = get_searchable_ebooks(search)
         ebooks.sort(key=lambda x: x.name.lower())
@@ -556,7 +567,7 @@ def update_hash(abs_id):
     book = database_service.get_book(abs_id)
 
     if not book:
-        flash("❌ Book not found", "error")
+        flash("Book not found", "error")
         return redirect(url_for('dashboard.index'))
 
     old_hash = book.kosync_doc_id
@@ -582,12 +593,12 @@ def update_hash(abs_id):
             logger.info(f"Auto-regenerated KoSync hash for '{sanitize_log_data(book.abs_title)}': '{recalc_hash}'")
             updated = True
         else:
-            flash("❌ Could not recalculate hash (file not found?)", "error")
+            flash("Could not recalculate hash (file not found?)", "error")
             return redirect(url_for('dashboard.index'))
 
     if updated and book.kosync_doc_id != old_hash:
         logger.info(f"Hash changed for '{sanitize_log_data(book.abs_title)}' -- triggering instant sync to reconcile progress")
         threading.Thread(target=manager.sync_cycle, kwargs={'target_abs_id': abs_id}, daemon=True).start()
 
-    flash(f"✅ Updated KoSync Hash for {book.abs_title}", "success")
+    flash(f"Updated KoSync Hash for {book.abs_title}", "success")
     return redirect(url_for('dashboard.index'))

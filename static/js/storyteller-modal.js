@@ -6,6 +6,7 @@
 let currentAbsId = null;
 
 function openStorytellerModal(absId, title) {
+    if (typeof closeActionPanel === 'function') closeActionPanel();
     currentAbsId = absId;
     document.getElementById('st-modal-title').textContent = `Link Storyteller: ${title}`;
     document.getElementById('st-modal').classList.remove('hidden');

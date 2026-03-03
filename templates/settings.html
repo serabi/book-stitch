@@ -106,69 +106,85 @@
                         <p>Audiobookshelf connection and Storyteller sync.</p>
                     </div>
 
-                    <div class="field-grid">
-                        <div class="form-group full-width">
-                            <label>Server URL</label>
-                            <input type="text" name="ABS_SERVER" value="{{ get_val('ABS_SERVER') }}">
-                        </div>
-                        <div class="form-group full-width">
-                            <label>API Token</label>
-                            <input type="password" name="ABS_KEY" value="{{ get_val('ABS_KEY') }}">
-                        </div>
-
-                        <div class="form-group full-width">
-                            <label>ABS Libraries</label>
-                            <div id="abs_library_picker">
-                                <button type="button" class="btn" onclick="fetchAbsLibraries()" style="margin-bottom: 8px;">Fetch Libraries</button>
-                                <div id="abs_library_list"></div>
-                            </div>
-                            <input type="hidden" name="ABS_LIBRARY_IDS" id="abs_library_ids_input"
-                                   value="{{ get_val('ABS_LIBRARY_IDS') }}">
-                            <div class="help-text">Select which libraries to search. Leave empty to search all.</div>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Collection Name (Auto-Add)</label>
-                            <input type="text" name="ABS_COLLECTION_NAME" value="{{ get_val('ABS_COLLECTION_NAME') }}">
-                        </div>
-                        <div class="form-group">
-                            <label>Progress Offset (Seconds)</label>
-                            <input type="number" name="ABS_PROGRESS_OFFSET_SECONDS"
-                                value="{{ get_val('ABS_PROGRESS_OFFSET_SECONDS') }}">
-                            <div class="help-text">Rewind progress sent to ABS (e.g. -60)</div>
-                        </div>
-
-                        <div class="checkbox-wrapper full-width">
-                            <input type="checkbox" id="abs_socket_enabled" name="ABS_SOCKET_ENABLED" {% if
-                                get_bool('ABS_SOCKET_ENABLED') %}checked{% endif %}>
-                            <label for="abs_socket_enabled">Enable ABS Socket.IO Listener</label>
-                        </div>
-                        <div class="full-width">
-                            <div class="help-text">Listens to real-time events from Audiobookshelf via Socket.IO. When a user starts or stops playback, the bridge is notified instantly instead of waiting for the next sync cycle.</div>
-                        </div>
-                        <div class="form-group" id="abs_socket_debounce_group">
-                            <label>Socket Debounce (Seconds)</label>
-                            <input type="number" name="ABS_SOCKET_DEBOUNCE_SECONDS"
-                                value="{{ get_val('ABS_SOCKET_DEBOUNCE_SECONDS') }}">
-                            <div class="help-text">Debounce delay for Socket.IO events</div>
-                        </div>
-                    </div>
-
-                    <!-- Sync Settings -->
+                    {% set abs_enabled = get_bool('ABS_ENABLED') %}
                     <div class="sub-section">
                         <div class="sub-section-header">
-                            <h3>Sync Settings</h3>
-                        </div>
-                        <div class="sub-section-body">
-                            <div class="form-group">
-                                <label>Min ABS Change (Seconds)</label>
-                                <input type="number" name="SYNC_DELTA_ABS_SECONDS"
-                                    value="{{ get_val('SYNC_DELTA_ABS_SECONDS') }}">
+                            <h3><span class="accent-dot" style="background: var(--color-abs, #5c6bc0);"></span> Audiobookshelf</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_abs" name="ABS_ENABLED"
+                                        onchange="toggleSection('abs_body', this.checked)" {% if abs_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
                             </div>
-                            <div class="checkbox-wrapper full-width">
-                                <input type="checkbox" id="abs_ebook" name="SYNC_ABS_EBOOK" {% if get_bool('SYNC_ABS_EBOOK')
-                                    %}checked{% endif %}>
-                                <label for="abs_ebook">Enable ABS Ebook Sync (Bi-directional)</label>
+                        </div>
+                        <div id="abs_body" class="sub-section-body {% if not abs_enabled %}collapsed{% endif %}">
+                            <div class="field-grid">
+                                <div class="form-group full-width">
+                                    <label>Server URL</label>
+                                    <input type="text" name="ABS_SERVER" value="{{ get_val('ABS_SERVER') }}">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label>API Token</label>
+                                    <input type="password" name="ABS_KEY" placeholder="{{ '(unchanged)' if get_val('ABS_KEY') else '' }}">
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label>ABS Libraries</label>
+                                    <div id="abs_library_picker">
+                                        <button type="button" class="btn" onclick="fetchAbsLibraries()" style="margin-bottom: 8px;">Fetch Libraries</button>
+                                        <div id="abs_library_list"></div>
+                                    </div>
+                                    <input type="hidden" name="ABS_LIBRARY_IDS" id="abs_library_ids_input"
+                                           value="{{ get_val('ABS_LIBRARY_IDS') }}">
+                                    <div class="help-text">Select which libraries to search. Leave empty to search all.</div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Collection Name (Auto-Add)</label>
+                                    <input type="text" name="ABS_COLLECTION_NAME" value="{{ get_val('ABS_COLLECTION_NAME') }}">
+                                </div>
+                                <div class="form-group">
+                                    <label>Progress Offset (Seconds)</label>
+                                    <input type="number" name="ABS_PROGRESS_OFFSET_SECONDS"
+                                        value="{{ get_val('ABS_PROGRESS_OFFSET_SECONDS') }}">
+                                    <div class="help-text">Rewind progress sent to ABS (e.g. -60)</div>
+                                </div>
+
+                                <div class="checkbox-wrapper full-width">
+                                    <input type="checkbox" id="abs_socket_enabled" name="ABS_SOCKET_ENABLED" {% if
+                                        get_bool('ABS_SOCKET_ENABLED') %}checked{% endif %}>
+                                    <label for="abs_socket_enabled">Enable ABS Socket.IO Listener</label>
+                                </div>
+                                <div class="full-width">
+                                    <div class="help-text">Listens to real-time events from Audiobookshelf via Socket.IO. When a user starts or stops playback, the bridge is notified instantly instead of waiting for the next sync cycle.</div>
+                                </div>
+                                <div class="form-group" id="abs_socket_debounce_group">
+                                    <label>Socket Debounce (Seconds)</label>
+                                    <input type="number" name="ABS_SOCKET_DEBOUNCE_SECONDS"
+                                        value="{{ get_val('ABS_SOCKET_DEBOUNCE_SECONDS') }}">
+                                    <div class="help-text">Debounce delay for Socket.IO events</div>
+                                </div>
+                            </div>
+
+                            <!-- Sync Settings -->
+                            <div class="sub-section">
+                                <div class="sub-section-header">
+                                    <h3>Sync Settings</h3>
+                                </div>
+                                <div class="sub-section-body">
+                                    <div class="form-group">
+                                        <label>Min ABS Change (Seconds)</label>
+                                        <input type="number" name="SYNC_DELTA_ABS_SECONDS"
+                                            value="{{ get_val('SYNC_DELTA_ABS_SECONDS') }}">
+                                    </div>
+                                    <div class="checkbox-wrapper full-width">
+                                        <input type="checkbox" id="abs_ebook" name="SYNC_ABS_EBOOK" {% if get_bool('SYNC_ABS_EBOOK')
+                                            %}checked{% endif %}>
+                                        <label for="abs_ebook">Enable ABS Ebook Sync (Bi-directional)</label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -199,7 +215,7 @@
                             </div>
                             <div class="form-group">
                                 <label>Password</label>
-                                <input type="password" name="STORYTELLER_PASSWORD" value="{{ get_val('STORYTELLER_PASSWORD') }}">
+                                <input type="password" name="STORYTELLER_PASSWORD" placeholder="{{ '(unchanged)' if get_val('STORYTELLER_PASSWORD') else '' }}">
                             </div>
                         </div>
                     </div>
@@ -244,7 +260,7 @@
                             </div>
                             <div class="form-group">
                                 <label>Password</label>
-                                <input type="password" name="BOOKLORE_PASSWORD" value="{{ get_val('BOOKLORE_PASSWORD') }}">
+                                <input type="password" name="BOOKLORE_PASSWORD" placeholder="{{ '(unchanged)' if get_val('BOOKLORE_PASSWORD') else '' }}">
                             </div>
                             <div class="form-group">
                                 <label>Shelf Name</label>
@@ -294,7 +310,7 @@
                             </div>
                             <div class="form-group">
                                 <label>Password</label>
-                                <input type="password" name="BOOKLORE_2_PASSWORD" value="{{ get_val('BOOKLORE_2_PASSWORD') }}">
+                                <input type="password" name="BOOKLORE_2_PASSWORD" placeholder="{{ '(unchanged)' if get_val('BOOKLORE_2_PASSWORD') else '' }}">
                             </div>
                             <div class="form-group">
                                 <label>Shelf Name</label>
@@ -339,7 +355,7 @@
                             </div>
                             <div class="form-group">
                                 <label>Password</label>
-                                <input type="password" name="CWA_PASSWORD" value="{{ get_val('CWA_PASSWORD') }}">
+                                <input type="password" name="CWA_PASSWORD" placeholder="{{ '(unchanged)' if get_val('CWA_PASSWORD') else '' }}">
                             </div>
                         </div>
                     </div>
@@ -384,7 +400,7 @@
                             </div>
                             <div class="form-group">
                                 <label>Password</label>
-                                <input type="password" name="KOSYNC_KEY" value="{{ get_val('KOSYNC_KEY') }}">
+                                <input type="password" name="KOSYNC_KEY" placeholder="{{ '(unchanged)' if get_val('KOSYNC_KEY') else '' }}">
                                 <div class="help-text">This will be your KOSync password in KOReader.</div>
                             </div>
 
@@ -513,7 +529,7 @@
                         <div id="telegram_body" class="sub-section-body {% if not telegram_enabled %}collapsed{% endif %}">
                             <div class="form-group full-width">
                                 <label>Bot Token</label>
-                                <input type="password" name="TELEGRAM_BOT_TOKEN" value="{{ get_val('TELEGRAM_BOT_TOKEN') }}">
+                                <input type="password" name="TELEGRAM_BOT_TOKEN" placeholder="{{ '(unchanged)' if get_val('TELEGRAM_BOT_TOKEN') else '' }}">
                             </div>
                             <div class="form-group">
                                 <label>Chat ID</label>
@@ -622,7 +638,7 @@
                         <div id="hardcover_body" class="sub-section-body {% if not hardcover_enabled %}collapsed{% endif %}">
                             <div class="form-group full-width">
                                 <label>API Token</label>
-                                <input type="password" name="HARDCOVER_TOKEN" value="{{ get_val('HARDCOVER_TOKEN') }}">
+                                <input type="password" name="HARDCOVER_TOKEN" placeholder="{{ '(unchanged)' if get_val('HARDCOVER_TOKEN') else '' }}">
                             </div>
                         </div>
                     </div>
@@ -817,8 +833,8 @@
                             <div id="group_deepgram" class="dynamic-group full-width" style="display:contents;">
                                 <div class="form-group">
                                     <label>Deepgram API Key</label>
-                                    <input type="password" name="DEEPGRAM_API_KEY" value="{{ get_val('DEEPGRAM_API_KEY') }}"
-                                        placeholder="dg_...">
+                                    <input type="password" name="DEEPGRAM_API_KEY"
+                                        placeholder="{{ '(unchanged)' if get_val('DEEPGRAM_API_KEY') else 'dg_...' }}">
                                     <div class="help-text">Get your key at <a href="https://console.deepgram.com"
                                             target="_blank" rel="noopener noreferrer">console.deepgram.com</a></div>
                                 </div>

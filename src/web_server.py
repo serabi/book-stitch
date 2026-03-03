@@ -111,6 +111,11 @@ def setup_dependencies(app, test_container=None):
     app.config['container'] = container
     app.config['sync_manager'] = manager
     app.config['database_service'] = database_service
+    if hasattr(container, 'abs_service'):
+        app.config['abs_service'] = container.abs_service()
+    else:
+        from src.services.abs_service import ABSService
+        app.config['abs_service'] = ABSService(container.abs_client())
     app.config['DATA_DIR'] = DATA_DIR
     app.config['EBOOK_DIR'] = EBOOK_DIR
     app.config['COVERS_DIR'] = COVERS_DIR
@@ -154,6 +159,7 @@ def inject_global_vars():
             'KOSYNC_HASH_METHOD': 'content',
             'TELEGRAM_LOG_LEVEL': 'ERROR',
             'SHELFMARK_URL': '',
+            'ABS_ENABLED': 'true',
             'KOSYNC_ENABLED': 'false',
             'STORYTELLER_ENABLED': 'false',
             'BOOKLORE_ENABLED': 'false',
@@ -166,7 +172,7 @@ def inject_global_vars():
         return default_val if default_val is not None else ''
 
     def get_bool(key):
-        val = os.environ.get(key, 'false')
+        val = get_val(key, 'false')
         return val.lower() in ('true', '1', 'yes', 'on')
 
     return dict(

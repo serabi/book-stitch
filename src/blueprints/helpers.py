@@ -40,6 +40,10 @@ def get_covers_dir():
     return current_app.config['COVERS_DIR']
 
 
+def get_abs_service():
+    return current_app.config['abs_service']
+
+
 # --------------- Booklore multi-instance helpers ---------------
 
 def get_booklore_clients():
@@ -74,13 +78,7 @@ def any_booklore_configured():
 
 def get_audiobooks_conditionally():
     """Get audiobooks from configured libraries (ABS_LIBRARY_IDS) or all libraries if not set."""
-    lib_ids_str = os.environ.get("ABS_LIBRARY_IDS", "").strip()
-    container = get_container()
-    if lib_ids_str:
-        lib_ids = [lid.strip() for lid in lib_ids_str.split(",") if lid.strip()]
-        return container.abs_client().get_audiobooks_for_libs(lib_ids)
-    else:
-        return container.abs_client().get_all_audiobooks()
+    return get_abs_service().get_audiobooks()
 
 
 def get_abs_author(ab):
@@ -312,27 +310,26 @@ def get_searchable_ebooks(search_term):
     # 2. ABS ebook libraries
     if search_term:
         try:
-            abs_client = container.abs_client()
-            if abs_client:
-                abs_ebooks = abs_client.search_ebooks(search_term)
-                if abs_ebooks:
-                    for ab in abs_ebooks:
-                        ebook_files = abs_client.get_ebook_files(ab['id'])
-                        if ebook_files:
-                            ef = ebook_files[0]
-                            fname = f"{ab['id']}_abs.{ef['ext']}"
-                            if fname.lower() not in found_filenames:
-                                results.append(EbookResult(
-                                    name=fname,
-                                    title=ab.get('title'),
-                                    authors=ab.get('author'),
-                                    source='ABS',
-                                    source_id=ab.get('id'),
-                                    cover_url=f"/api/cover-proxy/{ab['id']}"
-                                ))
-                                found_filenames.add(fname.lower())
-                                if ab.get('title'):
-                                    found_stems.add(ab['title'].lower().strip())
+            abs_service = get_abs_service()
+            abs_ebooks = abs_service.search_ebooks(search_term)
+            if abs_ebooks:
+                for ab in abs_ebooks:
+                    ebook_files = abs_service.get_ebook_files(ab['id'])
+                    if ebook_files:
+                        ef = ebook_files[0]
+                        fname = f"{ab['id']}_abs.{ef['ext']}"
+                        if fname.lower() not in found_filenames:
+                            results.append(EbookResult(
+                                name=fname,
+                                title=ab.get('title'),
+                                authors=ab.get('author'),
+                                source='ABS',
+                                source_id=ab.get('id'),
+                                cover_url=f"/api/cover-proxy/{ab['id']}"
+                            ))
+                            found_filenames.add(fname.lower())
+                            if ab.get('title'):
+                                found_stems.add(ab['title'].lower().strip())
         except Exception as e:
             logger.warning(f"ABS ebook search failed: {e}")
 
@@ -436,7 +433,7 @@ def cleanup_mapping_resources(book):
 
     collection_name = os.environ.get('ABS_COLLECTION_NAME', 'Synced with KOReader')
     try:
-        container.abs_client().remove_from_collection(book.abs_id, collection_name)
+        get_abs_service().remove_from_collection(book.abs_id, collection_name)
     except Exception as e:
         logger.warning(f"Failed to remove from ABS collection: {e}")
 

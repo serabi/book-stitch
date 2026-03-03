@@ -79,21 +79,20 @@ def api_hardcover_resolve():
             if not book:
                 return jsonify({"found": False, "message": "Book not found"}), 404
 
-            # Get metadata from ABS
+            # Get metadata from ABS (if available)
             item = container.abs_client().get_item_details(abs_id)
-            if not item:
-                return jsonify(
-                    {
-                        "found": False,
-                        "message": "Could not fetch book metadata from ABS",
-                    }
-                ), 502
-
-            meta = item.get("media", {}).get("metadata", {})
-            isbn = meta.get("isbn")
-            asin = meta.get("asin")
-            title = meta.get("title")
-            author = meta.get("authorName")
+            if item:
+                meta = item.get("media", {}).get("metadata", {})
+                isbn = meta.get("isbn")
+                asin = meta.get("asin")
+                title = meta.get("title")
+                author = meta.get("authorName")
+            else:
+                # ABS unavailable — fall back to DB book title
+                isbn = None
+                asin = None
+                title = book.abs_title
+                author = None
 
             # Try match cascade: ISBN -> ASIN -> title+author -> title only
             if isbn:

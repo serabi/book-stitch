@@ -7,7 +7,7 @@ from pathlib import Path
 
 from flask import Blueprint, redirect, render_template, url_for
 
-from src.blueprints.helpers import get_booklore_clients, get_container, get_database_service, get_manager
+from src.blueprints.helpers import get_abs_service, get_booklore_clients, get_container, get_database_service
 from src.version import APP_VERSION, get_update_status
 
 logger = logging.getLogger(__name__)
@@ -19,15 +19,16 @@ dashboard_bp = Blueprint('dashboard', __name__)
 def index():
     """Dashboard - loads books and progress from database service"""
     container = get_container()
-    manager = get_manager()
     database_service = get_database_service()
 
     books = database_service.get_all_books()
 
+    abs_service = get_abs_service()
+
     # Fetch ABS metadata once for the whole dashboard (single API call)
     abs_metadata_by_id = {}
     try:
-        all_abs_books = container.abs_client().get_all_audiobooks()
+        all_abs_books = abs_service.get_audiobooks()
         for ab in all_abs_books:
             ab_id = ab.get('id')
             if ab_id:
@@ -192,7 +193,7 @@ def index():
 
         # Platform deep links
         if book_type != 'ebook-only':
-            mapping['abs_url'] = f"{manager.abs_client.base_url}/item/{book.abs_id}"
+            mapping['abs_url'] = abs_service.get_abs_item_url(book.abs_id)
         else:
             mapping['abs_url'] = None
 
@@ -240,7 +241,7 @@ def index():
             mapping['last_sync'] = "Never"
 
         if book.abs_id and book_type != 'ebook-only':
-            mapping['cover_url'] = f"/api/cover-proxy/{book.abs_id}"
+            mapping['cover_url'] = abs_service.get_cover_proxy_url(book.abs_id)
         else:
             mapping['cover_url'] = None
 

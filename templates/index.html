@@ -146,7 +146,7 @@
                                 title="Update KoReader Hash (Current: {{ mapping.kosync_doc_id }})"
                                 data-abs-id="{{ mapping.abs_id }}" data-title="{{ mapping.abs_title|escape }}"
                                 data-hash="{{ mapping.kosync_doc_id }}" onclick="updateKoSyncHash(event)">
-                                <span class="service-icon-emoji"></span>
+                                <img src="/static/koreader-logo.svg" alt="KO" class="service-icon">
                                 <span class="service-name">KoSync</span>
                                 {% if mapping.states.kosync is defined %}
                                 <span class="service-value">{{ '%.1f' | format(mapping.states.kosync.percentage|default(0))
@@ -160,7 +160,7 @@
                             {# Storyteller - hide for audio-only #}
                             {% if bt != 'audio-only' and integrations.storyteller %}
                             <div class="service-item" title="Storyteller">
-                                <img src="/static/storyteller.png" alt="ST" class="service-icon
+                                <img src="/static/Storyteller_Logo.png" alt="ST" style="opacity: 1; filter: none; background: white; border-radius: 3px" class="service-icon
                                     {%- if not mapping.storyteller_uuid and not mapping.storyteller_legacy_link and mapping.states.storyteller is not defined %} grayscale-muted{% endif %}">
                                 <span class="service-name">Storyteller</span>
                                 {% if mapping.storyteller_legacy_link %}
@@ -223,10 +223,8 @@
                                     rel="noopener noreferrer"
                                     title="{% if mapping.hardcover_book_id %}Open {{ mapping.hardcover_title }} in Hardcover{% else %}Not linked to Hardcover{% endif %}"
                                     class="hc-link {% if not mapping.hardcover_book_id %}pe-none{% endif %}">
-                                    <img src="/static/hardcover.png" alt="HC"
-                                        class="service-icon {% if not mapping.hardcover_book_id %}grayscale-muted{% endif %}"
-                                        onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
-                                    <span class="hidden service-icon-emoji"></span>
+                                    <img src="/static/hardcover.svg" alt="HC"
+                                        class="service-icon {% if not mapping.hardcover_book_id %}grayscale-muted{% endif %}">
                                 </a>
                                 <span class="service-name">Hardcover</span>
                                 <span class="service-value cursor-pointer color-inherit" title="Click to edit Hardcover link"

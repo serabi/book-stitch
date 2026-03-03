@@ -2,7 +2,6 @@ import logging
 import os
 import re
 import time
-from pathlib import Path
 
 import requests
 
@@ -25,11 +24,9 @@ class StorytellerAPIClient:
         self._token_max_age = 30
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
-        self._filename_to_book_cache = {}  # Cache filename -> book mapping
 
     def clear_cache(self):
         """Call at start of each sync cycle to refresh."""
-        self._filename_to_book_cache = {}
         self._book_cache = {}
 
     def is_configured(self):
@@ -107,40 +104,6 @@ class StorytellerAPIClient:
             self._cache_timestamp = time.time()
             return True
         return False
-
-    def find_book_by_title(self, ebook_filename: str) -> dict | None:
-        if time.time() - self._cache_timestamp > 3600: self._refresh_book_cache()
-        if not self._book_cache: self._refresh_book_cache()
-
-        stem = Path(ebook_filename).stem.lower()
-        clean_stem = re.sub(r'\s*\([^)]*\)\s*$', '', stem)
-        clean_stem = re.sub(r'\s*\[[^\]]*\]\s*$', '', clean_stem)
-        clean_stem = clean_stem.strip().lower()
-
-        clean_stem = clean_stem.strip().lower()
-
-        # Check cache first
-        cache_key = ebook_filename.lower()
-        if cache_key in self._filename_to_book_cache:
-            return self._filename_to_book_cache[cache_key]
-
-        if clean_stem in self._book_cache:
-            self._filename_to_book_cache[cache_key] = self._book_cache[clean_stem]
-            return self._book_cache[clean_stem]
-
-        for title, book_info in self._book_cache.items():
-            if clean_stem in title or title in clean_stem:
-                self._filename_to_book_cache[cache_key] = book_info
-                return book_info
-
-        stem_words = set(clean_stem.split())
-        for title, book_info in self._book_cache.items():
-            title_words = set(title.split())
-            common = stem_words & title_words
-            if len(common) >= min(len(stem_words), len(title_words)) * 0.7:
-                self._filename_to_book_cache[cache_key] = book_info
-                return book_info
-        return None
 
     def get_position_details(self, book_uuid: str) -> tuple[float | None, int | None, str | None, str | None]:
         """
@@ -255,16 +218,6 @@ class StorytellerAPIClient:
 
         return False
 
-    def get_progress_by_filename(self, ebook_filename: str) -> tuple[float | None, int | None, str | None, str | None]:
-        book = self.find_book_by_title(ebook_filename)
-        if not book: return None, None, None, None
-        return self.get_position_details(book['uuid'])
-
-    def update_progress_by_filename(self, ebook_filename: str, percentage: float, rich_locator: LocatorResult = None) -> bool:
-        book = self.find_book_by_title(ebook_filename)
-        if not book: return False
-        return self.update_position(book['uuid'], percentage, rich_locator)
-
     def search_books(self, query: str) -> list:
         """Search for books in Storyteller."""
         response = self._make_request("GET", "/api/v2/books", None)
@@ -310,15 +263,6 @@ class StorytellerAPIClient:
         except Exception as e:
             logger.error(f"Error fetching book details: {e}")
         return None
-
-    def get_progress(self, ebook_filename: str) -> tuple[float | None, int | None]:
-        """Legacy compatibility wrapper."""
-        pct, ts, _, _ = self.get_progress_by_filename(ebook_filename)
-        return pct, ts
-
-    def get_progress_with_fragment(self, ebook_filename: str) -> tuple[float | None, int | None, str | None, str | None]:
-        """Legacy compatibility wrapper."""
-        return self.get_progress_by_filename(ebook_filename)
 
 def create_storyteller_client():
     return StorytellerAPIClient()

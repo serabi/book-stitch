@@ -74,6 +74,10 @@ class HardcoverSyncClient(SyncClient):
         if existing_details:
             return  # Already matched
 
+        if not self.abs_client or not self.abs_client.is_configured():
+            logger.debug(f"Skipping Hardcover automatch for '{sanitize_log_data(book.abs_title)}': ABS not available")
+            return
+
         item = self.abs_client.get_item_details(book.abs_id)
         if not item:
             return

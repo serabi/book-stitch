@@ -1,4 +1,4 @@
-"""Covers blueprint — /covers/<filename> and /api/cover-proxy/<abs_id>."""
+"""Covers blueprint — /covers/<filename> and /api/cover-proxy/booklore/."""
 
 import logging
 
@@ -43,30 +43,6 @@ def serve_cover(filename):
             logger.debug(f"Lazy cover extraction failed: {e}")
 
     return "Cover not found", 404
-
-
-@covers_bp.route('/api/cover-proxy/<abs_id>')
-def proxy_cover(abs_id):
-    """Proxy cover access to allow loading covers from local network ABS instances."""
-    try:
-        container = get_container()
-        token = container.abs_client().token
-        base_url = container.abs_client().base_url
-        if not token or not base_url:
-            return "ABS not configured", 500
-
-        url = f"{base_url.rstrip('/')}/api/items/{abs_id}/cover?token={token}"
-
-        req = requests.get(url, stream=True, timeout=10)
-        if req.status_code == 200:
-            resp = Response(req.iter_content(chunk_size=1024), content_type=req.headers.get('content-type', 'image/jpeg'))
-            resp.headers['Cache-Control'] = 'public, max-age=86400, immutable'
-            return resp
-        else:
-            return "Cover not found", 404
-    except Exception as e:
-        logger.error(f"Error proxying cover for '{abs_id}': {e}")
-        return "Error loading cover", 500
 
 
 @covers_bp.route('/api/cover-proxy/booklore/<source_tag>/<int:book_id>')

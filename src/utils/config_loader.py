@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # Full list of settings to manage
 ALL_SETTINGS = [
     # ABS
-    'ABS_SERVER', 'ABS_KEY', 'ABS_LIBRARY_IDS',
+    'ABS_ENABLED', 'ABS_SERVER', 'ABS_KEY', 'ABS_LIBRARY_IDS',
 
     # Optional ABS
     'ABS_COLLECTION_NAME', 'ABS_PROGRESS_OFFSET_SECONDS',
@@ -66,6 +66,7 @@ DEFAULT_CONFIG = {
     'LOG_LEVEL': 'INFO',
     'DATA_DIR': '/data',
     'BOOKS_DIR': '/books',
+    'ABS_ENABLED': 'true',
     'ABS_COLLECTION_NAME': 'Synced with KOReader',
     'ABS_LIBRARY_IDS': '',
     'BOOKLORE_SHELF_NAME': 'Kobo',

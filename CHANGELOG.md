@@ -4,6 +4,19 @@
 
 All notable changes to Book Stitch will be documented in this file.
 
+## [1.0.1] - 2026-03-02
+
+### Fixed
+
+- **Security: API token no longer sent as URL query parameter** — The cover proxy now passes the ABS token via `Authorization: Bearer` header instead of `?token=` in the URL, preventing it from leaking into logs, browser history, and referrer headers.
+- **Security: Secrets removed from settings HTML** — Password and API token fields no longer emit their stored value into the DOM. Fields show an `(unchanged)` placeholder when a value is set, and the backend preserves existing secrets when the field is submitted empty.
+- **Docker test entrypoint** — Fixed `sh -c` argument handling in `docker-compose.test.yml` that leaked the shell name (`sh`) as a stray pytest argument when passing flags via `run-tests.sh`.
+- **Sync engine: `client_pct` null safety** — `client_pct` is now sanitized after reading from client state, preventing `TypeError` when the value is explicitly `None` (e.g., from a JSON `null`).
+- **Navbar icon flash on page reload** — Added intrinsic `width`/`height` attributes to the app icon to prevent it from rendering at full native size before CSS loads.
+- **Test assertion** — Removed stale emoji prefix from sync unit test assertion to match current log format.
+
+---
+
 ## [1.0.0] - 2026-03-01
 
 ### Initial Release

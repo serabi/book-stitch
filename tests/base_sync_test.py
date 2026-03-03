@@ -143,8 +143,6 @@ class BaseSyncCycleTestCase(unittest.TestCase, ABC):
 
         # [UPDATED] Use get_position_details for strict sync
         storyteller_client.get_position_details.return_value = progress_returns['storyteller_progress']
-        # Also keep legacy just in case, though strictly not needed
-        storyteller_client.get_progress_with_fragment.return_value = progress_returns['storyteller_progress']
 
         booklore_client.get_progress.return_value = progress_returns['booklore_progress']
 
@@ -423,7 +421,7 @@ class BaseSyncCycleTestCase(unittest.TestCase, ABC):
                               f"Logs should show {self.get_expected_leader()} as leader")
 
                 # Verify progress changes are logged
-                self.assertIn(f"📊 {self.get_expected_leader()}: {from_percentage}.0000% -> {target_percentage}.0000%", log_output,
+                self.assertIn(f"{self.get_expected_leader()}: {from_percentage}.0000% -> {target_percentage}.0000%", log_output,
                               f"Logs should show {self.get_expected_leader()} progress change")
 
             return log_output
