@@ -33,7 +33,7 @@ class TestSettingsComprehensive(unittest.TestCase):
     def setUp(self):
         """
         Prepare the test environment: create a temporary DATA_DIR, install a mock dependency container and mock database initializer, create the Flask test application and client, and define the list of boolean setting keys used by tests.
-        
+
         The following observable effects are performed:
         - A temporary directory is created and assigned to the DATA_DIR environment variable.
         - A MockContainer instance is created and made available as self.mock_container.
@@ -79,7 +79,7 @@ class TestSettingsComprehensive(unittest.TestCase):
     def tearDown(self):
         """
         Restore the original database initializer, remove the test temporary directory, and clear boolean-related environment variables.
-        
+
         This method restores src.db.migration_utils.initialize_database to its original value saved in setUp, deletes the temporary directory created for the test, and removes any environment variables named in self.bool_keys if they exist.
         """
         import src.db.migration_utils
@@ -128,7 +128,7 @@ class TestSettingsComprehensive(unittest.TestCase):
     def test_text_fields_save(self, mock_restart):
         """
         Ensure text-based settings are saved to the database when submitted.
-        
+
         Posts TZ, SYNC_PERIOD_MINS, and ABS_SERVER to the /settings endpoint and asserts
         that each key/value pair is persisted via the container's database service.
         """

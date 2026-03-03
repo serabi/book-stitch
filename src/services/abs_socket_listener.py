@@ -47,7 +47,7 @@ class ABSSocketListener:
     ):
         """
         Initialize the ABSSocketListener with server credentials, services, and internal runtime state.
-        
+
         Parameters:
             abs_server_url (str): Base URL of the Audiobookshelf server (may include trailing path); will be normalized.
             abs_api_token (str): API token used to authenticate requests; may be exchanged for a socket-compatible token.
@@ -231,7 +231,7 @@ class ABSSocketListener:
     def _debounce_loop(self) -> None:
         """
         Run a background loop that periodically checks pending events and triggers debounced syncs.
-        
+
         The loop wakes every 10 seconds and calls the check-and-fire routine until the listener is stopped.
         """
         logger.debug("ABS Socket.IO: Debounce loop started")
@@ -298,7 +298,7 @@ class ABSSocketListener:
     def stop(self) -> None:
         """
         Stop the listener and disconnect the Socket.IO client.
-        
+
         When called, this method stops the background debounce loop and, if the Socket.IO client is connected, disconnects it and logs the action.
         """
         self._running = False

@@ -21,7 +21,7 @@ from src.version import get_update_status
 def _reconfigure_logging():
     """
     Update the root logger's level from the LOG_LEVEL environment variable.
-    
+
     Reads LOG_LEVEL (default "INFO"), resolves it to a logging level constant, sets the root logger to that level, and logs the outcome. On failure, emits a warning describing the error.
     """
     try:
@@ -38,14 +38,14 @@ def _reconfigure_logging():
 def _reconcile_socket_listener(app):
     """
     Ensure the ABS Socket.IO listener is started, stopped, or restarted to reflect current environment settings.
-    
+
     Reads INSTANT_SYNC_ENABLED, ABS_SOCKET_ENABLED, ABS_SERVER, and ABS_KEY from the environment and:
     - starts the listener when instant sync and socket are enabled and server + key are present,
     - stops the listener when it is disabled or credentials are missing,
     - restarts the listener when credentials change.
-    
+
     Updates app.config entries 'abs_listener', '_abs_listener_server', and '_abs_listener_key' and uses app.config['database_service'] and app.config['sync_manager'] when creating the listener.
-    
+
     Parameters:
         app: The Flask application whose config holds listener state and required services.
     """
@@ -102,9 +102,9 @@ def _reconcile_socket_listener(app):
 def apply_settings(app):
     """
     Apply runtime updates for settings that do not automatically propagate from environment variables.
-    
+
     Updates the global logging level, reschedules the periodic sync job to match SYNC_PERIOD_MINS, and reconciles the ABS Socket.IO listener (start/stop/restart) to match current environment configuration on the provided Flask application.
-    
+
     Parameters:
         app (flask.Flask): The Flask application whose services and config will be adjusted.
     """
@@ -234,7 +234,7 @@ def setup_dependencies(app, test_container=None):
 def inject_global_vars():
     """
     Provide global template variables and helper functions for Jinja templates.
-    
+
     Returns:
         dict: Mapping made available to templates containing:
             - abs_server (str): Value of ENV['ABS_SERVER'] or empty string.
@@ -286,10 +286,10 @@ def inject_global_vars():
     def get_bool(key):
         """
         Interpret the value of an environment variable as a boolean.
-        
+
         Parameters:
             key (str): Environment variable name to read via get_val.
-        
+
         Returns:
             bool: `True` if the variable's value (case-insensitive) is one of `'true'`, `'1'`, `'yes'`, or `'on'`; `False` otherwise.
         """
@@ -308,7 +308,7 @@ def inject_global_vars():
 def sync_daemon():
     """
     Run the background synchronization daemon that schedules and executes periodic sync tasks.
-    
+
     Schedules the main sync cycle to run every SYNC_PERIOD_MINS minutes and a pending-job checker every minute, performs an initial sync once at startup, then enters a loop that runs scheduled jobs and sleeps between checks. Errors during the initial sync or in the main loop are logged; the daemon continues retrying after failures.
     """
     try:
