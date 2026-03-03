@@ -45,6 +45,15 @@ class ABSSocketListener:
         database_service,
         sync_manager,
     ):
+        """
+        Initialize the ABSSocketListener with server credentials, services, and internal runtime state.
+
+        Parameters:
+            abs_server_url (str): Base URL of the Audiobookshelf server (may include trailing path); will be normalized.
+            abs_api_token (str): API token used to authenticate requests; may be exchanged for a socket-compatible token.
+            database_service: Database access service used to look up books and their status.
+            sync_manager: Manager responsible for performing downstream sync cycles for given ABS item IDs.
+        """
         self._server_url = abs_server_url.rstrip("/").replace("/api", "")
         self._api_token = abs_api_token
         self._socket_token: str | None = None
@@ -220,7 +229,11 @@ class ABSSocketListener:
     # ------------------------------------------------------------------
 
     def _debounce_loop(self) -> None:
-        """Check pending events every 10s and fire sync after debounce window."""
+        """
+        Run a background loop that periodically checks pending events and triggers debounced syncs.
+
+        The loop wakes every 10 seconds and calls the check-and-fire routine until the listener is stopped.
+        """
         logger.debug("ABS Socket.IO: Debounce loop started")
         while self._running:
             try:
@@ -283,7 +296,11 @@ class ABSSocketListener:
             logger.error(f"ABS Socket.IO: Failed to connect — {e}")
 
     def stop(self) -> None:
-        """Disconnect cleanly."""
+        """Stop the listener and disconnect the Socket.IO client.
+
+        Stops the background debounce loop and, if the Socket.IO client
+        is connected, disconnects it and logs the action.
+        """
         self._running = False
         try:
             if self._sio.connected:

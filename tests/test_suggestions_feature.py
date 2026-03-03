@@ -1,4 +1,3 @@
-
 import json
 import os
 import sys
@@ -67,6 +66,11 @@ class TestSuggestionsFeature(unittest.TestCase):
         self.client = self.app.test_client()
 
     def tearDown(self):
+        """
+        Restore the original database initializer, remove the temporary test directory, and clear the SUGGESTIONS_ENABLED environment variable.
+
+        Reverts any patch applied to src.db.migration_utils.initialize_database, recursively deletes the temporary directory created for the test, and removes SUGGESTIONS_ENABLED from the process environment if present.
+        """
         import src.db.migration_utils
         src.db.migration_utils.initialize_database = self.original_init_db
         import shutil

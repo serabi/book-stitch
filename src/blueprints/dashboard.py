@@ -17,7 +17,14 @@ dashboard_bp = Blueprint('dashboard', __name__)
 
 @dashboard_bp.route('/')
 def index():
-    """Dashboard - loads books and progress from database service"""
+    """
+    Render the dashboard with enriched book and progress data.
+    
+    Loads books, listening states, pending suggestions, hardcover and Booklore metadata, and integration statuses, then renders the dashboard page with per-book mappings, overall progress, suggestions, app version and update information.
+    
+    Returns:
+        Rendered template response for the dashboard page.
+    """
     container = get_container()
     database_service = get_database_service()
 

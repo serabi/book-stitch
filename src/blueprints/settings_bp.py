@@ -46,6 +46,21 @@ def secrets_compare(a: str, b: str) -> bool:
 
 @settings_bp.route('/settings', methods=['GET', 'POST'])
 def settings():
+    """
+    Handle the settings page: persist submitted configuration on POST and render the settings UI on GET.
+
+    On POST, updates persistent settings and corresponding environment variables from the submitted form:
+    - Updates boolean toggles.
+    - Persists text inputs, preserving secret values when left empty.
+    - Normalizes URL-like values by ensuring an http:// or https:// prefix when missing.
+    After persisting, attempts to apply the updated settings; on success sets a success message in the session, on failure sets an error message and logs the exception. Redirects back to the settings page preserving the active tab.
+
+    On GET, reads any session message and error flag, removes them from the session, and renders the settings template.
+
+    Returns:
+    - A redirect response to the settings page when handling POST.
+    - A rendered template response for the settings page when handling GET.
+    """
     database_service = get_database_service()
 
     if request.method == 'POST':
