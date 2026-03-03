@@ -166,7 +166,8 @@ class Container(containers.DeclarativeContainer):
         abs_client,
         transcriber,
         ebook_parser,
-        alignment_service
+        alignment_service,
+        data_dir
     )
 
     kosync_sync_client = providers.Singleton(
