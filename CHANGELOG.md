@@ -8,8 +8,14 @@ All notable changes to Book Stitch will be documented in this file.
 
 ### Changed
 
+- **Hot-reload settings without server restart** — Saving settings now applies changes in-process instead of restarting the container. Handles LOG_LEVEL reconfiguration, SYNC_PERIOD_MINS rescheduling, and ABS Socket.IO listener start/stop/restart.
 - **KoSync password is now visible after save** — The KoSync password field now displays the saved value (masked) with a Show/Hide toggle, since this is a password you set here and need to retype in KOReader.
 - **Save Settings button right-aligned** — The floating Save bar now aligns the button to the right.
+
+### Fixed
+
+- **Settings tab resets to General on save** — The active tab is now preserved across saves via a hidden form field.
+- **Navbar icons persisting for disabled services** — Service icons are now gated on their `*_ENABLED` flags.
 
 ### Removed
 
