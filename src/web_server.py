@@ -21,15 +21,109 @@ from src.version import get_update_status
 def _reconfigure_logging():
     """Force update of root logger level based on env var."""
     try:
-            new_level_str = os.environ.get('LOG_LEVEL', 'INFO').upper()
-            new_level = getattr(logging, new_level_str, logging.INFO)
+        new_level_str = os.environ.get('LOG_LEVEL', 'INFO').upper()
+        new_level = getattr(logging, new_level_str, logging.INFO)
 
-            root = logging.getLogger()
-            root.setLevel(new_level)
+        root = logging.getLogger()
+        root.setLevel(new_level)
 
-            logger.info(f"Logging level updated to {new_level_str}")
+        logger.info(f"Logging level updated to {new_level_str}")
     except Exception as e:
-            logger.warning(f"Failed to reconfigure logging: {e}")
+        logger.warning(f"Failed to reconfigure logging: {e}")
+
+def _reconcile_socket_listener(app):
+    """Start, stop, or restart the ABS Socket.IO listener to match current env vars."""
+    from src.services.abs_socket_listener import ABSSocketListener
+
+    instant_sync = os.environ.get('INSTANT_SYNC_ENABLED', 'true').lower() != 'false'
+    socket_enabled = os.environ.get('ABS_SOCKET_ENABLED', 'true').lower() != 'false'
+    abs_server = os.environ.get('ABS_SERVER', '')
+    abs_key = os.environ.get('ABS_KEY', '')
+    should_run = instant_sync and socket_enabled and abs_server and abs_key
+
+    current: ABSSocketListener | None = app.config.get('abs_listener')
+    current_server = app.config.get('_abs_listener_server', '')
+    current_key = app.config.get('_abs_listener_key', '')
+
+    if should_run and current is None:
+        # Start new listener
+        listener = ABSSocketListener(
+            abs_server_url=abs_server,
+            abs_api_token=abs_key,
+            database_service=app.config['database_service'],
+            sync_manager=app.config['sync_manager'],
+        )
+        threading.Thread(target=listener.start, daemon=True).start()
+        app.config['abs_listener'] = listener
+        app.config['_abs_listener_server'] = abs_server
+        app.config['_abs_listener_key'] = abs_key
+        logger.info("ABS Socket.IO listener started via hot-reload")
+
+    elif not should_run and current is not None:
+        # Stop running listener
+        current.stop()
+        app.config['abs_listener'] = None
+        app.config['_abs_listener_server'] = ''
+        app.config['_abs_listener_key'] = ''
+        logger.info("ABS Socket.IO listener stopped via hot-reload")
+
+    elif should_run and current is not None and (abs_server != current_server or abs_key != current_key):
+        # Credentials changed — restart listener
+        current.stop()
+        listener = ABSSocketListener(
+            abs_server_url=abs_server,
+            abs_api_token=abs_key,
+            database_service=app.config['database_service'],
+            sync_manager=app.config['sync_manager'],
+        )
+        threading.Thread(target=listener.start, daemon=True).start()
+        app.config['abs_listener'] = listener
+        app.config['_abs_listener_server'] = abs_server
+        app.config['_abs_listener_key'] = abs_key
+        logger.info("ABS Socket.IO listener restarted via hot-reload (credentials changed)")
+
+
+def apply_settings(app):
+    """Hot-reload settings that don't propagate automatically via os.environ.
+
+    Handles the three edge cases that previously required a full server restart:
+    1. LOG_LEVEL — reconfigure the root logger
+    2. SYNC_PERIOD_MINS — clear and re-register the schedule job
+    3. ABS Socket.IO listener — start/stop/restart to match current config
+    """
+    errors = []
+
+    # 1. Reconfigure logging level
+    _reconfigure_logging()
+
+    # 2. Reschedule sync_cycle job with new period
+    try:
+        sync_mgr = app.config.get('sync_manager')
+        raw_period = os.environ.get('SYNC_PERIOD_MINS', '5')
+        new_period = int(raw_period)
+        if new_period <= 0:
+            raise ValueError("SYNC_PERIOD_MINS must be an integer greater than 0")
+
+        schedule.clear('sync_cycle')
+        if sync_mgr:
+            schedule.every(new_period).minutes.do(sync_mgr.sync_cycle).tag('sync_cycle')
+        logger.info(f"Sync schedule updated to every {new_period} minutes")
+    except Exception as e:
+        errors.append(f"sync reschedule failed: {e}")
+
+    # 3. Reconcile ABS Socket.IO listener state
+    try:
+        _reconcile_socket_listener(app)
+    except Exception as e:
+        errors.append(f"socket listener reconciliation failed: {e}")
+
+    if errors:
+        error_message = "; ".join(errors)
+        logger.error(f"Failed to apply one or more settings: {error_message}")
+        raise RuntimeError(error_message)
+
+    return True
+
 
 # ---------------- APP SETUP ----------------
 container = None
@@ -158,7 +252,6 @@ def inject_global_vars():
             'EBOOK_CACHE_SIZE': '3',
             'KOSYNC_HASH_METHOD': 'content',
             'TELEGRAM_LOG_LEVEL': 'ERROR',
-            'SHELFMARK_URL': '',
             'ABS_ENABLED': 'true',
             'KOSYNC_ENABLED': 'false',
             'STORYTELLER_ENABLED': 'false',
@@ -176,7 +269,6 @@ def inject_global_vars():
         return val.lower() in ('true', '1', 'yes', 'on')
 
     return dict(
-        shelfmark_url=os.environ.get("SHELFMARK_URL", ""),
         abs_server=os.environ.get("ABS_SERVER", ""),
         booklore_server=os.environ.get("BOOKLORE_SERVER", ""),
         get_val=get_val,
@@ -188,8 +280,8 @@ def inject_global_vars():
 def sync_daemon():
     """Background sync daemon running in a separate thread."""
     try:
-        schedule.every(int(SYNC_PERIOD_MINS)).minutes.do(manager.sync_cycle)
-        schedule.every(1).minutes.do(manager.check_pending_jobs)
+        schedule.every(int(SYNC_PERIOD_MINS)).minutes.do(manager.sync_cycle).tag('sync_cycle')
+        schedule.every(1).minutes.do(manager.check_pending_jobs).tag('check_jobs')
 
         logger.info(f"Sync daemon started (period: {SYNC_PERIOD_MINS} minutes)")
 
@@ -326,13 +418,19 @@ if __name__ == '__main__':
             database_service=database_service,
             sync_manager=manager
         )
-        abs_socket_thread = threading.Thread(target=abs_listener.start, daemon=True)
-        abs_socket_thread.start()
+        threading.Thread(target=abs_listener.start, daemon=True).start()
+        app.config['abs_listener'] = abs_listener
+        app.config['_abs_listener_server'] = os.environ.get('ABS_SERVER', '')
+        app.config['_abs_listener_key'] = os.environ.get('ABS_KEY', '')
         logger.info("ABS Socket.IO listener started (instant sync enabled)")
-    elif not instant_sync_enabled:
-        logger.info("ABS Socket.IO listener disabled (INSTANT_SYNC_ENABLED=false)")
-    elif not abs_socket_enabled:
-        logger.info("ABS Socket.IO listener disabled (ABS_SOCKET_ENABLED=false)")
+    else:
+        app.config['abs_listener'] = None
+        app.config['_abs_listener_server'] = ''
+        app.config['_abs_listener_key'] = ''
+        if not instant_sync_enabled:
+            logger.info("ABS Socket.IO listener disabled (INSTANT_SYNC_ENABLED=false)")
+        elif not abs_socket_enabled:
+            logger.info("ABS Socket.IO listener disabled (ABS_SOCKET_ENABLED=false)")
 
     # Start per-client poller
     from src.services.client_poller import ClientPoller

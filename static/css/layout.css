@@ -118,6 +118,13 @@
   stroke-width: 2;
 }
 
+.nav-icon-link .nav-service-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
 .nav-actions {
   display: flex;
   gap: 16px;

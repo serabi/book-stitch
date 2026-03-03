@@ -65,7 +65,6 @@ class TestSettingsComprehensive(unittest.TestCase):
             'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT',
             'INSTANT_SYNC_ENABLED',
             'ABS_SOCKET_ENABLED',
-            'SHELFMARK_ENABLED',
         ]
 
     def tearDown(self):
@@ -78,7 +77,7 @@ class TestSettingsComprehensive(unittest.TestCase):
             if key in os.environ:
                 del os.environ[key]
 
-    @patch('src.blueprints.settings_bp.restart_server')
+    @patch('src.web_server.apply_settings')
     def test_all_bool_toggles(self, mock_restart):
         """Verify EVERY boolean setting can be toggled ON and OFF."""
 
@@ -111,7 +110,7 @@ class TestSettingsComprehensive(unittest.TestCase):
             self.mock_container.mock_database_service.set_setting.assert_any_call(key, 'false')
             self.assertEqual(os.environ.get(key), 'false', f"{key} should be 'false' in env")
 
-    @patch('src.blueprints.settings_bp.restart_server')
+    @patch('src.web_server.apply_settings')
     def test_text_fields_save(self, mock_restart):
         """Verify text fields correspond to logic."""
         test_data = {

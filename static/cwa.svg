@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Book body -->
+  <path d="M12 8h32a4 4 0 0 1 4 4v40a4 4 0 0 1-4 4H16a4 4 0 0 1-4-4V8z" fill="#FB923C"/>
+  <!-- Book spine -->
+  <path d="M12 8h6v48h-6a4 4 0 0 1-4-4V12a4 4 0 0 1 4-4z" fill="#EA580C"/>
+  <!-- Page lines -->
+  <rect x="24" y="16" width="16" height="2" rx="1" fill="#FFF" opacity="0.6"/>
+  <rect x="24" y="22" width="12" height="2" rx="1" fill="#FFF" opacity="0.6"/>
+  <!-- Gear overlay -->
+  <circle cx="44" cy="44" r="11" fill="#1E293B"/>
+  <path d="M44 36.5l1.4.6.8-1.2 1.8.4.2 1.4 1.4.2.4 1.8-1.2.8.6 1.4-.6 1.4 1.2.8-.4 1.8-1.4.2-.2 1.4-1.8.4-.8-1.2-1.4.6-1.4-.6-.8 1.2-1.8-.4-.2-1.4-1.4-.2-.4-1.8 1.2-.8-.6-1.4.6-1.4-1.2-.8.4-1.8 1.4-.2.2-1.4 1.8-.4.8 1.2z" fill="#FB923C"/>
+  <circle cx="44" cy="44" r="4" fill="#1E293B"/>
+</svg>

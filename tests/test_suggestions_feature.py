@@ -75,7 +75,7 @@ class TestSuggestionsFeature(unittest.TestCase):
         if 'SUGGESTIONS_ENABLED' in os.environ:
             del os.environ['SUGGESTIONS_ENABLED']
 
-    @patch('src.blueprints.settings_bp.restart_server')
+    @patch('src.web_server.apply_settings')
     def test_settings_save_toggle(self, mock_restart):
         """Test that saving settings updates the env var and DB."""
         # Initial state: default is true (implied) or unset

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Book Stitch](static/icon.png)
+<img src="static/icon.png" alt="Book Stitch" width="128">
 
 **Sync your audiobooks with your ebooks across your various self-hosted services.**
 
@@ -18,9 +18,9 @@
 
 If you listen to audiobooks on a regular basis on [Audiobookshelf](https://www.audiobookshelf.org/) or [Storyteller](https://storyteller-platform.gitlab.io/storyteller/) during the day and then pick up the same book via KoReader or Kobo before bed, you know how frustrating it can be to find your place in the book. 
 
-The goal of Book Stitch fixes that. It's a self-hosted, Docker based sync engine that links your audiobook position to the matching spot in the ebook (and vice versa), then pushes that position to every app you use. It works by transcribing a segment of the audiobook audio and fuzzy-matching it against the EPUB text. Once that alignment map is built, converting between a timestamp and a page position is instant.
+The goal of Book Stitch is to help "stitch" your books together in order to let you resume reading where you left off, no matter which app you use. It's a self-hosted, Docker based sync engine that links your audiobook position to the matching spot in the ebook (and vice versa), then pushes that position to every app you use. It works by transcribing a segment of the audiobook audio and fuzzy-matching it against the EPUB text. Once that alignment map is built, converting between a timestamp and a page position simply takes a sync. 
 
-Major kudos and credit goes to [abs-kosync-bridge](link) for being the inspiration for this project. This project is a fork of that project that was inspired by me realizing that my focus was more on tracking _what_ I read, and having a tool that would be flexible for my personal needs. I'm releasing it as open source in case anyone else finds it useful, and I'm open to suggestions and contributions.  
+Major kudos and credit goes to [abs-kosync-bridge](https://github.com/cporcellijr/abs-kosync-bridge) for being the inspiration for this project. This project started as a feature and ended up being a complete fork and rewrite, inspired by me realizing that my focus was more on tracking _what_ I read. A big thing I love about the open source community is the ability for us to contribute to projects, fork projects, and give back to the community through those efforts. In the spirit of open source, I'm sharing Book Stitch in case anyone else finds it useful, and I'm open to suggestions and contributions.  
 
 ### Supported platforms
 

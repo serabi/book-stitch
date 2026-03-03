@@ -2,15 +2,46 @@
 
 import logging
 import os
-import threading
 
-from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 
-from src.blueprints.helpers import get_container, get_database_service, restart_server
+from src.blueprints.helpers import get_container, get_database_service
 
 logger = logging.getLogger(__name__)
 
 settings_bp = Blueprint('settings_page', __name__)
+
+
+def _is_secret_request_authorized() -> bool:
+    """Authorize secret reveal requests.
+
+    Allowed if either:
+    - Session indicates an admin user, or
+    - Caller presents a valid internal service token.
+    """
+    if bool(session.get('is_admin')):
+        return True
+
+    expected_token = os.environ.get('INTERNAL_SERVICE_TOKEN', '').strip()
+    provided_token = request.headers.get('X-Internal-Service-Token', '').strip()
+    if expected_token and secrets_compare(expected_token, provided_token):
+        return True
+
+    return False
+
+
+def _mask_secret(value: str) -> str:
+    """Return a masked secret showing only the last 4 characters."""
+    if not value:
+        return ''
+    tail = value[-4:] if len(value) >= 4 else value
+    return f"{'*' * max(0, len(value) - len(tail))}{tail}"
+
+
+def secrets_compare(a: str, b: str) -> bool:
+    """Constant-time secret comparison."""
+    import hmac
+    return hmac.compare_digest(a, b)
 
 
 @settings_bp.route('/settings', methods=['GET', 'POST'])
@@ -34,7 +65,6 @@ def settings():
             'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT',
             'INSTANT_SYNC_ENABLED',
             'ABS_SOCKET_ENABLED',
-            'SHELFMARK_ENABLED',
         ]
 
         current_settings = database_service.get_all_settings()
@@ -54,14 +84,18 @@ def settings():
 
         # 2. Handle Text Inputs
         for key, value in request.form.items():
+            if key == '_active_tab':
+                continue
             if key in bool_keys:
                 continue
 
             clean_value = value.strip()
 
             url_keys = [
-                'SHELFMARK_URL', 'ABS_SERVER', 'BOOKLORE_SERVER', 'BOOKLORE_2_SERVER',
-                'STORYTELLER_API_URL', 'CWA_SERVER', 'KOSYNC_SERVER'
+                'ABS_SERVER', 'BOOKLORE_SERVER', 'BOOKLORE_2_SERVER',
+                'STORYTELLER_API_URL', 'CWA_SERVER', 'KOSYNC_SERVER',
+                'ABS_WEB_URL', 'BOOKLORE_WEB_URL', 'BOOKLORE_2_WEB_URL',
+                'STORYTELLER_WEB_URL', 'CWA_WEB_URL', 'HARDCOVER_WEB_URL',
             ]
             if key in url_keys and clean_value:
                 lower_val = clean_value.lower()
@@ -79,15 +113,17 @@ def settings():
                 os.environ[key] = ""
 
         try:
-            threading.Thread(target=restart_server).start()
-            session['message'] = "Settings saved. Application is restarting..."
+            from src.web_server import apply_settings
+            apply_settings(current_app._get_current_object())
+            session['message'] = "Settings saved successfully."
             session['is_error'] = False
         except Exception as e:
-            session['message'] = f"Error saving settings: {e}"
+            session['message'] = f"Error applying settings: {e}"
             session['is_error'] = True
-            logger.error(f"Error saving settings: {e}")
+            logger.error(f"Error applying settings: {e}")
 
-        return redirect(url_for('settings_page.settings'))
+        active_tab = request.form.get('_active_tab', 'general')
+        return redirect(url_for('settings_page.settings', tab=active_tab))
 
     # GET Request
     message = session.pop('message', None)
@@ -96,6 +132,24 @@ def settings():
     return render_template('settings.html',
                            message=message,
                            is_error=is_error)
+
+
+@settings_bp.route('/api/settings/secret/<key>', methods=['GET'])
+def get_secret(key):
+    """Return a stored secret value (for reveal-on-demand UI)."""
+    allowed = {'KOSYNC_KEY'}
+    if key not in allowed:
+        return jsonify({'error': 'Not allowed'}), 403
+
+    caller = request.headers.get('X-Forwarded-For', request.remote_addr)
+    logger.info(f"AUDIT: Secret requested (key={key}, caller={caller})")
+
+    if not _is_secret_request_authorized():
+        logger.warning(f"AUDIT: Unauthorized secret request denied (key={key}, caller={caller})")
+        return jsonify({'error': 'Forbidden'}), 403
+
+    value = os.environ.get(key, '')
+    return jsonify({'value': value, 'present': bool(value)})
 
 
 @settings_bp.route('/api/kosync/test', methods=['POST'])

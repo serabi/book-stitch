@@ -1,11 +1,11 @@
-"""Dashboard blueprint — GET / (index) and GET /shelfmark."""
+"""Dashboard blueprint — GET / (index)."""
 
 import logging
 import os
 import time
 from pathlib import Path
 
-from flask import Blueprint, redirect, render_template, url_for
+from flask import Blueprint, render_template
 
 from src.blueprints.helpers import get_abs_service, get_booklore_clients, get_container, get_database_service
 from src.version import APP_VERSION, get_update_status
@@ -278,16 +278,3 @@ def index():
         booklore_label=booklore_label,
         booklore_2_label=booklore_2_label
     )
-
-
-@dashboard_bp.route('/shelfmark')
-def shelfmark():
-    """Shelfmark view - renders an iframe with SHELFMARK_URL"""
-    url = os.environ.get("SHELFMARK_URL")
-    if not url:
-        return redirect(url_for('dashboard.index'))
-
-    if not url.lower().startswith(('http://', 'https://')):
-        url = f"http://{url}"
-
-    return render_template('shelfmark.html', shelfmark_url=url)

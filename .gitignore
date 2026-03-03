@@ -44,3 +44,4 @@ CLAUDE.md
 
 # Claude Code local settings (personal permissions/config)
 .claude/settings.local.json
+.kilocodemodes

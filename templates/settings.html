@@ -126,6 +126,12 @@
                                     <input type="text" name="ABS_SERVER" value="{{ get_val('ABS_SERVER') }}">
                                 </div>
                                 <div class="form-group full-width">
+                                    <label>Web URL (Navbar Link)</label>
+                                    <input type="text" name="ABS_WEB_URL" value="{{ get_val('ABS_WEB_URL') }}"
+                                        placeholder="https://abs.example.com">
+                                    <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                                </div>
+                                <div class="form-group full-width">
                                     <label>API Token</label>
                                     <input type="password" name="ABS_KEY" placeholder="{{ '(unchanged)' if get_val('ABS_KEY') else '' }}">
                                 </div>
@@ -209,6 +215,12 @@
                                 <label>API URL</label>
                                 <input type="text" name="STORYTELLER_API_URL" value="{{ get_val('STORYTELLER_API_URL') }}">
                             </div>
+                            <div class="form-group full-width">
+                                <label>Web URL (Navbar Link)</label>
+                                <input type="text" name="STORYTELLER_WEB_URL" value="{{ get_val('STORYTELLER_WEB_URL') }}"
+                                    placeholder="https://storyteller.example.com">
+                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                            </div>
                             <div class="form-group">
                                 <label>Username</label>
                                 <input type="text" name="STORYTELLER_USER" value="{{ get_val('STORYTELLER_USER') }}">
@@ -253,6 +265,12 @@
                             <div class="form-group full-width">
                                 <label>Server URL</label>
                                 <input type="text" name="BOOKLORE_SERVER" value="{{ get_val('BOOKLORE_SERVER') }}">
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Web URL (Navbar Link)</label>
+                                <input type="text" name="BOOKLORE_WEB_URL" value="{{ get_val('BOOKLORE_WEB_URL') }}"
+                                    placeholder="https://booklore.example.com">
+                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
                             </div>
                             <div class="form-group">
                                 <label>Username</label>
@@ -304,6 +322,12 @@
                                 <label>Server URL</label>
                                 <input type="text" name="BOOKLORE_2_SERVER" value="{{ get_val('BOOKLORE_2_SERVER') }}">
                             </div>
+                            <div class="form-group full-width">
+                                <label>Web URL (Navbar Link)</label>
+                                <input type="text" name="BOOKLORE_2_WEB_URL" value="{{ get_val('BOOKLORE_2_WEB_URL') }}"
+                                    placeholder="https://booklore2.example.com">
+                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                            </div>
                             <div class="form-group">
                                 <label>Username</label>
                                 <input type="text" name="BOOKLORE_2_USER" value="{{ get_val('BOOKLORE_2_USER') }}">
@@ -348,6 +372,12 @@
                                 <label>Server URL</label>
                                 <input type="text" name="CWA_SERVER" value="{{ get_val('CWA_SERVER') }}">
                                 <div class="help-text">URL to your Calibre-Web Automated instance (e.g. http://192.168.1.100:8083)</div>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Web URL (Navbar Link)</label>
+                                <input type="text" name="CWA_WEB_URL" value="{{ get_val('CWA_WEB_URL') }}"
+                                    placeholder="https://cwa.example.com">
+                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
                             </div>
                             <div class="form-group">
                                 <label>Username</label>
@@ -400,7 +430,12 @@
                             </div>
                             <div class="form-group">
                                 <label>Password</label>
-                                <input type="password" name="KOSYNC_KEY" placeholder="{{ '(unchanged)' if get_val('KOSYNC_KEY') else '' }}">
+                                <div class="input-row">
+                                    <input type="password" id="kosync_key_input" name="KOSYNC_KEY"
+                                        data-secret-key="KOSYNC_KEY"
+                                        placeholder="{{ '(unchanged)' if get_val('KOSYNC_KEY') else '' }}">
+                                    <button type="button" class="btn" onclick="togglePasswordVisibility('kosync_key_input', this)">Show</button>
+                                </div>
                                 <div class="help-text">This will be your KOSync password in KOReader.</div>
                             </div>
 
@@ -554,29 +589,6 @@
                         <p>Optional features, utilities, and Hardcover.app.</p>
                     </div>
 
-                    <!-- Shelfmark -->
-                    <div class="sub-section">
-                        <div class="sub-section-header">
-                            <h3>Shelfmark View</h3>
-                            <div class="toggle-switch-wrapper">
-                                <span class="toggle-label">Enable</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="toggle_shelfmark" aria-label="Enable Shelfmark"
-                                        name="SHELFMARK_ENABLED" {% if get_bool('SHELFMARK_ENABLED') or
-                                        (get_val('SHELFMARK_URL') !='' and get_val('SHELFMARK_ENABLED')=='' ) %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="sub-section-body">
-                            <div class="form-group full-width">
-                                <label>Shelfmark URL</label>
-                                <input type="text" name="SHELFMARK_URL" value="{{ get_val('SHELFMARK_URL') }}">
-                                <div class="help-text">URL to display in the Shelfmark tab (e.g. your Shelfmark instance URL)</div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Suggestions -->
                     <div class="sub-section">
                         <div class="sub-section-header">
@@ -639,6 +651,12 @@
                             <div class="form-group full-width">
                                 <label>API Token</label>
                                 <input type="password" name="HARDCOVER_TOKEN" placeholder="{{ '(unchanged)' if get_val('HARDCOVER_TOKEN') else '' }}">
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Web URL (Navbar Link)</label>
+                                <input type="text" name="HARDCOVER_WEB_URL" value="{{ get_val('HARDCOVER_WEB_URL') }}"
+                                    placeholder="https://hardcover.app">
+                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
                             </div>
                         </div>
                     </div>
@@ -900,11 +918,8 @@
             </div><!-- /settings-content -->
         </div><!-- /settings-shell -->
 
+        <input type="hidden" name="_active_tab" id="activeTabInput" value="general">
         <div class="submit-bar">
-            <span class="restart-warn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                Application will restart on save
-            </span>
             <button type="submit" class="btn btn-primary">Save Settings</button>
         </div>
     </form>
@@ -918,6 +933,8 @@
             document.querySelector('[data-tab="' + tabId + '"]').classList.add('active');
             var panel = document.getElementById('panel-' + tabId);
             panel.classList.add('active');
+
+            document.getElementById('activeTabInput').value = tabId;
 
             panel.style.animation = 'none';
             panel.offsetHeight;
@@ -1062,6 +1079,13 @@
         }
 
         document.addEventListener('DOMContentLoaded', function () {
+            /* Restore active tab from ?tab= query param after save redirect */
+            var params = new URLSearchParams(window.location.search);
+            var savedTab = params.get('tab');
+            if (savedTab && document.getElementById('panel-' + savedTab)) {
+                switchTab(savedTab);
+            }
+
             var configuredPort = "{{ get_val('KOSYNC_PORT', '4477') }}";
             var lanAddress = window.location.protocol + '//' + window.location.hostname + ':' + configuredPort;
 
@@ -1180,6 +1204,51 @@
             } else if (provider === 'whispercpp') {
                 if (groupWhisperCpp) groupWhisperCpp.classList.remove('hidden');
                 if (groupWhisperModel) groupWhisperModel.classList.remove('hidden');
+            }
+        }
+
+        /* ─── Password Visibility Toggle ─── */
+        function togglePasswordVisibility(inputId, btn) {
+            var input = document.getElementById(inputId);
+            if (input.type === 'password') {
+                var secretKey = input.dataset.secretKey;
+                if (secretKey && !input.dataset.fetched && !input.value) {
+                    btn.textContent = '...';
+                    btn.disabled = true;
+                    fetch('/api/settings/secret/' + secretKey)
+                        .then(function(r) {
+                            if (!r.ok) {
+                                throw new Error('Failed to fetch secret');
+                            }
+                            return r.json();
+                        })
+                        .then(function(data) {
+                            if (data && data.value) {
+                                input.value = data.value;
+                                input.placeholder = '';
+                                input.dataset.fetched = 'true';
+                                input.type = 'text';
+                                btn.textContent = 'Hide';
+                            } else {
+                                input.type = 'password';
+                                delete input.dataset.fetched;
+                                btn.textContent = 'Show';
+                            }
+                            btn.disabled = false;
+                        })
+                        .catch(function() {
+                            input.type = 'password';
+                            delete input.dataset.fetched;
+                            btn.textContent = 'Show';
+                            btn.disabled = false;
+                        });
+                    return;
+                }
+                input.type = 'text';
+                btn.textContent = 'Hide';
+            } else {
+                input.type = 'password';
+                btn.textContent = 'Show';
             }
         }
     </script>

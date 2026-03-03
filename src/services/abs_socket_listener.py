@@ -61,6 +61,8 @@ class ABSSocketListener:
         self._fired: set[str] = set()
         self._lock = threading.Lock()
 
+        self._running = True
+
         self._sio = socketio.Client(
             reconnection=True,
             logger=False,
@@ -220,7 +222,7 @@ class ABSSocketListener:
     def _debounce_loop(self) -> None:
         """Check pending events every 10s and fire sync after debounce window."""
         logger.debug("ABS Socket.IO: Debounce loop started")
-        while self._sio.connected or True:
+        while self._running:
             try:
                 time.sleep(10)
                 self._check_and_fire()
@@ -282,6 +284,7 @@ class ABSSocketListener:
 
     def stop(self) -> None:
         """Disconnect cleanly."""
+        self._running = False
         try:
             if self._sio.connected:
                 self._sio.disconnect()
