@@ -193,36 +193,6 @@ def _reconcile_socket_listener(app):
         logger.info("ABS Socket.IO listener restarted via hot-reload (credentials changed)")
 
 
-def apply_settings(app):
-    """
-    Apply runtime updates for settings that do not automatically propagate from environment variables.
-
-    Updates the global logging level, reschedules the periodic sync job to match SYNC_PERIOD_MINS, and reconciles the ABS Socket.IO listener (start/stop/restart) to match current environment configuration on the provided Flask application.
-
-    Parameters:
-        app (flask.Flask): The Flask application whose services and config will be adjusted.
-    """
-    # 1. Reconfigure logging level
-    _reconfigure_logging()
-
-    # 2. Reschedule sync_cycle job with new period
-    try:
-        sync_mgr = app.config.get('sync_manager')
-        new_period = int(float(os.environ.get('SYNC_PERIOD_MINS', '5')))
-        schedule.clear('sync_cycle')
-        if sync_mgr:
-            schedule.every(new_period).minutes.do(sync_mgr.sync_cycle).tag('sync_cycle')
-        logger.info(f"Sync schedule updated to every {new_period} minutes")
-    except Exception as e:
-        logger.warning(f"Failed to reschedule sync job: {e}")
-
-    # 3. Reconcile ABS Socket.IO listener state
-    try:
-        _reconcile_socket_listener(app)
-    except Exception as e:
-        logger.warning(f"Failed to reconcile socket listener: {e}")
-
-
 # ---------------- APP SETUP ----------------
 container = None
 manager = None
