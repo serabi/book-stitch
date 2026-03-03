@@ -16,5 +16,6 @@ dependency-injector
 sqlalchemy
 alembic
 python-socketio[client]
+h11>=0.16.0
 mkdocs-material
 
