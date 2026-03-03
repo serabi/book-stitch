@@ -45,7 +45,7 @@
   - Endpoint should call `manager.sync_cycle()` in a background thread
 
 ## Book Status: Paused / DNF
-- [ ] Add ability to mark a book as Paused or DNF (Did Not Finish)
+- [x] Add ability to mark a book as Paused or DNF (Did Not Finish)
   - New status values alongside existing `active`, `pending`, etc.
   - Paused/DNF books should be excluded from automatic sync cycles
   - Add UI controls in the card action panel to set/clear these statuses
