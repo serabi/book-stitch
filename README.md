@@ -6,9 +6,10 @@
 
 **Sync your audiobooks with your ebooks across your various self-hosted services.**
 
-[![License](https://img.shields.io/github/license/serabi/book-stitch)](LICENSE)
+[![License](https://img.shields.io/github/license/serabi/book-stitch?cacheSeconds=3600)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/serabi/book-stitch)](https://github.com/serabi/book-stitch/releases)
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/serabi/book-stitch?utm_source=oss&utm_medium=github&utm_campaign=serabi%2Fbook-stitch&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![Snyk Security](https://snyk.io/test/github/serabi/book-stitch/badge.svg)](https://snyk.io/test/github/serabi/book-stitch)
+[![CodeRabbit Reviews](https://img.shields.io/coderabbit/prs/github/serabi/book-stitch?labelColor=171717&color=FF570A&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 </div>
 
@@ -20,7 +21,7 @@ If you listen to audiobooks on a regular basis on [Audiobookshelf](https://www.a
 
 The goal of Book Stitch is to help "stitch" your books together in order to let you resume reading where you left off, no matter which app you use. It's a self-hosted, Docker based sync engine that links your audiobook position to the matching spot in the ebook (and vice versa), then pushes that position to every app you use. It works by transcribing a segment of the audiobook audio and fuzzy-matching it against the EPUB text. Once that alignment map is built, converting between a timestamp and a page position simply takes a sync. 
 
-Major kudos and credit goes to [abs-kosync-bridge](https://github.com/cporcellijr/abs-kosync-bridge) for being the inspiration for this project. This project started as a feature and ended up being a complete fork and rewrite, inspired by me realizing that my focus was more on tracking _what_ I read. A big thing I love about the open source community is the ability for us to contribute to projects, fork projects, and give back to the community through those efforts. In the spirit of open source, I'm sharing Book Stitch in case anyone else finds it useful, and I'm open to suggestions and contributions.  
+Major kudos and credit goes to [abs-kosync-bridge](https://github.com/cporcellijr/abs-kosync-bridge) for being the inspiration and original jumping-off point for this project. A big thing I love about the open source community is the ability for us to contribute to projects, fork projects, and give back to the community through those efforts. In the spirit of open source, I'm sharing Book Stitch in case anyone else finds it useful, and I'm open to suggestions and contributions.  
 
 ### Supported platforms
 

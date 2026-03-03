@@ -4,6 +4,16 @@
 
 All notable changes to Book Stitch will be documented in this file.
 
+## [1.0.3] - 2026-03-02
+
+### Security
+
+- **Path traversal fix (CWE-22)** — Sanitize `ebook_filename` at all HTTP input boundaries and validate resolved paths before file deletion/access. Prevents arbitrary file deletion via crafted filenames flowing through database lookups into `Path().unlink()`.
+- **Pin h11>=0.16.0** — Fix critical HTTP Request Smuggling vulnerability (CVE-2025-43859, CVSS 9.3) in transitive dependency via `python-socketio`.
+- **Upgrade Docker base image to python:3.13-slim** — Resolves `util-linux` (CVE-2026-3184) and `zlib` low-severity vulnerabilities in the previous Debian base.
+
+---
+
 ## [1.0.2] - 2026-03-02
 
 ### Changed
