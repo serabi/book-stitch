@@ -91,25 +91,38 @@ def apply_settings(app):
     2. SYNC_PERIOD_MINS — clear and re-register the schedule job
     3. ABS Socket.IO listener — start/stop/restart to match current config
     """
+    errors = []
+
     # 1. Reconfigure logging level
     _reconfigure_logging()
 
     # 2. Reschedule sync_cycle job with new period
     try:
         sync_mgr = app.config.get('sync_manager')
-        new_period = int(float(os.environ.get('SYNC_PERIOD_MINS', '5')))
+        raw_period = os.environ.get('SYNC_PERIOD_MINS', '5')
+        new_period = int(raw_period)
+        if new_period <= 0:
+            raise ValueError("SYNC_PERIOD_MINS must be an integer greater than 0")
+
         schedule.clear('sync_cycle')
         if sync_mgr:
             schedule.every(new_period).minutes.do(sync_mgr.sync_cycle).tag('sync_cycle')
         logger.info(f"Sync schedule updated to every {new_period} minutes")
     except Exception as e:
-        logger.warning(f"Failed to reschedule sync job: {e}")
+        errors.append(f"sync reschedule failed: {e}")
 
     # 3. Reconcile ABS Socket.IO listener state
     try:
         _reconcile_socket_listener(app)
     except Exception as e:
-        logger.warning(f"Failed to reconcile socket listener: {e}")
+        errors.append(f"socket listener reconciliation failed: {e}")
+
+    if errors:
+        error_message = "; ".join(errors)
+        logger.error(f"Failed to apply one or more settings: {error_message}")
+        raise RuntimeError(error_message)
+
+    return True
 
 
 # ---------------- APP SETUP ----------------

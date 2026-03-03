@@ -1216,18 +1216,29 @@
                     btn.textContent = '...';
                     btn.disabled = true;
                     fetch('/api/settings/secret/' + secretKey)
-                        .then(function(r) { return r.json(); })
+                        .then(function(r) {
+                            if (!r.ok) {
+                                throw new Error('Failed to fetch secret');
+                            }
+                            return r.json();
+                        })
                         .then(function(data) {
-                            if (data.value) {
+                            if (data && data.value) {
                                 input.value = data.value;
                                 input.placeholder = '';
+                                input.dataset.fetched = 'true';
+                                input.type = 'text';
+                                btn.textContent = 'Hide';
+                            } else {
+                                input.type = 'password';
+                                delete input.dataset.fetched;
+                                btn.textContent = 'Show';
                             }
-                            input.dataset.fetched = 'true';
-                            input.type = 'text';
-                            btn.textContent = 'Hide';
                             btn.disabled = false;
                         })
                         .catch(function() {
+                            input.type = 'password';
+                            delete input.dataset.fetched;
                             btn.textContent = 'Show';
                             btn.disabled = false;
                         });

@@ -12,6 +12,38 @@ logger = logging.getLogger(__name__)
 settings_bp = Blueprint('settings_page', __name__)
 
 
+def _is_secret_request_authorized() -> bool:
+    """Authorize secret reveal requests.
+
+    Allowed if either:
+    - Session indicates an admin user, or
+    - Caller presents a valid internal service token.
+    """
+    if bool(session.get('is_admin')):
+        return True
+
+    expected_token = os.environ.get('INTERNAL_SERVICE_TOKEN', '').strip()
+    provided_token = request.headers.get('X-Internal-Service-Token', '').strip()
+    if expected_token and secrets_compare(expected_token, provided_token):
+        return True
+
+    return False
+
+
+def _mask_secret(value: str) -> str:
+    """Return a masked secret showing only the last 4 characters."""
+    if not value:
+        return ''
+    tail = value[-4:] if len(value) >= 4 else value
+    return f"{'*' * max(0, len(value) - len(tail))}{tail}"
+
+
+def secrets_compare(a: str, b: str) -> bool:
+    """Constant-time secret comparison."""
+    import hmac
+    return hmac.compare_digest(a, b)
+
+
 @settings_bp.route('/settings', methods=['GET', 'POST'])
 def settings():
     database_service = get_database_service()
@@ -52,6 +84,8 @@ def settings():
 
         # 2. Handle Text Inputs
         for key, value in request.form.items():
+            if key == '_active_tab':
+                continue
             if key in bool_keys:
                 continue
 
@@ -106,8 +140,16 @@ def get_secret(key):
     allowed = {'KOSYNC_KEY'}
     if key not in allowed:
         return jsonify({'error': 'Not allowed'}), 403
+
+    caller = request.headers.get('X-Forwarded-For', request.remote_addr)
+    logger.info(f"AUDIT: Secret requested (key={key}, caller={caller})")
+
+    if not _is_secret_request_authorized():
+        logger.warning(f"AUDIT: Unauthorized secret request denied (key={key}, caller={caller})")
+        return jsonify({'error': 'Forbidden'}), 403
+
     value = os.environ.get(key, '')
-    return jsonify({'value': value})
+    return jsonify({'value': value, 'present': bool(value)})
 
 
 @settings_bp.route('/api/kosync/test', methods=['POST'])
