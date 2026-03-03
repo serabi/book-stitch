@@ -1,10 +1,10 @@
-FROM python:3.15-rc-alpine3.22
+FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     FLASK_APP=web_server.py \
     PYTHONPATH="/app" \
-    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib"
+    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib/python3.13/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.13/site-packages/nvidia/cudnn/lib"
 
 WORKDIR /app
 
