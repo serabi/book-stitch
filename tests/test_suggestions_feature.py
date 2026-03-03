@@ -1,4 +1,3 @@
-
 import json
 import os
 import sys
@@ -67,6 +66,11 @@ class TestSuggestionsFeature(unittest.TestCase):
         self.client = self.app.test_client()
 
     def tearDown(self):
+        """
+        Restore the original database initializer, remove the temporary test directory, and clear the SUGGESTIONS_ENABLED environment variable.
+        
+        Reverts any patch applied to src.db.migration_utils.initialize_database, recursively deletes the temporary directory created for the test, and removes SUGGESTIONS_ENABLED from the process environment if present.
+        """
         import src.db.migration_utils
         src.db.migration_utils.initialize_database = self.original_init_db
         import shutil
@@ -75,7 +79,7 @@ class TestSuggestionsFeature(unittest.TestCase):
         if 'SUGGESTIONS_ENABLED' in os.environ:
             del os.environ['SUGGESTIONS_ENABLED']
 
-    @patch('src.blueprints.settings_bp.restart_server')
+    @patch('src.web_server.apply_settings')
     def test_settings_save_toggle(self, mock_restart):
         """Test that saving settings updates the env var and DB."""
         # Initial state: default is true (implied) or unset

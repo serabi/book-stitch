@@ -2,11 +2,10 @@
 
 import logging
 import os
-import threading
 
-from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 
-from src.blueprints.helpers import get_container, get_database_service, restart_server
+from src.blueprints.helpers import get_container, get_database_service
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +14,21 @@ settings_bp = Blueprint('settings_page', __name__)
 
 @settings_bp.route('/settings', methods=['GET', 'POST'])
 def settings():
+    """
+    Handle the settings page: persist submitted configuration on POST and render the settings UI on GET.
+    
+    On POST, updates persistent settings and corresponding environment variables from the submitted form:
+    - Updates boolean toggles.
+    - Persists text inputs, preserving secret values when left empty.
+    - Normalizes URL-like values by ensuring an http:// or https:// prefix when missing.
+    After persisting, attempts to apply the updated settings; on success sets a success message in the session, on failure sets an error message and logs the exception. Redirects back to the settings page preserving the active tab.
+    
+    On GET, reads any session message and error flag, removes them from the session, and renders the settings template.
+    
+    Returns:
+    - A redirect response to the settings page when handling POST.
+    - A rendered template response for the settings page when handling GET.
+    """
     database_service = get_database_service()
 
     if request.method == 'POST':
@@ -34,7 +48,6 @@ def settings():
             'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT',
             'INSTANT_SYNC_ENABLED',
             'ABS_SOCKET_ENABLED',
-            'SHELFMARK_ENABLED',
         ]
 
         current_settings = database_service.get_all_settings()
@@ -60,8 +73,10 @@ def settings():
             clean_value = value.strip()
 
             url_keys = [
-                'SHELFMARK_URL', 'ABS_SERVER', 'BOOKLORE_SERVER', 'BOOKLORE_2_SERVER',
-                'STORYTELLER_API_URL', 'CWA_SERVER', 'KOSYNC_SERVER'
+                'ABS_SERVER', 'BOOKLORE_SERVER', 'BOOKLORE_2_SERVER',
+                'STORYTELLER_API_URL', 'CWA_SERVER', 'KOSYNC_SERVER',
+                'ABS_WEB_URL', 'BOOKLORE_WEB_URL', 'BOOKLORE_2_WEB_URL',
+                'STORYTELLER_WEB_URL', 'CWA_WEB_URL', 'HARDCOVER_WEB_URL',
             ]
             if key in url_keys and clean_value:
                 lower_val = clean_value.lower()
@@ -79,15 +94,17 @@ def settings():
                 os.environ[key] = ""
 
         try:
-            threading.Thread(target=restart_server).start()
-            session['message'] = "Settings saved. Application is restarting..."
+            from src.web_server import apply_settings
+            apply_settings(current_app._get_current_object())
+            session['message'] = "Settings saved successfully."
             session['is_error'] = False
         except Exception as e:
-            session['message'] = f"Error saving settings: {e}"
+            session['message'] = f"Error applying settings: {e}"
             session['is_error'] = True
-            logger.error(f"Error saving settings: {e}")
+            logger.error(f"Error applying settings: {e}")
 
-        return redirect(url_for('settings_page.settings'))
+        active_tab = request.form.get('_active_tab', 'general')
+        return redirect(url_for('settings_page.settings', tab=active_tab))
 
     # GET Request
     message = session.pop('message', None)

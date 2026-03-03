@@ -1,4 +1,3 @@
-
 import os
 import sys
 import tempfile
@@ -32,6 +31,16 @@ class MockContainer:
 
 class TestSettingsComprehensive(unittest.TestCase):
     def setUp(self):
+        """
+        Prepare the test environment: create a temporary DATA_DIR, install a mock dependency container and mock database initializer, create the Flask test application and client, and define the list of boolean setting keys used by tests.
+        
+        The following observable effects are performed:
+        - A temporary directory is created and assigned to the DATA_DIR environment variable.
+        - A MockContainer instance is created and made available as self.mock_container.
+        - src.db.migration_utils.initialize_database is replaced with a mock initializer that returns the mock database service.
+        - The application is created via src.web_server.create_app using the mock container; the Flask app is stored in self.app and a test client in self.client.
+        - self.bool_keys is populated with all boolean setting keys that tests will toggle.
+        """
         self.temp_dir = tempfile.mkdtemp()
         os.environ['DATA_DIR'] = self.temp_dir
 
@@ -65,10 +74,14 @@ class TestSettingsComprehensive(unittest.TestCase):
             'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT',
             'INSTANT_SYNC_ENABLED',
             'ABS_SOCKET_ENABLED',
-            'SHELFMARK_ENABLED',
         ]
 
     def tearDown(self):
+        """
+        Restore the original database initializer, remove the test temporary directory, and clear boolean-related environment variables.
+        
+        This method restores src.db.migration_utils.initialize_database to its original value saved in setUp, deletes the temporary directory created for the test, and removes any environment variables named in self.bool_keys if they exist.
+        """
         import src.db.migration_utils
         src.db.migration_utils.initialize_database = self.original_init_db
         import shutil
@@ -78,7 +91,7 @@ class TestSettingsComprehensive(unittest.TestCase):
             if key in os.environ:
                 del os.environ[key]
 
-    @patch('src.blueprints.settings_bp.restart_server')
+    @patch('src.web_server.apply_settings')
     def test_all_bool_toggles(self, mock_restart):
         """Verify EVERY boolean setting can be toggled ON and OFF."""
 
@@ -111,9 +124,14 @@ class TestSettingsComprehensive(unittest.TestCase):
             self.mock_container.mock_database_service.set_setting.assert_any_call(key, 'false')
             self.assertEqual(os.environ.get(key), 'false', f"{key} should be 'false' in env")
 
-    @patch('src.blueprints.settings_bp.restart_server')
+    @patch('src.web_server.apply_settings')
     def test_text_fields_save(self, mock_restart):
-        """Verify text fields correspond to logic."""
+        """
+        Ensure text-based settings are saved to the database when submitted.
+        
+        Posts TZ, SYNC_PERIOD_MINS, and ABS_SERVER to the /settings endpoint and asserts
+        that each key/value pair is persisted via the container's database service.
+        """
         test_data = {
             'TZ': 'Europe/Paris',
             'SYNC_PERIOD_MINS': '15',
