@@ -147,8 +147,11 @@ class DatabaseService:
                             default = f" DEFAULT {col.server_default.arg}"
                         elif hasattr(col.type, 'python_type') and col.type.python_type is bool:
                             default = " DEFAULT 0"
-                        conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}{default}"))
-                        logger.info(f"Added missing column '{col.name}' to table '{table.name}'")
+                        try:
+                            conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}{default}"))
+                            logger.info(f"Added missing column '{col.name}' to table '{table.name}'")
+                        except Exception as e:
+                            logger.warning(f"Could not auto-add column '{col.name}' to table '{table.name}': {e}")
             conn.commit()
 
     @contextmanager
