@@ -12,7 +12,7 @@ cleanup() {
 # Set up signal handlers for graceful shutdown
 trap cleanup SIGTERM SIGINT
 
-echo "Starting Book Stitch (Integrated Mode)..."
+echo "Starting Book Sync (Integrated Mode)..."
 echo ""
 
 echo "Running Database Migrations..."

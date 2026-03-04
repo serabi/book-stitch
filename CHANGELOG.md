@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD024 -->
 
-All notable changes to Book Stitch will be documented in this file.
+All notable changes to Book Sync will be documented in this file.
 
 ## [1.0.4] - 2026-03-03
 
@@ -58,7 +58,7 @@ All notable changes to Book Stitch will be documented in this file.
 
 ### Initial Release
 
-Book Stitch is a self-hosted sync engine that links audiobook listening positions to matching spots in ebooks. It transcribes a segment of the audiobook audio, fuzzy-matches it against the EPUB text, and builds an alignment map. Once built, converting between a timestamp and a page position is instant.
+Book Sync is a self-hosted sync engine that links audiobook listening positions to matching spots in ebooks. It transcribes a segment of the audiobook audio, fuzzy-matches it against the EPUB text, and builds an alignment map. Once built, converting between a timestamp and a page position is instant.
 
 Forked from [abs-kosync-bridge](https://github.com/JadeTech-Solutions/abs-kosync-bridge) and rebuilt with a new architecture, simplified feature set, and fresh identity.
 
@@ -87,7 +87,7 @@ All integrations are optional. Use as few or as many as you want.
 - **Web dashboard** — Book grid with cover art, per-service progress, out-of-sync warnings, search/filter, and quick actions (sync now, mark complete, edit mapping, delete).
 - **Settings UI** — All configuration managed from the web interface. Multi-library ABS picker, per-service toggles, sync tuning. Settings persist in the database; environment variables are only needed for initial bootstrapping.
 - **Split-port security** — Run the KoSync API on a separate port from the admin dashboard. Expose the sync endpoint to the internet while keeping the dashboard on your LAN.
-- **Write suppression** — Centralized write tracker prevents feedback loops across all clients. If Book Stitch just pushed a position to a service, the echo that comes back is silently dropped.
+- **Write suppression** — Centralized write tracker prevents feedback loops across all clients. If Book Sync just pushed a position to a service, the echo that comes back is silently dropped.
 - **Auto-suggestions** — Discovers unmapped books with activity and fuzzy-matches them to potential ebook counterparts for user approval.
 - **Batch matching** — Link multiple books at once from a queue interface.
 - **Telegram notifications** — Forward log events to a Telegram chat at a configurable severity threshold.

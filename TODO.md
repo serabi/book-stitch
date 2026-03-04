@@ -1,4 +1,4 @@
-# Book Stitch — TODO
+# Book Sync — TODO
 
 ## Code Cleanup
 - [x] Remove last 5 emojis from codebase

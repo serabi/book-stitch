@@ -1,4 +1,4 @@
-"""Shared helper functions for Book Stitch blueprints.
+"""Shared helper functions for Book Sync blueprints.
 
 All functions access shared state via flask.current_app.config rather than
 module-level globals, which allows them to work from any blueprint.

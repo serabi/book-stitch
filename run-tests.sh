@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONTAINER_NAME="book-stitch"
+CONTAINER_NAME="book-sync"
 COMPOSE_TEST_FILE="docker-compose.test.yml"
 
-# Check if the book-stitch container is running
+# Check if the book-sync container is running
 if docker container inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q true; then
     echo "==> Running tests in existing '$CONTAINER_NAME' container..."
 

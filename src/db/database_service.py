@@ -1,5 +1,5 @@
 """
-Unified SQLAlchemy database service for Book Stitch.
+Unified SQLAlchemy database service for Book Sync.
 Direct model-based interface without dictionary conversions.
 """
 

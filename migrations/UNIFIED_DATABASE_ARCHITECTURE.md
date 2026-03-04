@@ -2,7 +2,7 @@
 
 ## ✅ Simplified Database Architecture
 
-The Book Stitch application now has a **unified database service** that works exclusively with SQLAlchemy models, eliminating dictionary conversions and providing cleaner, type-safe code.
+The Book Sync application now has a **unified database service** that works exclusively with SQLAlchemy models, eliminating dictionary conversions and providing cleaner, type-safe code.
 
 ## 🏗️ Architecture Overview
 

@@ -1,4 +1,4 @@
-# Book Stitch - Example Docker Compose Configuration
+# Book Sync - Example Docker Compose Configuration
 #
 # All settings are configured via the web dashboard at http://localhost:4477/settings
 # No environment variables are required beyond TZ.
@@ -6,12 +6,12 @@
 # See README.md for detailed configuration instructions.
 
 services:
-  book-stitch:
+  book-sync:
     build: .
     # args:
     #   # Set to "true" to download NVIDIA CUDA libraries (adds ~800MB to image)
     #   INSTALL_GPU: "false"
-    container_name: book_stitch
+    container_name: book_sync
     restart: unless-stopped
 
     environment:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dependency Injection Container for Book Stitch.
+Dependency Injection Container for Book Sync.
 Using python-dependency-injector library for proper DI functionality.
 """
 
