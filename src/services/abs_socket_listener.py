@@ -212,9 +212,17 @@ class ABSSocketListener:
             logger.debug("ABS Socket.IO: Progress event missing libraryItemId — ignoring")
             return
 
-        # Check if this is an active book in our database
+        # Check if this is a tracked book in our database
         book = self._db.get_book(library_item_id)
-        if not book or book.status != "active":
+        if not book:
+            logger.debug(f"ABS Socket.IO: Progress event for '{library_item_id[:12]}...' — not a tracked book, ignoring")
+            return
+        if book.status in ('paused', 'dnf') and not book.activity_flag:
+            book.activity_flag = True
+            self._db.save_book(book)
+            logger.info(f"ABS Socket.IO: Activity detected on {book.status} book '{book.abs_title}'")
+            return
+        if book.status != "active":
             logger.debug(f"ABS Socket.IO: Progress event for '{library_item_id[:12]}...' — not an active book, ignoring")
             return
 

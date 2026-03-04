@@ -559,6 +559,102 @@ def mark_complete(abs_id):
     return jsonify({"success": True})
 
 
+@books_bp.route('/api/pause/<abs_id>', methods=['POST'])
+def pause_book(abs_id):
+    database_service = get_database_service()
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"success": False, "error": "Book not found"}), 404
+    if book.status != 'active':
+        return jsonify({"success": False, "error": f"Cannot pause a book with status '{book.status}'"}), 400
+
+    book.status = 'paused'
+    database_service.save_book(book)
+    logger.info(f"Book paused: '{sanitize_log_data(book.abs_title or abs_id)}'")
+
+    # Sync Paused status to Hardcover (status_id=4)
+    container = get_container()
+    hardcover_client = container.hardcover_client()
+    if hardcover_client.is_configured():
+        hc_details = database_service.get_hardcover_details(abs_id)
+        if hc_details and hc_details.hardcover_book_id:
+            try:
+                hardcover_client.update_status(
+                    int(hc_details.hardcover_book_id), 4,
+                    int(hc_details.hardcover_edition_id) if hc_details.hardcover_edition_id else None
+                )
+                logger.info(f"Hardcover status set to Paused for '{sanitize_log_data(book.abs_title)}'")
+            except Exception as e:
+                logger.warning(f"Failed to update Hardcover paused status: {e}")
+
+    return jsonify({"success": True})
+
+
+@books_bp.route('/api/dnf/<abs_id>', methods=['POST'])
+def dnf_book(abs_id):
+    database_service = get_database_service()
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"success": False, "error": "Book not found"}), 404
+    if book.status not in ('active', 'paused'):
+        return jsonify({"success": False, "error": f"Cannot mark DNF a book with status '{book.status}'"}), 400
+
+    book.status = 'dnf'
+    database_service.save_book(book)
+    logger.info(f"Book marked DNF: '{sanitize_log_data(book.abs_title or abs_id)}'")
+
+    # Sync DNF status to Hardcover (status_id=5)
+    container = get_container()
+    hardcover_client = container.hardcover_client()
+    if hardcover_client.is_configured():
+        hc_details = database_service.get_hardcover_details(abs_id)
+        if hc_details and hc_details.hardcover_book_id:
+            try:
+                hardcover_client.update_status(
+                    int(hc_details.hardcover_book_id), 5,
+                    int(hc_details.hardcover_edition_id) if hc_details.hardcover_edition_id else None
+                )
+                logger.info(f"Hardcover status set to DNF for '{sanitize_log_data(book.abs_title)}'")
+            except Exception as e:
+                logger.warning(f"Failed to update Hardcover DNF status: {e}")
+
+    return jsonify({"success": True})
+
+
+@books_bp.route('/api/resume/<abs_id>', methods=['POST'])
+def resume_book(abs_id):
+    database_service = get_database_service()
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"success": False, "error": "Book not found"}), 404
+    if book.status not in ('paused', 'dnf'):
+        return jsonify({"success": False, "error": f"Cannot resume a book with status '{book.status}'"}), 400
+
+    was_inactive = book.status in ('dnf', 'paused')
+    book.status = 'active'
+    book.activity_flag = False
+    database_service.save_book(book)
+    logger.info(f"Book resumed: '{sanitize_log_data(book.abs_title or abs_id)}'")
+
+    # If resuming from DNF or Paused, reset Hardcover to Currently Reading (status_id=2)
+    if was_inactive:
+        container = get_container()
+        hardcover_client = container.hardcover_client()
+        if hardcover_client.is_configured():
+            hc_details = database_service.get_hardcover_details(abs_id)
+            if hc_details and hc_details.hardcover_book_id:
+                try:
+                    hardcover_client.update_status(
+                        int(hc_details.hardcover_book_id), 2,
+                        int(hc_details.hardcover_edition_id) if hc_details.hardcover_edition_id else None
+                    )
+                    logger.info(f"Hardcover status reset to Currently Reading for '{sanitize_log_data(book.abs_title)}'")
+                except Exception as e:
+                    logger.warning(f"Failed to update Hardcover resume status: {e}")
+
+    return jsonify({"success": True})
+
+
 @books_bp.route('/update-hash/<abs_id>', methods=['POST'])
 def update_hash(abs_id):
     manager = get_manager()

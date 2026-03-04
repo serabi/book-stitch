@@ -46,6 +46,10 @@ class DatabaseService:
         # Ensure all tables exist (covers new models not yet in migrations)
         Base.metadata.create_all(self.db_manager.engine)
 
+        # Safety net: add any model columns missing from existing tables
+        # (handles cases where migration files are unavailable, e.g. Docker dev mounts)
+        self._ensure_model_columns()
+
     def _run_alembic_migrations(self):
         """Run Alembic migrations to ensure database schema is up to date."""
         import io
@@ -119,6 +123,36 @@ class DatabaseService:
                 logger.warning("WARNING: 'original_ebook_filename' column missing in 'books' table after migration! Schema may be out of sync")
             else:
                 logger.debug("Schema verification passed: 'original_ebook_filename' exists")
+
+    def _ensure_model_columns(self):
+        """Add any columns declared in models but missing from the database.
+
+        This is a safety net for development environments where migration files
+        may not be available (e.g. Docker with partial volume mounts). In production,
+        Alembic migrations handle schema changes; this only fills gaps.
+        """
+        from sqlalchemy import inspect, text
+
+        with self.db_manager.engine.connect() as conn:
+            inspector = inspect(self.db_manager.engine)
+            for table in Base.metadata.sorted_tables:
+                if table.name not in inspector.get_table_names():
+                    continue
+                existing = {c['name'] for c in inspector.get_columns(table.name)}
+                for col in table.columns:
+                    if col.name not in existing:
+                        col_type = col.type.compile(self.db_manager.engine.dialect)
+                        default = ""
+                        if col.server_default is not None:
+                            default = f" DEFAULT {col.server_default.arg}"
+                        elif hasattr(col.type, 'python_type') and col.type.python_type is bool:
+                            default = " DEFAULT 0"
+                        try:
+                            conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}{default}"))
+                            logger.info(f"Added missing column '{col.name}' to table '{table.name}'")
+                        except Exception as e:
+                            logger.warning(f"Could not auto-add column '{col.name}' to table '{table.name}': {e}")
+            conn.commit()
 
     @contextmanager
     def get_session(self):
@@ -219,7 +253,7 @@ class DatabaseService:
                 # Update existing book
                 for attr in ['abs_title', 'ebook_filename', 'original_ebook_filename', 'kosync_doc_id',
                            'transcript_file', 'status', 'duration', 'sync_mode', 'storyteller_uuid',
-                           'abs_ebook_item_id']:
+                           'abs_ebook_item_id', 'activity_flag']:
                     if hasattr(book, attr):
                         setattr(existing, attr, getattr(book, attr))
                 session.flush()
@@ -470,6 +504,8 @@ class DatabaseService:
             stats = {
                 'total_books': session.query(Book).count(),
                 'active_books': session.query(Book).filter(Book.status == 'active').count(),
+                'paused_books': session.query(Book).filter(Book.status == 'paused').count(),
+                'dnf_books': session.query(Book).filter(Book.status == 'dnf').count(),
                 'total_states': session.query(State).count(),
                 'total_jobs': session.query(Job).count(),
                 'failed_jobs': session.query(Job).filter(Job.last_error.isnot(None)).count(),

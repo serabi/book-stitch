@@ -136,6 +136,7 @@ def index():
             'status': book.status,
             'sync_mode': sync_mode,
             'book_type': book_type,
+            'activity_flag': getattr(book, 'activity_flag', False),
             'unified_progress': 0,
             'duration': book.duration or 0,
             'storyteller_uuid': book.storyteller_uuid,

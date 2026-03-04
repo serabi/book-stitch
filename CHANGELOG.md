@@ -4,6 +4,14 @@
 
 All notable changes to Book Stitch will be documented in this file.
 
+## [1.0.4] - 2026-03-03
+
+### Added
+
+- **Dashboard status filter** — Filter the book grid by status (Currently Reading, Finished, Paused, DNF) or sync mode (Audiobook, Ebook-only) via the "Show:" dropdown. Sections with no matching cards are automatically hidden.
+
+---
+
 ## [1.0.3] - 2026-03-02
 
 ### Security

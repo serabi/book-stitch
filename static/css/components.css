@@ -163,6 +163,12 @@ select:focus {
   border: 1px solid var(--color-border-light);
 }
 
+.controls-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-border);
+}
+
 /* ═══════════════════════════════════════════
    CARDS
    ═══════════════════════════════════════════ */
@@ -392,6 +398,18 @@ select:focus {
   border: 1px solid var(--color-error-border);
 }
 
+.status-paused {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--color-status-paused);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.status-dnf {
+  background: var(--color-error-light);
+  color: var(--color-status-dnf);
+  border: 1px solid var(--color-error-border);
+}
+
 .status-forging,
 .status-manual_forge {
   background: rgba(192, 132, 252, 0.2);
@@ -467,6 +485,42 @@ select:focus {
   background: var(--color-success);
   border-radius: 2px;
   transition: width 300ms ease;
+}
+
+.progress-paused .progress-bar-fill { opacity: 0.4; }
+.progress-dnf .progress-bar-fill { opacity: 0.3; filter: grayscale(0.5); }
+.progress-status-label { font-size: 0.7em; text-transform: uppercase; opacity: 0.6; margin-left: 4px; }
+
+.activity-notification {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: rgba(124, 58, 237, 0.12);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--color-primary-hover);
+  animation: pulse 2s infinite;
+}
+
+.activity-notification button {
+  background: var(--color-primary-light);
+  color: var(--color-primary-hover);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-bounce);
+}
+
+.activity-notification button:hover {
+  background: rgba(124, 58, 237, 0.25);
 }
 
 /* Service progress list */
@@ -1000,6 +1054,11 @@ select:focus {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+  }
+
+  .controls-divider {
+    width: auto;
+    height: 1px;
   }
 }
 

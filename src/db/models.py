@@ -75,6 +75,7 @@ class Book(Base):
     kosync_doc_id = Column(String(255), index=True)
     transcript_file = Column(String(500))
     status = Column(String(50), default='active')
+    activity_flag = Column(sa.Boolean, default=False)
     duration = Column(Float)  # Duration in seconds from AudioBookShelf
     sync_mode = Column(String(20), default='audiobook')  # 'audiobook' or 'ebook_only'
     storyteller_uuid = Column(String(36), index=True, nullable=True)

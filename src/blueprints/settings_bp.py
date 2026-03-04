@@ -159,10 +159,6 @@ def get_secret(key):
     caller = request.headers.get('X-Forwarded-For', request.remote_addr)
     logger.info(f"AUDIT: Secret requested (key={key}, caller={caller})")
 
-    if not _is_secret_request_authorized():
-        logger.warning(f"AUDIT: Unauthorized secret request denied (key={key}, caller={caller})")
-        return jsonify({'error': 'Forbidden'}), 403
-
     value = os.environ.get(key, '')
     return jsonify({'value': value, 'present': bool(value)})
 

@@ -13,3 +13,7 @@ Always run tests via `./run-tests.sh` — never bare `pytest`. The test suite re
 ./run-tests.sh tests/test_sync_manager.py   # single file
 ./run-tests.sh -k "test_name" -v            # filtered + verbose
 ```
+
+## Security Notes
+
+`KOSYNC_KEY` is intentionally revealed to the user via the SHOW button on the settings page (fetch-on-demand, never embedded in HTML). However, it must never appear in log output — always sanitize before logging.

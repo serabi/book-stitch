@@ -545,7 +545,8 @@ class HardcoverClient:
         - 1: Want to Read
         - 2: Currently Reading
         - 3: Read (Finished)
-        - 4: Did Not Finish
+        - 4: Paused
+        - 5: Did Not Finish
         """
         query = """
         mutation ($object: UserBookCreateInput!) {

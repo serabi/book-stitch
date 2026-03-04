@@ -533,6 +533,12 @@ def kosync_put_progress():
                 threading.Thread(target=run_auto_discovery, args=(doc_hash,), daemon=True).start()
 
     if linked_book:
+        # Flag activity on paused/DNF books
+        if linked_book.status in ('paused', 'dnf') and not linked_book.activity_flag:
+            linked_book.activity_flag = True
+            _database_service.save_book(linked_book)
+            logger.info(f"KOSync PUT: Activity detected on {linked_book.status} book '{linked_book.abs_title}'")
+
         # NOTE: We intentionally do NOT update book_states here.
         # The sync cycle is the only thing that should update book_states.
         # This ensures proper delta detection between cycles.

@@ -57,6 +57,8 @@
   --color-status-pending: #F59E0B;
   --color-status-processing: #38BDF8;
   --color-status-failed: #F97066;
+  --color-status-paused: #94A3B8;
+  --color-status-dnf: #F97066;
   --color-status-forging: #C084FC;
 
   /* Typography */
