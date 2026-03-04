@@ -40,7 +40,7 @@ class HardcoverClient:
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.token}",
-            "User-Agent": "Book-Stitch/1.0",
+            "User-Agent": "Book-Sync/1.0",
         }
 
     def is_configured(self):

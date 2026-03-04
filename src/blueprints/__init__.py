@@ -1,4 +1,4 @@
-"""Flask Blueprints for Book Stitch web server."""
+"""Flask Blueprints for Book Sync web server."""
 
 
 def register_blueprints(app):

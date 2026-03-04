@@ -1,5 +1,5 @@
 """
-Ebook Utilities for Book Stitch
+Ebook Utilities for Book Sync
 """
 import glob
 import hashlib

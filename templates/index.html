@@ -289,7 +289,7 @@
     </div>
     {% endmacro %}
 
-    <title>Book Stitch</title>
+    <title>Book Sync</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" href="/static/icon.png">
     <link rel="apple-touch-icon" href="/static/icon.png">
@@ -618,7 +618,7 @@
                 });
 
                 // Persist choice
-                localStorage.setItem('book_stitch_filter', filterValue);
+                localStorage.setItem('book_sync_filter', filterValue);
             }
 
             function updateKoSyncHash(event) {
@@ -660,8 +660,8 @@
             let lastSort = null;
 
             // Load saved preferences
-            const savedSort = localStorage.getItem('book_stitch_sort') || 'title';
-            const savedSortState = localStorage.getItem('book_stitch_sort_state');
+            const savedSort = localStorage.getItem('book_sync_sort') || 'title';
+            const savedSortState = localStorage.getItem('book_sync_sort_state');
 
             if (savedSort) {
                 sortSelect.value = savedSort;
@@ -750,8 +750,8 @@
                 sortCards(allBooksGrid, sortBy, direction);
 
                 // Save preferences
-                localStorage.setItem('book_stitch_sort', sortBy);
-                localStorage.setItem('book_stitch_sort_state', JSON.stringify(sortState));
+                localStorage.setItem('book_sync_sort', sortBy);
+                localStorage.setItem('book_sync_sort_state', JSON.stringify(sortState));
             }
 
             function updateSortIndicator(direction) {
@@ -787,7 +787,7 @@
             // Filter Logic initialization
             if (filterSelect) {
                 filterSelect.addEventListener('change', filterBooks);
-                const savedFilter = localStorage.getItem('book_stitch_filter') || 'all';
+                const savedFilter = localStorage.getItem('book_sync_filter') || 'all';
                 filterSelect.value = savedFilter;
                 // Apply filter initially
                 filterBooks();
@@ -951,7 +951,7 @@
                 {% endif %}
             </span>
             {% if update_available %}
-            <a href="https://github.com/serabi/book-stitch/releases/latest" target="_blank"
+            <a href="https://github.com/serabi/book-sync/releases/latest" target="_blank"
                 style="font-size: 11px; color: #7C3AED; text-decoration: none; background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.3); border-radius: 4px; padding: 3px 8px; white-space: nowrap; transition: all 0.2s; font-weight: 600;"
                 onmouseover="this.style.background='rgba(124,58,237,0.25)'"
                 onmouseout="this.style.background='rgba(124,58,237,0.15)'">

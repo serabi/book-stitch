@@ -1,5 +1,5 @@
 """
-SQLAlchemy ORM models for Book Stitch database.
+SQLAlchemy ORM models for Book Sync database.
 """
 
 from datetime import datetime

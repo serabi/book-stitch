@@ -547,7 +547,7 @@ def kosync_put_progress():
         # Debounce sync trigger — wait until the reader stops turning pages
         # Skip if the update came from the sync bot itself (prevents sync→PUT→sync loop)
         # Skip if instant sync is globally disabled.
-        is_internal = device and device.lower() in ('abs-sync-bot', 'book-stitch')
+        is_internal = device and device.lower() in ('abs-sync-bot', 'book-stitch', 'book-sync')
         instant_sync_enabled = os.environ.get('INSTANT_SYNC_ENABLED', 'true').lower() != 'false'
         if linked_book.status == 'active' and _manager and not is_internal and instant_sync_enabled:
             logger.debug(f"KOSync PUT: Progress event recorded for '{linked_book.abs_title}'")
@@ -746,8 +746,8 @@ def _respond_from_book_states(doc_id, book):
         best_doc = max(docs_with_progress, key=lambda d: float(d.percentage))
         logger.info(f"KOSync: Resolved {doc_id[:8]}... to '{book.abs_title}' via sibling hash {best_doc.document_hash[:8]}... ({float(best_doc.percentage):.2%})")
         return jsonify({
-            "device": best_doc.device or "book-stitch",
-            "device_id": best_doc.device_id or "book-stitch",
+            "device": best_doc.device or "book-sync",
+            "device_id": best_doc.device_id or "book-sync",
             "document": doc_id,
             "percentage": float(best_doc.percentage),
             "progress": best_doc.progress or "",
@@ -761,8 +761,8 @@ def _respond_from_book_states(doc_id, book):
     latest_state = kosync_state or max(states, key=lambda s: s.last_updated if s.last_updated else 0)
 
     return jsonify({
-        "device": "book-stitch",
-        "device_id": "book-stitch",
+        "device": "book-sync",
+        "device_id": "book-sync",
         "document": doc_id,
         "percentage": float(latest_state.percentage) if latest_state.percentage else 0,
         "progress": (latest_state.xpath or latest_state.cfi) if hasattr(latest_state, 'xpath') else "",

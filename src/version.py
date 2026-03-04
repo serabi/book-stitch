@@ -22,7 +22,7 @@ def get_update_status():
 
     try:
         r = requests.get(
-            "https://api.github.com/repos/serabi/book-stitch/releases/latest",
+            "https://api.github.com/repos/serabi/book-sync/releases/latest",
             timeout=5,
             headers={"Accept": "application/vnd.github+json"}
         )

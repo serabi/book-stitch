@@ -11,7 +11,7 @@ mkdir -p "$BACKUP_DIR"
 
 # Timestamp for the backup
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-BACKUP_FILE="${BACKUP_DIR}/book_stitch_${TIMESTAMP}.db"
+BACKUP_FILE="${BACKUP_DIR}/book_sync_${TIMESTAMP}.db"
 
 # Check if database exists
 if [ -f "${DATA_DIR}/${DB_FILE}" ]; then

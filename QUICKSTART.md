@@ -1,4 +1,4 @@
-# Quick Start Guide - Book Stitch
+# Quick Start Guide - Book Sync
 
 ## Goal
 Get your reading progress syncing across your self-hosted services, and track your reading history. Optionally syncs your reading progress with Hardcover.app.
@@ -7,7 +7,7 @@ Get your reading progress syncing across your self-hosted services, and track yo
 
 ## Step 1: Choose Your Services
 
-Book Stitch syncs progress between any combination of these services:
+Book Sync syncs progress between any combination of these services:
 
 | Service | Type | What It Does |
 |---------|------|-------------|
@@ -29,8 +29,8 @@ You need **at least two services** to sync between. Common setups:
 There is no published Docker image yet — you'll build from source:
 
 ```bash
-git clone https://github.com/serabi/book-stitch.git
-cd book-stitch
+git clone https://github.com/serabi/book-sync.git
+cd book-sync
 ```
 
 ---
@@ -41,11 +41,11 @@ Copy this template. All service credentials (API keys, URLs, passwords) are conf
 
 ```yaml
 services:
-  book-stitch:
+  book-sync:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: book-stitch
+    container_name: book-sync
     restart: unless-stopped
     environment:
       - TZ=America/New_York
@@ -100,7 +100,7 @@ Press `Ctrl+C` to exit logs.
 
 Open your browser to: **http://localhost:4477**
 
-You should see the Book Stitch dashboard.
+You should see the Book Sync dashboard.
 
 ---
 

@@ -504,13 +504,13 @@ class ABSClient:
             "deviceInfo": {
                 "id": "abs-kosync-bot",
                 "deviceId": "abs-kosync-bot",
-                "clientName": "Book-Stitch",
+                "clientName": "Book-Sync",
                 "clientVersion": "1.0",
-                "manufacturer": "Book Stitch",
+                "manufacturer": "Book Sync",
                 "model": "Bridge",
                 "sdkVersion": "1.0"
             },
-            "mediaPlayer": "Book-Stitch",
+            "mediaPlayer": "Book-Sync",
             "supportedMimeTypes": ["audio/mpeg", "audio/mp4"],
             "forceDirectPlay": True,
             "forceTranscode": False

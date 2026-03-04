@@ -16,7 +16,7 @@ def test_syncmanager_di_paths():
     print("[TEST] Testing SyncManager paths from DI container...")
 
     # Create temporary directories for testing
-    temp_base_dir = tempfile.mkdtemp(prefix="book_stitch_test_")
+    temp_base_dir = tempfile.mkdtemp(prefix="book_sync_test_")
     temp_data_dir = os.path.join(temp_base_dir, "data")
     temp_books_dir = os.path.join(temp_base_dir, "books")
 

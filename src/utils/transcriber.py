@@ -1,5 +1,5 @@
 """
-Audio Transcriber for Book Stitch
+Audio Transcriber for Book Sync
 
 UPDATED VERSION with:
 - WAV normalization fix for ctranslate2/faster-whisper codec compatibility
