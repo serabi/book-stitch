@@ -9,6 +9,9 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from utils.transcription_providers import DeepgramProvider, LocalWhisperProvider, get_transcription_provider
 
+# Clearly fake API key for unit tests — not a real credential
+DUMMY_API_KEY = "fake-key-for-testing"  # noqa: S105
+
 
 class TestLocalWhisperProvider(unittest.TestCase):
 
@@ -95,9 +98,9 @@ class TestDeepgramProvider(unittest.TestCase):
 
     def test_init_with_key(self):
         """Test initialization with key."""
-        with patch.dict(os.environ, {"DEEPGRAM_API_KEY": "test_key", "DEEPGRAM_MODEL": "nova-3"}):
+        with patch.dict(os.environ, {"DEEPGRAM_API_KEY": DUMMY_API_KEY, "DEEPGRAM_MODEL": "nova-3"}):
             provider = DeepgramProvider()
-            self.assertEqual(provider.api_key, "test_key")
+            self.assertEqual(provider.api_key, DUMMY_API_KEY)
             self.assertEqual(provider.model, "nova-3")
             self.assertIn("nova-3", provider.get_name())
 
@@ -110,7 +113,7 @@ class TestDeepgramProvider(unittest.TestCase):
 
         # Patch sys.modules to include deepgram
         with patch.dict(sys.modules, {'deepgram': mock_deepgram}):
-            with patch.dict(os.environ, {"DEEPGRAM_API_KEY": "test_key"}):
+            with patch.dict(os.environ, {"DEEPGRAM_API_KEY": DUMMY_API_KEY}):
                 provider = DeepgramProvider()
 
                 # Mock the client chain: client.listen.v1.media.transcribe_file
@@ -133,7 +136,7 @@ class TestDeepgramProvider(unittest.TestCase):
                     segments = provider.transcribe(Path("test.mp3"))
 
                 # Verify client init
-                mock_client_cls.assert_called_once_with(api_key="test_key")
+                mock_client_cls.assert_called_once_with(api_key=DUMMY_API_KEY)
 
                 # Verify transcribe call args - ensure NO timeout and correct model
                 mock_transcribe.assert_called_once()
