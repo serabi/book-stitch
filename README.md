@@ -6,10 +6,10 @@
 
 **Keep your place across every book, every app, every format.**
 
-[![License](https://img.shields.io/github/license/serabi/book-sync?cacheSeconds=3600)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/serabi/book-sync)](https://github.com/serabi/book-sync/releases)
-[![Snyk Security](https://snyk.io/test/github/serabi/book-sync/badge.svg)](https://snyk.io/test/github/serabi/book-sync)
-[![CodeRabbit Reviews](https://img.shields.io/coderabbit/prs/github/serabi/book-sync?labelColor=171717&color=FF570A&label=CodeRabbit+Reviews)](https://coderabbit.ai)
+[![License](https://img.shields.io/github/license/serabi/pagekeeper?cacheSeconds=3600)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/serabi/pagekeeper)](https://github.com/serabi/pagekeeper/releases)
+[![Snyk Security](https://snyk.io/test/github/serabi/pagekeeper/badge.svg)](https://snyk.io/test/github/serabi/pagekeeper)
+[![CodeRabbit Reviews](https://img.shields.io/coderabbit/prs/github/serabi/pagekeeper?labelColor=171717&color=FF570A&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 </div>
 
@@ -195,8 +195,8 @@ _Docker image coming soon_
 Clone the repository and build the image:
 
 ```bash
-git clone https://github.com/serabi/book-sync.git
-cd book-sync
+git clone https://github.com/serabi/pagekeeper.git
+cd pagekeeper
 docker build -t pagekeeper .
 ```
 

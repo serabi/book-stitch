@@ -27,6 +27,7 @@ All notable changes to PageKeeper will be documented in this file.
 - **Suggestions Link button** — Clicking "Link" on a suggestion now pre-fills the match page with the book's title and pre-selects the audiobook, instead of opening an empty match page.
 - **Suggestions empty state** — Shows context-aware messages: explains that no candidates have been found yet when suggestions are enabled, or prompts the user to enable them in Settings (with a direct link) when disabled.
 - **Completed book menu cleanup** — Completed books now show only "Sync status to all services" and "Clear Progress" in the kebab menu. Removed redundant "Mark Complete" and "Sync Now" actions.
+- **Renamed to PageKeeper** — Project renamed from Book Sync to PageKeeper across all branding, templates, Docker config, and documentation. GitHub repo moved to `serabi/pagekeeper`. localStorage keys migrated with backward-compatible fallback so existing users keep their preferences.
 
 ### Fixed
 
