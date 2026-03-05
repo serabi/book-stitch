@@ -1,7 +1,9 @@
+import json
 import logging
 import os
 import re
 import time
+from pathlib import Path
 
 import requests
 
@@ -263,6 +265,68 @@ class StorytellerAPIClient:
         except Exception as e:
             logger.error(f"Error fetching book details: {e}")
         return None
+
+    def get_word_timeline_chapters(self, book_uuid: str) -> list[dict] | None:
+        """Load wordTimeline data from Storyteller's assets directory.
+
+        Storyteller organizes assets by book title (with optional suffix for
+        duplicates), not by UUID. This method fetches the book's title via
+        the API, then looks for transcript files in:
+            {STORYTELLER_ASSETS_DIR}/assets/{title}{suffix}/transcriptions/
+
+        Accepts any 5-digit prefix chapter files (e.g. 00000-00001.json).
+        Returns a list of chapter dicts with 'words' entries, or None if unavailable.
+        """
+        assets_dir = os.environ.get('STORYTELLER_ASSETS_DIR', '').strip()
+        if not assets_dir:
+            return None
+
+        # Resolve book title via API to find the correct directory name
+        book_details = self.get_book_details(book_uuid)
+        if not book_details:
+            logger.debug(f"Storyteller: Could not fetch details for UUID {book_uuid}")
+            return None
+
+        title = book_details.get('title', '')
+        suffix = book_details.get('suffix', '')
+        if not title:
+            return None
+
+        # Validate that resolved paths stay within the assets root (path traversal defense)
+        assets_root = (Path(assets_dir) / 'assets').resolve()
+        dir_name = f"{title}{suffix}"
+        transcripts_dir = (assets_root / dir_name / 'transcriptions').resolve()
+        if assets_root not in transcripts_dir.parents:
+            logger.warning("Storyteller: Refusing out-of-root transcript path")
+            return None
+        if not transcripts_dir.is_dir():
+            logger.debug(f"Storyteller: No transcriptions dir at {transcripts_dir}")
+            return None
+
+        chapters = []
+        pattern = re.compile(r'^\d{5}-\d{5}\.json$')
+        for filename in sorted(os.listdir(transcripts_dir)):
+            if not pattern.match(filename):
+                continue
+            filepath = (transcripts_dir / filename).resolve()
+            if transcripts_dir not in filepath.parents and filepath.parent != transcripts_dir:
+                logger.warning(f"Storyteller: Refusing out-of-root transcript file: {filename}")
+                continue
+            try:
+                with filepath.open('r', encoding='utf-8') as f:
+                    data = json.load(f)
+                # wordTimeline is the key containing word-level timing data
+                timeline = data.get('wordTimeline') or data.get('timeline')
+                if timeline and isinstance(timeline, list):
+                    chapters.append({
+                        'filename': filename,
+                        'words': timeline,
+                    })
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Storyteller: Failed to read transcript {filename}: {e}")
+
+        return chapters if chapters else None
+
 
 def create_storyteller_client():
     return StorytellerAPIClient()

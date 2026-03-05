@@ -111,6 +111,7 @@
                         <div class="sub-section-header">
                             <h3><span class="accent-dot" style="background: var(--color-abs, #5c6bc0);"></span> Audiobookshelf</h3>
                             <div class="toggle-switch-wrapper">
+                                <button type="button" class="btn btn-sm" onclick="testConnection('abs', this)">Test</button>
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="toggle_abs" name="ABS_ENABLED"
@@ -202,6 +203,7 @@
                         <div class="sub-section-header">
                             <h3><span class="accent-dot" style="background: var(--color-storyteller);"></span> Storyteller</h3>
                             <div class="toggle-switch-wrapper">
+                                <button type="button" class="btn btn-sm" onclick="testConnection('storyteller', this)">Test</button>
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="toggle_storyteller" name="STORYTELLER_ENABLED"
@@ -229,6 +231,12 @@
                                 <label>Password</label>
                                 <input type="password" name="STORYTELLER_PASSWORD" placeholder="{{ '(unchanged)' if get_val('STORYTELLER_PASSWORD') else '' }}">
                             </div>
+                            <div class="form-group full-width">
+                                <label>Assets Directory</label>
+                                <input type="text" name="STORYTELLER_ASSETS_DIR" value="{{ get_val('STORYTELLER_ASSETS_DIR') }}"
+                                    placeholder="/storyteller-data">
+                                <div class="help-text">Mount Storyteller's data directory for native wordTimeline alignment. Bypasses Whisper transcription when word-level timing data is available.</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -247,6 +255,7 @@
                         <div class="sub-section-header">
                             <h3><span class="accent-dot" style="background: var(--color-booklore);"></span> Booklore</h3>
                             <div class="toggle-switch-wrapper">
+                                <button type="button" class="btn btn-sm" onclick="testConnection('booklore', this)">Test</button>
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="toggle_booklore" name="BOOKLORE_ENABLED"
@@ -303,6 +312,7 @@
                         <div class="sub-section-header">
                             <h3><span class="accent-dot" style="background: var(--color-booklore);"></span> Booklore — Secondary</h3>
                             <div class="toggle-switch-wrapper">
+                                <button type="button" class="btn btn-sm" onclick="testConnection('booklore_2', this)">Test</button>
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="toggle_booklore2" name="BOOKLORE_2_ENABLED"
@@ -359,6 +369,7 @@
                         <div class="sub-section-header">
                             <h3><span class="accent-dot" style="background: var(--color-cwa);"></span> Calibre-Web Automated</h3>
                             <div class="toggle-switch-wrapper">
+                                <button type="button" class="btn btn-sm" onclick="testConnection('cwa', this)">Test</button>
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="toggle_cwa" name="CWA_ENABLED"
@@ -553,6 +564,7 @@
                         <div class="sub-section-header">
                             <h3>Telegram</h3>
                             <div class="toggle-switch-wrapper">
+                                <button type="button" class="btn btn-sm" onclick="testConnection('telegram', this)">Test</button>
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="toggle_telegram" name="TELEGRAM_ENABLED"
@@ -632,6 +644,27 @@
                         </div>
                     </div>
 
+                    <!-- Sync Reading Dates -->
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3>Sync Reading Dates</h3>
+                        </div>
+                        <div class="sub-section-body">
+                            <div class="full-width">
+                                <div class="cleanup-group">
+                                    <button type="button" class="btn btn-primary" onclick="syncReadingDates(this)">
+                                        Sync Reading Dates
+                                    </button>
+                                    <p class="help-text flex-1 m-0">
+                                        Pulls <code>started_at</code> and <code>finished_at</code> dates from Hardcover
+                                        and Audiobookshelf for books that are missing them. Books found to be finished
+                                        externally will be marked as completed.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Hardcover -->
                     {% set hardcover_configured = get_val('HARDCOVER_TOKEN') != '' %}
                     {% set hardcover_enabled = get_bool('HARDCOVER_ENABLED') or (hardcover_configured and get_val('HARDCOVER_ENABLED') == '') %}
@@ -639,6 +672,7 @@
                         <div class="sub-section-header">
                             <h3><span class="accent-dot" style="background: var(--color-hardcover);"></span> Hardcover.app</h3>
                             <div class="toggle-switch-wrapper">
+                                <button type="button" class="btn btn-sm" onclick="testConnection('hardcover', this)">Test</button>
                                 <span class="toggle-label">Enable</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="toggle_hardcover" name="HARDCOVER_ENABLED"
@@ -945,6 +979,38 @@
             }
         }
 
+        /* ─── Test Connection ─── */
+        function testConnection(service, btn) {
+            var originalText = btn.textContent;
+            btn.textContent = 'Testing...';
+            btn.disabled = true;
+            fetch('/api/test-connection/' + service)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        btn.textContent = '\u2713 ' + (data.detail || 'Connected');
+                        btn.classList.add('btn-success');
+                    } else {
+                        btn.textContent = '\u2717 ' + (data.detail || 'Failed');
+                        btn.classList.add('btn-error');
+                    }
+                    setTimeout(function() {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                        btn.classList.remove('btn-success', 'btn-error');
+                    }, 3000);
+                })
+                .catch(function(err) {
+                    btn.textContent = '\u2717 Error';
+                    btn.classList.add('btn-error');
+                    setTimeout(function() {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                        btn.classList.remove('btn-error');
+                    }, 3000);
+                });
+        }
+
         /* ─── Preserved Functions ─── */
 
         function checkBookloreLibs(event) {
@@ -1075,6 +1141,33 @@
             } catch (err) {
                 console.error('Error clearing suggestions:', err);
                 alert('An error occurred while clearing suggestions. Check console for details.');
+            }
+        }
+
+        async function syncReadingDates(btn) {
+            btn.disabled = true;
+            btn.textContent = 'Syncing…';
+            try {
+                var response = await fetch('/api/sync-reading-dates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                var data = await response.json();
+                if (data.success) {
+                    var parts = [];
+                    if (data.updated) parts.push(data.updated + ' updated');
+                    if (data.completed) parts.push(data.completed + ' newly completed');
+                    if (data.errors) parts.push(data.errors + ' errors');
+                    alert(parts.length ? 'Sync complete: ' + parts.join(', ') + '.' : 'All reading dates are already up to date.');
+                } else {
+                    alert('Failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (err) {
+                console.error('Error syncing reading dates:', err);
+                alert('An error occurred. Check console for details.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Sync Reading Dates';
             }
         }
 

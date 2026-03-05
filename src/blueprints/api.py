@@ -74,6 +74,26 @@ def api_status():
     return jsonify({"mappings": mappings})
 
 
+# ---------------- Processing Status ----------------
+
+@api_bp.route('/api/processing-status')
+def api_processing_status():
+    """Return status and progress for all non-active (processing/pending/failed) books."""
+    database_service = get_database_service()
+    books = database_service.get_all_books()
+    result = {}
+    for book in books:
+        if book.status not in ('pending', 'processing', 'failed_retry_later'):
+            continue
+        job = database_service.get_latest_job(book.abs_id)
+        result[book.abs_id] = {
+            'status': book.status,
+            'job_progress': round((job.progress or 0.0) * 100, 1) if job else 0.0,
+            'retry_count': (job.retry_count or 0) if job else 0,
+        }
+    return jsonify(result)
+
+
 # ---------------- Suggestions ----------------
 
 @api_bp.route('/api/suggestions', methods=['GET'])
@@ -122,6 +142,17 @@ def clear_stale_suggestions():
     count = database_service.clear_stale_suggestions()
     logger.info(f"Cleared {count} stale suggestions from database")
     return jsonify({"success": True, "count": count})
+
+
+@api_bp.route('/api/sync-reading-dates', methods=['POST'])
+def sync_reading_dates_api():
+    """Pull started_at / finished_at from Hardcover and ABS for books missing them."""
+    from src.services.reading_date_service import sync_reading_dates
+    database_service = get_database_service()
+    container = get_container()
+    stats = sync_reading_dates(database_service, container)
+    logger.info(f"Sync reading dates: {stats}")
+    return jsonify({"success": True, **stats})
 
 
 # ---------------- Storyteller ----------------

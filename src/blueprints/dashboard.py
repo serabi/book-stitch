@@ -30,6 +30,36 @@ def index():
 
     books = database_service.get_all_books()
 
+    # Auto-complete and date sync — throttled to once per 5 minutes
+    from src.services.reading_date_service import auto_complete_finished_books, sync_reading_dates
+    _THROTTLE_KEY = 'dashboard_date_sync_last_run'
+    _THROTTLE_SECONDS = 300
+    last_run_raw = database_service.get_setting(_THROTTLE_KEY)
+    try:
+        last_run = float(last_run_raw) if last_run_raw else 0.0
+    except (TypeError, ValueError):
+        last_run = 0.0
+    should_run_date_ops = (time.time() - last_run) >= _THROTTLE_SECONDS
+
+    if should_run_date_ops:
+        database_service.set_setting(_THROTTLE_KEY, str(time.time()))
+
+        ac_stats = auto_complete_finished_books(database_service, container)
+        if ac_stats['completed']:
+            logger.info(f"Auto-completed {ac_stats['completed']} book(s) at 100% progress")
+            books = database_service.get_all_books()
+
+        needs_date_sync = any(
+            (not b.started_at and b.status in ('active', 'paused', 'completed', 'dnf'))
+            or (not b.finished_at and b.status == 'completed')
+            for b in books
+        )
+        if needs_date_sync:
+            stats = sync_reading_dates(database_service, container)
+            if stats['updated'] or stats['completed']:
+                logger.info(f"Reading dates sync: {stats}")
+                books = database_service.get_all_books()
+
     abs_service = get_abs_service()
 
     # Fetch ABS metadata once for the whole dashboard (single API call)
@@ -143,12 +173,14 @@ def index():
             'states': {}
         }
 
-        if book.status == 'processing':
+        if book.status in ('pending', 'processing', 'failed_retry_later'):
             job = database_service.get_latest_job(book.abs_id)
             if job:
                 mapping['job_progress'] = round((job.progress or 0.0) * 100, 1)
+                mapping['retry_count'] = job.retry_count or 0
             else:
                 mapping['job_progress'] = 0.0
+                mapping['retry_count'] = 0
 
         latest_update_time = 0
         max_progress = 0

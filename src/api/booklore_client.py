@@ -157,6 +157,8 @@ class BookloreClient:
                 response = self.session.get(url, headers=headers, timeout=10)
             elif method.upper() == "POST":
                 response = self.session.post(url, headers=headers, json=json_data, timeout=10)
+            elif method.upper() == "PUT":
+                response = self.session.put(url, headers=headers, json=json_data, timeout=10)
             else: return None
 
             if response.status_code == 401:
@@ -166,6 +168,8 @@ class BookloreClient:
                 headers["Authorization"] = f"Bearer {token}"
                 if method.upper() == "GET":
                     response = self.session.get(url, headers=headers, timeout=10)
+                elif method.upper() == "PUT":
+                    response = self.session.put(url, headers=headers, json=json_data, timeout=10)
                 else:
                     response = self.session.post(url, headers=headers, json=json_data, timeout=10)
             return response
@@ -724,6 +728,33 @@ class BookloreClient:
         else:
             status = response.status_code if response else "No response"
             logger.error(f"Booklore update failed: {status}")
+            return False
+
+    def update_read_status(self, ebook_filename, status):
+        """Update the read status for a book in Booklore.
+
+        Args:
+            ebook_filename: The ebook filename to look up.
+            status: One of 'UNREAD', 'READING', 'RE_READING', 'READ',
+                    'PARTIALLY_READ', 'PAUSED', 'WONT_READ', 'ABANDONED'.
+
+        Booklore auto-sets dateFinished when status is set to READ.
+        """
+        book = self.find_book_by_filename(ebook_filename)
+        if not book:
+            logger.debug(f"Booklore: Cannot update read status — book not found: {ebook_filename}")
+            return False
+
+        book_id = book['id']
+        # Use the web API (POST /api/v1/books/status) which takes a list of book IDs
+        payload = {"bookIds": [book_id], "status": status}
+        response = self._make_request("POST", "/api/v1/books/status", payload)
+        if response and response.status_code in [200, 201, 204]:
+            logger.info(f"Booklore: Set read status '{status}' for {sanitize_log_data(ebook_filename)}")
+            return True
+        else:
+            resp_status = response.status_code if response else "No response"
+            logger.warning(f"Booklore: Failed to set read status for {sanitize_log_data(ebook_filename)}: {resp_status}")
             return False
 
     def get_recent_activity(self, min_progress=0.01):

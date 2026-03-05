@@ -3,9 +3,11 @@
 import logging
 import os
 
+import requests as http_requests
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 
 from src.blueprints.helpers import get_container, get_database_service
+from src.utils.logging_utils import sanitize_log_data
 
 logger = logging.getLogger(__name__)
 
@@ -165,12 +167,202 @@ def get_secret(key):
 
 @settings_bp.route('/api/kosync/test', methods=['POST'])
 def test_kosync_connection():
-    """Test connection to the configured KoSync server."""
+    """Test connection to the configured KoSync server (legacy route)."""
+    return test_connection('kosync')
+
+
+@settings_bp.route('/api/test-connection/<service>', methods=['GET'])
+def test_connection(service):
+    """Test connectivity to a configured service. Returns JSON with success/detail."""
+    testers = {
+        'abs': _test_abs,
+        'kosync': _test_kosync,
+        'storyteller': _test_storyteller,
+        'booklore': _test_booklore,
+        'booklore_2': _test_booklore_2,
+        'cwa': _test_cwa,
+        'hardcover': _test_hardcover,
+        'telegram': _test_telegram,
+    }
+    tester = testers.get(service)
+    if not tester:
+        return jsonify({'success': False, 'detail': 'Unknown service'}), 400
+    try:
+        success, detail = tester()
+    except Exception as e:
+        logger.warning(f"Connection test for '{service}' failed: {_redact_secrets(str(sanitize_log_data(e)))}")
+        success, detail = False, _test_conn_error(e)
+    return jsonify({'success': success, 'detail': detail})
+
+
+def _redact_secrets(msg: str) -> str:
+    """Replace any known secret values in a string with a fixed mask."""
+    secret_keys = [
+        'ABS_KEY', 'STORYTELLER_PASSWORD', 'BOOKLORE_PASSWORD', 'BOOKLORE_2_PASSWORD',
+        'CWA_PASSWORD', 'KOSYNC_KEY', 'TELEGRAM_BOT_TOKEN', 'HARDCOVER_TOKEN',
+        'DEEPGRAM_API_KEY',
+    ]
+    for key in secret_keys:
+        val = os.environ.get(key, '')
+        if val and val in msg:
+            msg = msg.replace(val, '***')
+    return msg
+
+
+def _test_conn_error(e: Exception) -> str:
+    """Return a user-friendly error string from a request exception."""
+    msg = str(e)
+    if 'ConnectionError' in type(e).__name__ or 'connection' in msg.lower():
+        return 'Connection refused — is the server running?'
+    if 'Timeout' in type(e).__name__:
+        return 'Request timed out'
+    if 'NameResolutionError' in msg or 'getaddrinfo' in msg:
+        return 'Server hostname could not be resolved — check the URL'
+    return _redact_secrets(str(sanitize_log_data(msg)))
+
+
+_HTTP_FRIENDLY = {
+    401: 'Authentication failed — check your username and password',
+    403: 'Access denied — your account may not have permission',
+    404: 'Endpoint not found — check the server URL',
+    500: 'Server returned an internal error',
+    502: 'Bad gateway — is a reverse proxy misconfigured?',
+    503: 'Service unavailable — the server may be starting up',
+}
+
+
+def _http_error(status_code: int) -> str:
+    """Return a user-friendly message for an HTTP error status."""
+    friendly = _HTTP_FRIENDLY.get(status_code)
+    if friendly:
+        return f'{friendly} (HTTP {status_code})'
+    return f'Unexpected response (HTTP {status_code})'
+
+
+def _test_abs() -> tuple[bool, str]:
+    url = os.environ.get('ABS_SERVER', '').rstrip('/')
+    token = os.environ.get('ABS_KEY', '')
+    if not url or not token:
+        return False, 'Server URL or API token not configured'
+    resp = http_requests.get(
+        f"{url}/api/me",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if resp.status_code == 200:
+        username = resp.json().get('username', 'unknown')
+        return True, f'Connected as {username}'
+    return False, _http_error(resp.status_code)
+
+
+def _test_kosync() -> tuple[bool, str]:
     container = get_container()
     kosync_client = container.kosync_client()
-    try:
-        success = bool(kosync_client.check_connection())
-    except Exception as e:
-        logger.warning(f"KoSync connection test failed: {e}")
-        success = False
-    return jsonify({'success': success})
+    success = bool(kosync_client.check_connection())
+    return success, 'Connected' if success else 'Healthcheck failed'
+
+
+def _test_storyteller() -> tuple[bool, str]:
+    url = os.environ.get('STORYTELLER_API_URL', '').rstrip('/')
+    user = os.environ.get('STORYTELLER_USER', '')
+    pw = os.environ.get('STORYTELLER_PASSWORD', '')
+    if not url or not user:
+        return False, 'API URL or credentials not configured'
+    resp = http_requests.post(
+        f"{url}/api/token",
+        data={"username": user, "password": pw},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=10,
+    )
+    if resp.status_code == 200:
+        return True, 'Authenticated'
+    return False, _http_error(resp.status_code)
+
+
+def _test_booklore() -> tuple[bool, str]:
+    return _test_booklore_instance('BOOKLORE')
+
+
+def _test_booklore_2() -> tuple[bool, str]:
+    return _test_booklore_instance('BOOKLORE_2')
+
+
+def _test_booklore_instance(prefix: str) -> tuple[bool, str]:
+    url = os.environ.get(f'{prefix}_SERVER', '').rstrip('/')
+    user = os.environ.get(f'{prefix}_USER', '')
+    pw = os.environ.get(f'{prefix}_PASSWORD', '')
+    if not url or not user:
+        return False, 'Server URL or credentials not configured'
+    resp = http_requests.post(
+        f"{url}/api/v1/auth/login",
+        json={"username": user, "password": pw},
+        timeout=10,
+    )
+    if resp.status_code == 200:
+        return True, 'Authenticated'
+    return False, _http_error(resp.status_code)
+
+
+def _test_cwa() -> tuple[bool, str]:
+    url = os.environ.get('CWA_SERVER', '').rstrip('/')
+    user = os.environ.get('CWA_USERNAME', '')
+    pw = os.environ.get('CWA_PASSWORD', '')
+    if not url or not user:
+        return False, 'Server URL or credentials not configured'
+    resp = http_requests.get(
+        f"{url}/opds",
+        auth=(user, pw),
+        timeout=10,
+        allow_redirects=False,
+    )
+    # CWA redirects to login page on auth failure
+    if resp.status_code == 200 and 'login' not in resp.text[:500].lower():
+        return True, 'Connected'
+    if resp.status_code in (301, 302):
+        return False, 'Redirected to login — check credentials'
+    return False, _http_error(resp.status_code)
+
+
+def _test_hardcover() -> tuple[bool, str]:
+    token = os.environ.get('HARDCOVER_TOKEN', '')
+    if not token:
+        return False, 'API token not configured'
+    resp = http_requests.post(
+        'https://api.hardcover.app/v1/graphql',
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"query": "{ me { id username } }"},
+        timeout=10,
+    )
+    if resp.status_code == 200:
+        data = resp.json()
+        if data.get('errors'):
+            err_msg = data['errors'][0].get('message', 'Unknown GraphQL error')
+            return False, f'GraphQL error: {err_msg}'
+        me = data.get('data', {}).get('me')
+        if isinstance(me, list):
+            me = me[0] if me else {}
+        elif not isinstance(me, dict):
+            me = {}
+        if not isinstance(me, dict) or not me.get('id'):
+            return False, 'Authentication succeeded but user data is missing'
+        username = me.get('username', 'unknown')
+        return True, f'Connected as {username}'
+    return False, _http_error(resp.status_code)
+
+
+def _test_telegram() -> tuple[bool, str]:
+    token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    if not token:
+        return False, 'Bot token not configured'
+    resp = http_requests.get(
+        f"https://api.telegram.org/bot{token}/getMe",
+        timeout=10,
+    )
+    if resp.status_code == 200:
+        data = resp.json()
+        bot_name = data.get('result', {}).get('first_name', 'Bot')
+        return True, f'Connected ({bot_name})'
+    return False, _http_error(resp.status_code)

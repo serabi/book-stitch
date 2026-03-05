@@ -18,6 +18,7 @@ class TestSuggestionLogic(unittest.TestCase):
         self.mock_db.get_all_books.return_value = []
 
         self.mock_abs = Mock()
+        self.mock_abs.get_all_audiobooks.return_value = []
         self.mock_booklore = Mock()
 
         self.manager = SyncManager(

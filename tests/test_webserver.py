@@ -211,8 +211,8 @@ class CleanFlaskIntegrationTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data, b"Mocked HTML Response")
 
-            # Verify database was called
-            self.mock_database_service.get_all_books.assert_called_once()
+            # Verify database was called (may be called more than once due to reading-date backfill)
+            self.mock_database_service.get_all_books.assert_called()
             self.mock_database_service.get_all_states.assert_called_once()
             self.mock_database_service.get_all_hardcover_details.assert_called_once()
 

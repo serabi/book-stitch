@@ -89,6 +89,8 @@ class SyncManager:
         self._job_queue = []
         self._job_lock = threading.Lock()
         self._sync_lock = threading.Lock()
+        self._suggestion_lock = threading.Lock()
+        self._suggestion_in_flight: set[str] = set()
         self._job_thread = None
         self._last_library_sync = 0
 
@@ -456,6 +458,37 @@ class SyncManager:
         return None
 
     # Suggestion Logic
+
+    def queue_suggestion(self, abs_id: str) -> None:
+        """Queue suggestion discovery for an unmapped book (called from socket listener)."""
+        if os.environ.get("SUGGESTIONS_ENABLED", "true").lower() != "true":
+            return
+
+        # Already mapped?
+        all_books = self.database_service.get_all_books()
+        mapped_ids = {b.abs_id for b in all_books}
+        if abs_id in mapped_ids:
+            return
+
+        # Already has a suggestion (pending, dismissed, or ignored)?
+        if self.database_service.suggestion_exists(abs_id):
+            return
+
+        # Prevent concurrent suggestion creation for the same ID
+        with self._suggestion_lock:
+            if abs_id in self._suggestion_in_flight:
+                return
+            self._suggestion_in_flight.add(abs_id)
+
+        try:
+            logger.info(f"Socket.IO: Queuing suggestion discovery for '{abs_id[:12]}...'")
+            self._create_suggestion(abs_id, None)
+        except Exception as e:
+            logger.warning(f"Socket.IO: Suggestion discovery failed for '{abs_id[:12]}...': {e}")
+        finally:
+            with self._suggestion_lock:
+                self._suggestion_in_flight.discard(abs_id)
+
     def check_for_suggestions(self, abs_progress_map, active_books):
         """Check for unmapped books with progress and create suggestions."""
         suggestions_enabled_val = os.environ.get("SUGGESTIONS_ENABLED", "true")
@@ -501,6 +534,130 @@ class SyncManager:
                     logger.debug(f"Skipping {abs_id}: no duration")
         except Exception as e:
             logger.error(f"Error checking suggestions: {e}")
+
+        # Reverse suggestions: ebook sources → ABS audiobooks
+        try:
+            self._check_reverse_suggestions()
+        except Exception as e:
+            logger.warning(f"Reverse suggestions check failed: {e}")
+
+    def _check_reverse_suggestions(self):
+        """Check Storyteller and Booklore for books with progress that could match ABS audiobooks."""
+        if not self.abs_client:
+            return
+
+        # Build lookup of ABS audiobooks by cleaned title for matching
+        try:
+            all_audiobooks = self.abs_client.get_all_audiobooks()
+        except Exception as e:
+            logger.debug(f"Reverse suggestions: failed to fetch ABS audiobooks: {e}")
+            return
+
+        if not all_audiobooks:
+            return
+
+        all_books = self.database_service.get_all_books()
+        mapped_abs_ids = {b.abs_id for b in all_books}
+        mapped_storyteller_uuids = {b.storyteller_uuid for b in all_books if b.storyteller_uuid}
+
+        # Index audiobooks by cleaned title for fuzzy matching
+        abs_by_title: dict[str, list[dict]] = {}
+        for ab in all_audiobooks:
+            meta = ab.get('media', {}).get('metadata', {})
+            title = meta.get('title', '')
+            if title:
+                clean = re.sub(r'\s*[\(\[].*?[\)\]]', '', title).strip().lower()
+                if clean:
+                    abs_by_title.setdefault(clean, []).append(ab)
+
+        # Check Storyteller books
+        if self.storyteller_client and self.storyteller_client.is_configured():
+            try:
+                positions = self.storyteller_client.get_all_positions_bulk()
+                for title_lower, pos_data in positions.items():
+                    pct = pos_data.get('pct', 0)
+                    uuid = pos_data.get('uuid')
+                    if not uuid or pct < 0.01 or pct > 0.70:
+                        continue
+                    if uuid in mapped_storyteller_uuids:
+                        continue
+
+                    # Search ABS for a matching audiobook
+                    clean_title = re.sub(r'\s*[\(\[].*?[\)\]]', '', title_lower).strip()
+                    matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
+                    if matches:
+                        self._save_reverse_suggestion(matches, clean_title, f"storyteller:{uuid}")
+            except Exception as e:
+                logger.debug(f"Reverse suggestions: Storyteller check failed: {e}")
+
+        # Check Booklore books
+        for bl_client in self._booklore_clients:
+            if not (bl_client and bl_client.is_configured()):
+                continue
+            try:
+                bl_books = bl_client.get_all_books()
+                for bl_book in bl_books:
+                    title = bl_book.get('title', '')
+                    filename = bl_book.get('fileName', '')
+                    if not title:
+                        continue
+
+                    # Check if this book has progress
+                    pct_raw, _ = bl_client.get_progress(filename)
+                    if not pct_raw or pct_raw < 0.01 or pct_raw > 0.70:
+                        continue
+
+                    clean_title = re.sub(r'\s*[\(\[].*?[\)\]]', '', title).strip().lower()
+                    source_key = f"booklore:{bl_client.source_tag}:{filename}"
+                    matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
+                    if matches:
+                        self._save_reverse_suggestion(matches, title, source_key)
+            except Exception as e:
+                logger.debug(f"Reverse suggestions: Booklore check failed: {e}")
+
+    def _find_abs_audiobook_matches(self, clean_title: str, abs_by_title: dict, mapped_abs_ids: set) -> list[dict]:
+        """Find ABS audiobooks matching a title, excluding already-mapped ones."""
+        if not clean_title:
+            return []
+        matches = []
+        for indexed_title, audiobooks in abs_by_title.items():
+            # Check for substring match in either direction
+            if clean_title in indexed_title or indexed_title in clean_title:
+                for ab in audiobooks:
+                    ab_id = ab.get('id')
+                    if ab_id in mapped_abs_ids:
+                        continue
+                    meta = ab.get('media', {}).get('metadata', {})
+                    matches.append({
+                        "source": "abs_audiobook",
+                        "abs_id": ab_id,
+                        "title": meta.get('title'),
+                        "author": meta.get('authorName'),
+                        "confidence": "high" if clean_title == indexed_title else "medium",
+                    })
+        return matches
+
+    def _save_reverse_suggestion(self, matches: list[dict], title: str, source_key: str):
+        """Save a reverse suggestion (ebook → audiobook) using the first ABS match as source_id."""
+        # Use the best ABS match as the anchor
+        best = next((m for m in matches if m.get('confidence') == 'high'), matches[0])
+        abs_id = best['abs_id']
+
+        if self.database_service.suggestion_exists(abs_id):
+            return
+
+        cover = f"/api/cover-proxy/{abs_id}"
+        # Include source_key as provenance so we know where the suggestion originated
+        matches_with_provenance = [dict(m, source_key=source_key) for m in matches]
+        suggestion = PendingSuggestion(
+            source_id=abs_id,
+            title=best.get('title', title),
+            author=best.get('author'),
+            cover_url=cover,
+            matches_json=json.dumps(matches_with_provenance),
+        )
+        self.database_service.save_pending_suggestion(suggestion)
+        logger.info(f"Reverse suggestion: '{title}' has matching audiobook '{best.get('title')}' in ABS")
 
     def _create_suggestion(self, abs_id, progress_data):
         """Create a new suggestion for an unmapped book."""
@@ -577,7 +734,24 @@ class SyncManager:
                 except Exception as e:
                     logger.warning(f"Filesystem search failed during suggestion: {e}")
 
-            # 2c. ABS Direct Match (check if audiobook item has ebook files)
+            # 2c. Search Storyteller
+            if self.storyteller_client and self.storyteller_client.is_configured():
+                try:
+                    st_results = self.storyteller_client.search_books(search_title)
+                    if st_results:
+                        logger.debug(f"Storyteller: Found {len(st_results)} result(s) for '{search_title}'")
+                        for sr in st_results:
+                            matches.append({
+                                "source": "storyteller",
+                                "title": sr.get('title'),
+                                "author": ', '.join(sr.get('authors', [])),
+                                "uuid": sr.get('uuid'),
+                                "confidence": "high" if search_title.lower() in sr.get('title', '').lower() else "medium"
+                            })
+                except Exception as e:
+                    logger.warning(f"Storyteller search failed during suggestion: {e}")
+
+            # 2d. ABS Direct Match (check if audiobook item has ebook files)
             if self.abs_client:
                 try:
                     ebook_files = self.abs_client.get_ebook_files(abs_id)
@@ -596,7 +770,7 @@ class SyncManager:
                 except Exception as e:
                     logger.warning(f"ABS Direct search failed during suggestion: {e}")
 
-            # 2d. CWA Search (Calibre-Web Automated via OPDS)
+            # 2e. CWA Search (Calibre-Web Automated via OPDS)
             if self.library_service and self.library_service.cwa_client and self.library_service.cwa_client.is_configured():
                 try:
                     query = f"{search_title}"
@@ -618,7 +792,7 @@ class SyncManager:
                 except Exception as e:
                     logger.warning(f"CWA search failed during suggestion: {e}")
 
-            # 2e. ABS Search (search other libraries for matching ebook)
+            # 2f. ABS Search (search other libraries for matching ebook)
             if self.abs_client:
                 try:
                     abs_results = self.abs_client.search_ebooks(search_title)
@@ -810,7 +984,7 @@ class SyncManager:
                 except Exception as e:
                     logger.warning(f"Failed to eager-lock KOSync ID: {e}")
 
-            # Step 2: Try Fast-Path (SMIL Extraction)
+            # Step 2: Try alignment sources in priority order
             raw_transcript = None
             transcript_source = None
 
@@ -820,8 +994,26 @@ class SyncManager:
             # We need this for Validating SMIL OR for Aligning Whisper
             book_text, _ = self.ebook_parser.extract_text_and_map(epub_path)
 
-            # Attempt SMIL extraction
-            if hasattr(self.transcriber, 'transcribe_from_smil'):
+            # Priority 1: Storyteller native wordTimeline (if linked + assets available)
+            if (book.storyteller_uuid
+                    and self.storyteller_client
+                    and os.environ.get('STORYTELLER_ASSETS_DIR', '').strip()):
+                try:
+                    st_chapters = self.storyteller_client.get_word_timeline_chapters(book.storyteller_uuid)
+                    if st_chapters:
+                        logger.info(f"Using Storyteller wordTimeline for '{book.abs_title}' ({len(st_chapters)} chapters)")
+                        update_progress(0.5, 2)
+                        success = self.alignment_service.align_storyteller_and_store(
+                            abs_id, st_chapters, book_text
+                        )
+                        if success:
+                            transcript_source = "STORYTELLER_NATIVE"
+                            update_progress(1.0, 2)
+                except Exception as e:
+                    logger.warning(f"Storyteller wordTimeline failed for '{book.abs_title}': {e}")
+
+            # Priority 2: SMIL extraction
+            if not transcript_source and hasattr(self.transcriber, 'transcribe_from_smil'):
                   raw_transcript = self.transcriber.transcribe_from_smil(
                       abs_id, epub_path, chapters,
                       full_book_text=book_text,
@@ -830,41 +1022,46 @@ class SyncManager:
                   if raw_transcript:
                       transcript_source = "SMIL"
 
-            # Step 3: Fallback to Whisper (Slow Path) - Only runs if SMIL failed
-            if not raw_transcript:
+            # Priority 3: Fallback to Whisper (Slow Path) - Only runs if SMIL failed
+            if not raw_transcript and transcript_source != "STORYTELLER_NATIVE":
                 logger.info("SMIL extraction skipped/failed, falling back to Whisper transcription")
 
                 audio_files = self.abs_client.get_audio_files(abs_id)
                 raw_transcript = self.transcriber.process_audio(
                     abs_id, audio_files,
-                    full_book_text=book_text, # Passed for context/alignment inside transcriber if old logic used
+                    full_book_text=book_text,
                     progress_callback=lambda p: update_progress(p, 2)
                 )
                 if raw_transcript:
                     transcript_source = "WHISPER"
-            else:
-                # If SMIL worked, it's already done with transcribing phase
+            elif transcript_source in ("SMIL", "STORYTELLER_NATIVE"):
+                # SMIL or Storyteller native handled transcription — mark phase complete
                 update_progress(1.0, 2)
 
-            if not raw_transcript:
-                raise Exception("Failed to generate transcript from both SMIL and Whisper.")
+            # If Storyteller native handled alignment, skip transcript-based alignment
+            if transcript_source == "STORYTELLER_NATIVE":
+                update_progress(0.5, 3)
+                success = True
+            else:
+                if not raw_transcript:
+                    raise Exception("Failed to generate transcript from both SMIL and Whisper.")
 
-            # Step 4: Parse EPUB - ebook_parser caches result, so repeating is cheap.
+                # Step 4: Parse EPUB - ebook_parser caches result, so repeating is cheap.
 
 
-            # Step 5: Align and Store using AlignmentService
-            # This is where we commit the result to the DB
-            logger.info(f"Aligning transcript ({transcript_source}) using Anchored Alignment...")
+                # Step 5: Align and Store using AlignmentService
+                # This is where we commit the result to the DB
+                logger.info(f"Aligning transcript ({transcript_source}) using Anchored Alignment...")
 
-            # Update progress to show we are working on alignment (Start of Phase 3 = 90%)
-            update_progress(0.1, 3) # 91%
+                # Update progress to show we are working on alignment (Start of Phase 3 = 90%)
+                update_progress(0.1, 3) # 91%
 
-            success = self.alignment_service.align_and_store(
-                abs_id, raw_transcript, book_text, chapters
-            )
+                success = self.alignment_service.align_and_store(
+                    abs_id, raw_transcript, book_text, chapters
+                )
 
-            # Alignment done
-            update_progress(0.5, 3) # 95%
+                # Alignment done
+                update_progress(0.5, 3) # 95%
 
             if not success:
                 raise Exception("Alignment failed to generate valid map.")
@@ -1436,19 +1633,24 @@ class SyncManager:
                 cleared_count = self.database_service.delete_states_for_book(abs_id)
                 logger.info(f"Cleared {cleared_count} state records from database")
 
-                # Delete KOSync document record to bypass "furthest wins" protection
-                # Without this, the integrated KOSync server will reject the 0% update
-                # and the old progress will sync back on the next cycle
-                if book.kosync_doc_id:
-                    deleted = self.database_service.delete_kosync_document(book.kosync_doc_id)
-                    if deleted:
-                        logger.info(f"Deleted KOSync document record: {book.kosync_doc_id[:8]}...")
+                # Delete ALL KOSync document records for this book (primary + siblings)
+                # Without this, sibling hashes retain old progress and the sync daemon
+                # re-syncs from stale KOSync data on the next cycle
+                sibling_docs = self.database_service.get_kosync_documents_for_book(abs_id)
+                for doc in sibling_docs:
+                    self.database_service.delete_kosync_document(doc.document_hash)
+                    logger.info(f"Deleted KOSync document record: {doc.document_hash[:8]}...")
+                if not sibling_docs and book.kosync_doc_id:
+                    # Fallback: delete by primary hash if no siblings found
+                    self.database_service.delete_kosync_document(book.kosync_doc_id)
+                    logger.info(f"Deleted KOSync document record: {book.kosync_doc_id[:8]}...")
 
                 # Reset all sync clients to 0% progress
                 reset_results = {}
                 locator = LocatorResult(percentage=0.0)
                 request = UpdateProgressRequest(locator_result=locator, txt="", previous_location=None)
 
+                now = time.time()
                 for client_name, client in self.sync_clients.items():
                     if client_name == 'ABS' and book.sync_mode == 'ebook_only':
                         logger.debug(f"'{book.abs_title}' Ebook-only mode - skipping ABS progress reset")
@@ -1461,6 +1663,15 @@ class SyncManager:
                         }
                         if result.success:
                             logger.info(f"Reset '{client_name}' to 0%")
+                            # Save 0% state so the sync daemon doesn't re-sync from external
+                            state = State(
+                                abs_id=abs_id,
+                                client_name=client_name.lower(),
+                                percentage=0.0,
+                                timestamp=now,
+                                last_updated=now
+                            )
+                            self.database_service.save_state(state)
                         else:
                             logger.warning(f"Failed to reset '{client_name}'")
                     except Exception as e:

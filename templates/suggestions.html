@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Suggestions - Book Sync</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <style>
+        .suggestions-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .suggestions-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .suggestions-header h2 {
+            font-family: var(--font-heading);
+            font-size: 1.5rem;
+            margin: 0;
+        }
+        .suggestions-header p {
+            color: var(--color-text-muted);
+            margin: 4px 0 0;
+            font-size: 0.9rem;
+        }
+        .suggestions-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .search-input {
+            padding: 8px 14px;
+            border: 1px solid var(--color-border-light);
+            border-radius: var(--radius);
+            background: var(--color-surface);
+            color: var(--color-text);
+            font-size: 14px;
+            min-width: 220px;
+        }
+        .search-input:focus {
+            outline: none;
+            border-color: var(--color-primary);
+        }
+        .suggestion-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 20px;
+        }
+        .suggestion-card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border-light);
+            border-radius: var(--radius-lg, 12px);
+            padding: 20px;
+            transition: all var(--transition-smooth);
+        }
+        .suggestion-card:hover {
+            border-color: var(--color-primary-border);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+        .suggestion-top {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .suggestion-cover {
+            width: 64px;
+            height: 96px;
+            border-radius: 6px;
+            object-fit: cover;
+            background: var(--color-bg);
+            flex-shrink: 0;
+        }
+        .suggestion-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .suggestion-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin: 0 0 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .suggestion-author {
+            color: var(--color-text-muted);
+            font-size: 0.85rem;
+            margin: 0 0 8px;
+        }
+        .suggestion-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--color-primary-light);
+            color: var(--color-primary-hover);
+        }
+        .match-list {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 16px;
+        }
+        .match-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            background: var(--color-bg);
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .match-item-info {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .match-source {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: rgba(124, 58, 237, 0.1);
+            color: var(--color-primary);
+            margin-right: 6px;
+            flex-shrink: 0;
+        }
+        .suggestion-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--color-text-muted);
+        }
+        .empty-state svg {
+            width: 48px;
+            height: 48px;
+            stroke: var(--color-text-muted);
+            margin-bottom: 16px;
+        }
+        @media (max-width: 768px) {
+            .suggestions-container { padding: 16px; }
+            .suggestion-grid { grid-template-columns: 1fr; }
+            .suggestions-header { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+
+<body>
+    {% include 'partials/navbar.html' %}
+
+    <div class="suggestions-container">
+        <div class="suggestions-header">
+            <div>
+                <h2>Pairing Suggestions</h2>
+                <p>Books in your audiobook library that could be linked to ebooks.</p>
+            </div>
+            <div class="suggestions-controls">
+                <input type="text" class="search-input" id="suggestion-search" placeholder="Filter suggestions..." oninput="filterSuggestions(this.value)">
+                <span id="suggestion-count" style="color: var(--color-text-muted); font-size: 0.85rem;">{{ suggestions|length }} suggestion{{ 's' if suggestions|length != 1 }}</span>
+            </div>
+        </div>
+
+        {% if suggestions %}
+        <div class="suggestion-grid" id="suggestion-grid">
+            {% for s in suggestions %}
+            <div class="suggestion-card" data-source-id="{{ s.source_id }}" data-title="{{ s.title|lower }}" data-author="{{ (s.author or '')|lower }}">
+                <div class="suggestion-top">
+                    {% if s.cover_url %}
+                    <img src="{{ s.cover_url }}" alt="" class="suggestion-cover" loading="lazy">
+                    {% else %}
+                    <div class="suggestion-cover" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">&#128214;</div>
+                    {% endif %}
+                    <div class="suggestion-info">
+                        <h3 class="suggestion-title" title="{{ s.title }}">{{ s.title }}</h3>
+                        <p class="suggestion-author">{{ s.author or 'Unknown Author' }}</p>
+                        <span class="suggestion-badge">{{ s.matches|length }} match{{ 'es' if s.matches|length != 1 }}</span>
+                    </div>
+                </div>
+
+                {% if s.matches %}
+                <ul class="match-list">
+                    {% for m in s.matches[:5] %}
+                    <li class="match-item">
+                        <div class="match-item-info">
+                            <span class="match-source">{{ m.source }}</span>
+                            {{ m.title or m.filename or 'Untitled' }}
+                        </div>
+                    </li>
+                    {% endfor %}
+                    {% if s.matches|length > 5 %}
+                    <li class="match-item" style="justify-content: center; color: var(--color-text-muted);">
+                        +{{ s.matches|length - 5 }} more
+                    </li>
+                    {% endif %}
+                </ul>
+                {% endif %}
+
+                <div class="suggestion-actions">
+                    <a href="/match?abs_id={{ s.source_id }}&search={{ s.title|urlencode }}" class="btn btn-sm">Link</a>
+                    <button type="button" class="btn btn-sm" onclick="dismissSuggestion('{{ s.source_id }}', this)">Dismiss</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="ignoreSuggestion('{{ s.source_id }}', this)">Never Ask</button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+            </svg>
+            <h3>No Suggestions</h3>
+            {% if suggestions_enabled %}
+            <p>No pairing candidates found yet. Suggestions appear automatically as you listen to audiobooks or read ebooks across your connected services.</p>
+            {% else %}
+            <p>Suggestions are currently disabled. Enable them in <a href="/settings?tab=general">Settings</a> to discover pairing candidates.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function filterSuggestions(query) {
+            var q = query.toLowerCase();
+            var cards = document.querySelectorAll('.suggestion-card');
+            var visible = 0;
+            cards.forEach(function(card) {
+                var title = card.dataset.title || '';
+                var author = card.dataset.author || '';
+                var show = !q || title.indexOf(q) !== -1 || author.indexOf(q) !== -1;
+                card.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            var countEl = document.getElementById('suggestion-count');
+            if (countEl) countEl.textContent = visible + ' suggestion' + (visible !== 1 ? 's' : '');
+        }
+
+        function dismissSuggestion(sourceId, btn) {
+            if (!confirm('Dismiss this suggestion? It can be re-suggested later.')) return;
+            _actOnSuggestion('/api/suggestions/' + encodeURIComponent(sourceId) + '/dismiss', sourceId, btn);
+        }
+
+        function ignoreSuggestion(sourceId, btn) {
+            if (!confirm('Permanently ignore this book? It will never be suggested again.')) return;
+            _actOnSuggestion('/api/suggestions/' + encodeURIComponent(sourceId) + '/ignore', sourceId, btn);
+        }
+
+        function _actOnSuggestion(url, sourceId, btn) {
+            btn.disabled = true;
+            fetch(url, { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        var card = document.querySelector('[data-source-id="' + CSS.escape(sourceId) + '"]');
+                        if (card) {
+                            card.style.transition = 'opacity 0.3s, transform 0.3s';
+                            card.style.opacity = '0';
+                            card.style.transform = 'scale(0.95)';
+                            setTimeout(function() {
+                                card.remove();
+                                // Update count
+                                var remaining = document.querySelectorAll('.suggestion-card');
+                                var countEl = document.getElementById('suggestion-count');
+                                if (countEl) countEl.textContent = remaining.length + ' suggestion' + (remaining.length !== 1 ? 's' : '');
+                                if (remaining.length === 0) location.reload();
+                            }, 300);
+                        }
+                    } else {
+                        btn.disabled = false;
+                        alert('Failed: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(function(err) {
+                    btn.disabled = false;
+                    alert('Error: ' + err);
+                });
+        }
+    </script>
+</body>
+
+</html>

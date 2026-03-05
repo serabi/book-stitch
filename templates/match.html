@@ -72,9 +72,10 @@
                         <div class="media-grid">
                             {% set single_match = audiobooks|length == 1 %}
                             {% for ab in audiobooks %}
-                            <label class="audiobook-option ab-option {% if single_match %}selected{% endif %}"
+                            {% set is_preselected = (preselect_abs_id and ab.id == preselect_abs_id) %}
+                            <label class="audiobook-option ab-option {% if single_match or is_preselected %}selected{% endif %}"
                                 onclick="selectItem(this, 'audiobook_id')">
-                                <input type="radio" name="audiobook_id" value="{{ ab.id }}" {% if single_match
+                                <input type="radio" name="audiobook_id" value="{{ ab.id }}" {% if single_match or is_preselected
                                     %}checked{% endif %}>
                                 <div class="audiobook-cover-container">
                                     {% if ab.cover_url %}
