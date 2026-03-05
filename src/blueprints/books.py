@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import time
+from datetime import date
 from pathlib import Path
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
@@ -29,6 +30,25 @@ from src.utils.path_utils import sanitize_filename
 logger = logging.getLogger(__name__)
 
 books_bp = Blueprint('books', __name__)
+
+
+@books_bp.route('/suggestions')
+def suggestions():
+    """Dedicated page for browsing and acting on pairing suggestions."""
+    database_service = get_database_service()
+    raw_suggestions = database_service.get_all_pending_suggestions()
+    suggestions_list = []
+    for s in raw_suggestions:
+        suggestions_list.append({
+            'id': s.id,
+            'source_id': s.source_id,
+            'title': s.title,
+            'author': s.author,
+            'cover_url': s.cover_url,
+            'matches': s.matches,
+            'created_at': s.created_at,
+        })
+    return render_template('suggestions.html', suggestions=suggestions_list)
 
 
 @books_bp.route('/match', methods=['GET', 'POST'])
@@ -552,6 +572,21 @@ def mark_complete(abs_id):
             )
             database_service.save_state(state)
 
+    # Record completion locally (skip if already completed — idempotent)
+    if book.status != 'completed':
+        today = date.today().isoformat()
+        reading_updates = {'finished_at': today}
+        if not book.started_at:
+            reading_updates['started_at'] = today
+        if book.finished_at:
+            # Re-read: increment read_count
+            reading_updates['read_count'] = (book.read_count or 1) + 1
+
+        book.status = 'completed'
+        database_service.save_book(book)
+        database_service.update_book_reading_fields(abs_id, **reading_updates)
+        database_service.add_reading_journal(abs_id, event='finished', percentage=1.0)
+
     if perform_delete:
         cleanup_mapping_resources(book)
         database_service.delete_book(abs_id)
@@ -570,6 +605,7 @@ def pause_book(abs_id):
 
     book.status = 'paused'
     database_service.save_book(book)
+    database_service.add_reading_journal(abs_id, event='paused')
     logger.info(f"Book paused: '{sanitize_log_data(book.abs_title or abs_id)}'")
 
     # Sync Paused status to Hardcover (status_id=4)
@@ -601,6 +637,7 @@ def dnf_book(abs_id):
 
     book.status = 'dnf'
     database_service.save_book(book)
+    database_service.add_reading_journal(abs_id, event='dnf')
     logger.info(f"Book marked DNF: '{sanitize_log_data(book.abs_title or abs_id)}'")
 
     # Sync DNF status to Hardcover (status_id=5)
@@ -634,6 +671,9 @@ def resume_book(abs_id):
     book.status = 'active'
     book.activity_flag = False
     database_service.save_book(book)
+    database_service.add_reading_journal(abs_id, event='resumed')
+    if not book.started_at:
+        database_service.update_book_reading_fields(abs_id, started_at=date.today().isoformat())
     logger.info(f"Book resumed: '{sanitize_log_data(book.abs_title or abs_id)}'")
 
     # If resuming from DNF or Paused, reset Hardcover to Currently Reading (status_id=2)

@@ -4,6 +4,19 @@
 
 All notable changes to Book Sync will be documented in this file.
 
+## [1.0.5] - 2026-03-04
+
+### Added
+
+- **Reading tracker data model** — New `started_at`, `finished_at`, `rating`, and `read_count` fields on books; `ReadingJournal` and `ReadingGoal` tables for tracking reading history and yearly goals.
+
+### Fixed
+
+- **Idempotent mark-complete** — Repeated calls to `/api/mark-complete` on an already-completed book no longer inflate `read_count`. The increment is now guarded by a status check.
+- **Input validation for reading fields** — `rating` (0–5), `read_count` (≥ 1), and `target_books` (≥ 0) are now validated before persistence, preventing invalid data from reaching the database.
+
+---
+
 ## [1.0.4] - 2026-03-03
 
 ### Added

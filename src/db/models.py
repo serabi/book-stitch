@@ -81,21 +81,30 @@ class Book(Base):
     storyteller_uuid = Column(String(36), index=True, nullable=True)
     abs_ebook_item_id = Column(String(255), nullable=True)  # New ID to track ebook item separately
 
+    # Reading tracker fields
+    started_at = Column(String(10), nullable=True)    # YYYY-MM-DD
+    finished_at = Column(String(10), nullable=True)   # YYYY-MM-DD
+    rating = Column(Float, nullable=True)             # 0-5 (half-star increments)
+    read_count = Column(Integer, default=1)
+
     # Relationships
     states = relationship("State", back_populates="book", cascade="all, delete-orphan")
     jobs = relationship("Job", back_populates="book", cascade="all, delete-orphan")
     hardcover_details = relationship("HardcoverDetails", back_populates="book", cascade="all, delete-orphan", uselist=False)
     alignment = relationship("BookAlignment", back_populates="book", uselist=False, cascade="all, delete-orphan")
+    reading_journals = relationship("ReadingJournal", back_populates="book", cascade="all, delete-orphan")
 
     def __init__(self, abs_id: str, abs_title: str = None, ebook_filename: str = None,
-                 original_ebook_filename: str = None,  # NEW ARGUMENT
+                 original_ebook_filename: str = None,
                  kosync_doc_id: str = None, transcript_file: str = None,
                  status: str = 'active', duration: float = None, sync_mode: str = 'audiobook',
-                 storyteller_uuid: str = None, abs_ebook_item_id: str = None):
+                 storyteller_uuid: str = None, abs_ebook_item_id: str = None,
+                 started_at: str = None, finished_at: str = None,
+                 rating: float = None, read_count: int = 1):
         self.abs_id = abs_id
         self.abs_title = abs_title
         self.ebook_filename = ebook_filename
-        self.original_ebook_filename = original_ebook_filename  # NEW FIELD
+        self.original_ebook_filename = original_ebook_filename
         self.kosync_doc_id = kosync_doc_id
         self.transcript_file = transcript_file
         self.status = status
@@ -103,9 +112,54 @@ class Book(Base):
         self.sync_mode = sync_mode
         self.storyteller_uuid = storyteller_uuid
         self.abs_ebook_item_id = abs_ebook_item_id
+        self.started_at = started_at
+        self.finished_at = finished_at
+        self.rating = rating
+        self.read_count = read_count
 
     def __repr__(self):
         return f"<Book(abs_id='{self.abs_id}', title='{self.abs_title}')>"
+
+
+class ReadingJournal(Base):
+    """Journal entries for reading activity — auto-generated on status transitions and user notes."""
+    __tablename__ = 'reading_journals'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    abs_id = Column(String(255), ForeignKey('books.abs_id', ondelete='CASCADE'), nullable=False, index=True)
+    event = Column(String(20), nullable=False)   # started|progress|finished|note|paused|resumed|dnf
+    entry = Column(Text, nullable=True)           # freeform text note
+    percentage = Column(Float, nullable=True)     # progress at time of entry
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    book = relationship("Book", back_populates="reading_journals")
+
+    def __init__(self, abs_id: str, event: str, entry: str = None,
+                 percentage: float = None):
+        self.abs_id = abs_id
+        self.event = event
+        self.entry = entry
+        self.percentage = percentage
+        self.created_at = datetime.utcnow()
+
+    def __repr__(self):
+        return f"<ReadingJournal(id={self.id}, abs_id='{self.abs_id}', event='{self.event}')>"
+
+
+class ReadingGoal(Base):
+    """Yearly reading goal — simple book count target."""
+    __tablename__ = 'reading_goals'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    year = Column(Integer, unique=True, nullable=False)
+    target_books = Column(Integer, nullable=False)
+
+    def __init__(self, year: int, target_books: int):
+        self.year = year
+        self.target_books = target_books
+
+    def __repr__(self):
+        return f"<ReadingGoal(year={self.year}, target={self.target_books})>"
 
 
 class HardcoverDetails(Base):
