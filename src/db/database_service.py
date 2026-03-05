@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
+
 from .models import (
     Base,
     Book,
@@ -918,8 +920,26 @@ class DatabaseService:
                 session.expunge(existing)
                 return existing
             else:
-                session.add(booklore_book)
-                session.flush()
+                try:
+                    session.add(booklore_book)
+                    session.flush()
+                except IntegrityError:
+                    # Stale single-column unique constraint on filename may
+                    # block the insert when another source owns this filename.
+                    # Fall back to updating the existing row by filename alone.
+                    session.rollback()
+                    existing = session.query(BookloreBook).filter(
+                        BookloreBook.filename == booklore_book.filename
+                    ).first()
+                    if existing:
+                        for attr in ['title', 'authors', 'raw_metadata', 'source']:
+                            if hasattr(booklore_book, attr):
+                                setattr(existing, attr, getattr(booklore_book, attr))
+                        session.flush()
+                        session.refresh(existing)
+                        session.expunge(existing)
+                        return existing
+                    raise
                 session.refresh(booklore_book)
                 session.expunge(booklore_book)
                 return booklore_book
