@@ -38,7 +38,7 @@ def upgrade() -> None:
         table_args=[
             sa.UniqueConstraint('filename', 'source', name='uq_booklore_books_filename_source'),
         ],
-    ) as batch_op:
+    ):
         # Explicitly drop the old single-column constraint if it exists.
         # batch_alter_table in recreate='always' mode will rebuild the table
         # using only the constraints specified in table_args above.

@@ -305,7 +305,7 @@ class StorytellerAPIClient:
                 continue
             filepath = os.path.join(transcripts_dir, filename)
             try:
-                with open(filepath, 'r') as f:
+                with open(filepath) as f:
                     data = json.load(f)
                 # wordTimeline is the key containing word-level timing data
                 timeline = data.get('wordTimeline') or data.get('timeline')
