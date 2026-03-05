@@ -190,9 +190,23 @@ def test_connection(service):
     try:
         success, detail = tester()
     except Exception as e:
-        logger.warning(f"Connection test for '{service}' failed: {sanitize_log_data(e)}")
+        logger.warning(f"Connection test for '{service}' failed: {_redact_secrets(str(sanitize_log_data(e)))}")
         success, detail = False, _test_conn_error(e)
     return jsonify({'success': success, 'detail': detail})
+
+
+def _redact_secrets(msg: str) -> str:
+    """Replace any known secret values in a string with a fixed mask."""
+    secret_keys = [
+        'ABS_KEY', 'STORYTELLER_PASSWORD', 'BOOKLORE_PASSWORD', 'BOOKLORE_2_PASSWORD',
+        'CWA_PASSWORD', 'KOSYNC_KEY', 'TELEGRAM_BOT_TOKEN', 'HARDCOVER_TOKEN',
+        'DEEPGRAM_API_KEY',
+    ]
+    for key in secret_keys:
+        val = os.environ.get(key, '')
+        if val and val in msg:
+            msg = msg.replace(val, '***')
+    return msg
 
 
 def _test_conn_error(e: Exception) -> str:
@@ -204,7 +218,7 @@ def _test_conn_error(e: Exception) -> str:
         return 'Request timed out'
     if 'NameResolutionError' in msg or 'getaddrinfo' in msg:
         return 'Server hostname could not be resolved — check the URL'
-    return str(sanitize_log_data(msg))
+    return _redact_secrets(str(sanitize_log_data(msg)))
 
 
 _HTTP_FRIENDLY = {
@@ -324,11 +338,16 @@ def _test_hardcover() -> tuple[bool, str]:
     )
     if resp.status_code == 200:
         data = resp.json()
+        if data.get('errors'):
+            err_msg = data['errors'][0].get('message', 'Unknown GraphQL error')
+            return False, f'GraphQL error: {err_msg}'
         me = data.get('data', {}).get('me')
         if isinstance(me, list):
             me = me[0] if me else {}
         elif not isinstance(me, dict):
             me = {}
+        if not isinstance(me, dict) or not me.get('id'):
+            return False, 'Authentication succeeded but user data is missing'
         username = me.get('username', 'unknown')
         return True, f'Connected as {username}'
     return False, _http_error(resp.status_code)

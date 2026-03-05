@@ -1647,7 +1647,7 @@ class SyncManager:
                 locator = LocatorResult(percentage=0.0)
                 request = UpdateProgressRequest(locator_result=locator, txt="", previous_location=None)
 
-                now = int(time.time())
+                now = time.time()
                 for client_name, client in self.sync_clients.items():
                     if client_name == 'ABS' and book.sync_mode == 'ebook_only':
                         logger.debug(f"'{book.abs_title}' Ebook-only mode - skipping ABS progress reset")

@@ -926,42 +926,43 @@
                         }
 
                         let anyStillProcessing = false;
-                        ids.forEach(absId => {
+                        let shouldReload = false;
+                        for (const absId of ids) {
                             const info = data[absId];
                             const card = processingSection.querySelector(`.book-card[data-abs-id="${absId}"]`);
-                            if (!card) return;
+                            if (!card) continue;
 
-                            // Check if status changed from what the card shows
                             const cardStatus = card.dataset.status;
-                            if (info.status === 'active' || (cardStatus !== info.status && info.status === 'active')) {
-                                location.reload();
-                                return;
+                            if (info.status === 'active' || cardStatus !== info.status) {
+                                shouldReload = true;
+                                break;
                             }
 
                             anyStillProcessing = true;
 
-                            // Update progress bar for processing books
                             if (info.status === 'processing') {
                                 const fill = card.querySelector('.progress-bar-fill');
                                 const pct = card.querySelector('.progress-percent');
                                 if (fill) fill.style.width = `${info.job_progress}%`;
                                 if (pct) pct.textContent = `Transcribing... ${Math.round(info.job_progress)}%`;
                             }
-
-                            // Update data-status if changed (e.g. pending -> processing)
-                            if (cardStatus !== info.status) {
-                                location.reload();
-                                return;
-                            }
-                        });
+                        }
 
                         // Check if any processing card is now missing from the response (completed)
-                        const processingCards = processingSection.querySelectorAll('.book-card');
-                        processingCards.forEach(card => {
-                            if (!data[card.dataset.absId]) {
-                                location.reload();
+                        if (!shouldReload) {
+                            const processingCards = processingSection.querySelectorAll('.book-card');
+                            for (const card of processingCards) {
+                                if (!data[card.dataset.absId]) {
+                                    shouldReload = true;
+                                    break;
+                                }
                             }
-                        });
+                        }
+
+                        if (shouldReload) {
+                            location.reload();
+                            return;
+                        }
 
                         if (anyStillProcessing) {
                             setTimeout(pollProcessingStatus, 5000);

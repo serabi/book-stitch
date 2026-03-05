@@ -313,7 +313,7 @@ class StorytellerAPIClient:
                 logger.warning(f"Storyteller: Refusing out-of-root transcript file: {filename}")
                 continue
             try:
-                with filepath.open() as f:
+                with filepath.open('r', encoding='utf-8') as f:
                     data = json.load(f)
                 # wordTimeline is the key containing word-level timing data
                 timeline = data.get('wordTimeline') or data.get('timeline')

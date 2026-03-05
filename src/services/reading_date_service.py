@@ -2,7 +2,7 @@
 
 import logging
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,9 @@ def pull_reading_dates(abs_id, container, database_service):
             progress = abs_client.get_progress(abs_id)
             if progress:
                 if progress.get("startedAt"):
-                    dates['started_at'] = datetime.fromtimestamp(progress["startedAt"] / 1000, tz=timezone.utc).date().isoformat()
+                    dates['started_at'] = datetime.fromtimestamp(progress["startedAt"] / 1000, tz=UTC).date().isoformat()
                 if progress.get("finishedAt"):
-                    dates['finished_at'] = datetime.fromtimestamp(progress["finishedAt"] / 1000, tz=timezone.utc).date().isoformat()
+                    dates['finished_at'] = datetime.fromtimestamp(progress["finishedAt"] / 1000, tz=UTC).date().isoformat()
                 if dates:
                     logger.debug(f"Pulled dates from ABS for '{abs_id}': {dates}")
     except Exception as e:
