@@ -65,6 +65,77 @@ class AlignmentService:
         self._save_alignment(abs_id, alignment_map)
         return True
 
+    @time_execution
+    def align_storyteller_and_store(self, abs_id: str, storyteller_chapters: list[dict], ebook_text: str) -> bool:
+        """Align using Storyteller's native word-level timing data.
+
+        Converts wordTimeline entries into segments compatible with the existing
+        alignment pipeline, then runs the standard N-gram anchoring algorithm.
+
+        Each wordTimeline entry is expected to have 'startTime' (float seconds)
+        and 'word' or 'text' (string).
+        """
+        logger.info(f"AlignmentService: Processing {abs_id} via Storyteller wordTimeline "
+                     f"({len(storyteller_chapters)} chapters, {len(ebook_text)} chars)")
+
+        # Build segments from wordTimeline data (~15-second groups)
+        SEGMENT_DURATION = 15.0
+        segments = []
+        current_words = []
+        segment_start = 0.0
+
+        for chapter in storyteller_chapters:
+            for entry in chapter.get('words', []):
+                start_time = entry.get('startTime', 0.0)
+                word = entry.get('word') or entry.get('text', '')
+                if not word:
+                    continue
+
+                if not current_words:
+                    segment_start = start_time
+
+                current_words.append(word)
+
+                # Close segment when duration exceeds threshold
+                if start_time - segment_start >= SEGMENT_DURATION and len(current_words) > 1:
+                    segments.append({
+                        'start': segment_start,
+                        'end': start_time,
+                        'text': ' '.join(current_words),
+                    })
+                    current_words = []
+
+        # Flush remaining words
+        if current_words:
+            end_time = segments[-1]['end'] if segments else segment_start + 1.0
+            segments.append({
+                'start': segment_start,
+                'end': end_time + 1.0,
+                'text': ' '.join(current_words),
+            })
+
+        if not segments:
+            logger.error(f"AlignmentService: No segments produced from wordTimeline for {abs_id}")
+            return False
+
+        logger.info(f"   Built {len(segments)} segments from wordTimeline data")
+
+        # Run through standard pipeline
+        rebuilt_segments = self.polisher.rebuild_fragmented_sentences(segments, ebook_text)
+        alignment_map = self._generate_alignment_map(rebuilt_segments, ebook_text)
+
+        if not alignment_map:
+            # Fallback: linear map from total duration
+            total_duration = segments[-1]['end']
+            alignment_map = [
+                {"char": 0, "ts": 0.0},
+                {"char": len(ebook_text), "ts": total_duration},
+            ]
+            logger.warning(f"   N-gram anchoring failed, using linear fallback for {abs_id}")
+
+        self._save_alignment(abs_id, alignment_map)
+        return True
+
     def get_time_for_text(self, abs_id: str, query_text: str, char_offset_hint: int = None) -> float | None:
         """
         Precise time lookup.
@@ -333,7 +404,18 @@ class AlignmentService:
         with self.database_service.get_session() as session:
             entry = session.query(BookAlignment).filter_by(abs_id=abs_id).first()
             if entry:
-                return json.loads(entry.alignment_map_json)
+                raw = json.loads(entry.alignment_map_json)
+                # Validate structure: each point must have int 'char' and float 'ts'
+                validated = []
+                for point in raw:
+                    if isinstance(point, dict) and 'char' in point and 'ts' in point:
+                        try:
+                            validated.append({'char': int(point['char']), 'ts': float(point['ts'])})
+                        except (ValueError, TypeError):
+                            logger.warning(f"Skipping invalid alignment point for {abs_id}: {point}")
+                    else:
+                        logger.warning(f"Skipping malformed alignment point for {abs_id}: {point}")
+                return validated if validated else None
             return None
     def get_book_duration(self, abs_id: str) -> float | None:
         """Get the total duration of the book from its alignment map."""

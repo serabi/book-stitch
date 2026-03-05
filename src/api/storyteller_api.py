@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -263,6 +264,61 @@ class StorytellerAPIClient:
         except Exception as e:
             logger.error(f"Error fetching book details: {e}")
         return None
+
+    def get_word_timeline_chapters(self, book_uuid: str) -> list[dict] | None:
+        """Load wordTimeline data from Storyteller's assets directory.
+
+        Storyteller organizes assets by book title (with optional suffix for
+        duplicates), not by UUID. This method fetches the book's title via
+        the API, then looks for transcript files in:
+            {STORYTELLER_ASSETS_DIR}/assets/{title}{suffix}/transcriptions/
+
+        Accepts both 00000-xxxxx.json and 00001-xxxxx.json chapter prefixes.
+        Returns a list of chapter dicts with 'words' entries, or None if unavailable.
+        """
+        assets_dir = os.environ.get('STORYTELLER_ASSETS_DIR', '').strip()
+        if not assets_dir:
+            return None
+
+        # Resolve book title via API to find the correct directory name
+        book_details = self.get_book_details(book_uuid)
+        if not book_details:
+            logger.debug(f"Storyteller: Could not fetch details for UUID {book_uuid}")
+            return None
+
+        title = book_details.get('title', '')
+        suffix = book_details.get('suffix', '')
+        if not title:
+            return None
+
+        # Directory name is "{title}{suffix}" (suffix includes leading space if present)
+        dir_name = f"{title}{suffix}"
+        transcripts_dir = os.path.join(assets_dir, 'assets', dir_name, 'transcriptions')
+        if not os.path.isdir(transcripts_dir):
+            logger.debug(f"Storyteller: No transcriptions dir at {transcripts_dir}")
+            return None
+
+        chapters = []
+        pattern = re.compile(r'^\d{5}-\d{5}\.json$')
+        for filename in sorted(os.listdir(transcripts_dir)):
+            if not pattern.match(filename):
+                continue
+            filepath = os.path.join(transcripts_dir, filename)
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                # wordTimeline is the key containing word-level timing data
+                timeline = data.get('wordTimeline') or data.get('timeline')
+                if timeline and isinstance(timeline, list):
+                    chapters.append({
+                        'filename': filename,
+                        'words': timeline,
+                    })
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Storyteller: Failed to read transcript {filename}: {e}")
+
+        return chapters if chapters else None
+
 
 def create_storyteller_client():
     return StorytellerAPIClient()
