@@ -79,13 +79,24 @@ When a position change is detected, Book Sync converts it to every other format 
 
 ## The alignment process
 
-The first time you link an audiobook to its EPUB, Book Sync needs to build an alignment map. Here's what happens:
+The first time you link an audiobook to its EPUB, Book Sync needs to build an alignment map — a lookup table that converts between audio timestamps and ebook character positions. It tries three sources in priority order:
 
-1. A segment of the audiobook is transcribed using [Whisper](https://github.com/openai/whisper) (local/part of the Docker container), [Deepgram](https://deepgram.com/) (cloud), or [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) (external server).
-2. The transcript is fuzzy-matched against the EPUB text to find corresponding positions.
-3. The resulting map is cached. After this, position conversion is instant — no re-transcription needed.
+1. **Storyteller native** — If the book is linked to Storyteller and you've mounted the Storyteller data directory, Book Sync reads Storyteller's word-level timing data (`wordTimeline`) directly. No transcription needed — fastest option.
+2. **SMIL** — If the EPUB contains embedded SMIL timing data (common in publisher-produced audiobooks), it's extracted and used for alignment. Also fast.
+3. **Whisper** — Falls back to transcribing a segment of the audiobook audio using [Whisper](https://github.com/openai/whisper) (local), [Deepgram](https://deepgram.com/) (cloud), or [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) (external server), then fuzzy-matching the transcript against the EPUB text.
 
-You can use a local Whisper model (runs on CPU or NVIDIA GPU) or offload to a cloud provider. The `tiny` model works fine for most books and runs quickly even on modest hardware.
+After the map is built it's cached in the database. All subsequent position conversions are instant.
+
+### Storyteller native alignment
+
+If you run Storyteller, you can skip Whisper entirely for books it has already processed. Mount Storyteller's processing directory as a read-only volume and set the **Assets Directory** in Settings:
+
+```yaml
+volumes:
+  - /path/to/storyteller/processing:/storyteller-data:ro
+```
+
+Then in Settings → Audiobooks → Storyteller, set **Assets Directory** to `/storyteller-data`.
 
 ---
 
@@ -150,6 +161,25 @@ Book Sync needs access to your EPUB files for alignment. Three options, in order
 - **Mount a volume** — Point `/books` at your EPUB directory. Simplest approach.
 - **Booklore** — Book Sync fetches EPUBs through the Booklore API. No volume mount needed.
 - **Calibre-Web Automated (CWA)** — Same idea, fetches EPUBs through CWA's API.
+
+---
+
+## Pairing suggestions
+
+When Book Sync detects an audiobook you're actively listening to in Audiobookshelf, it can automatically search your ebook services (Booklore, Calibre-Web Automated, Storyteller) for a matching title and suggest a pairing. This works in two directions:
+
+- **Forward:** Audiobooks with progress in ABS trigger searches across your ebook sources.
+- **Reverse:** Books with progress in Storyteller or Booklore trigger searches for matching audiobooks in ABS.
+
+Suggestions appear on the **Suggestions** page (`/suggestions`), where you can link, dismiss, or permanently ignore them. Real-time discovery also happens via Socket.IO — when you start playing an unmapped audiobook, a suggestion is queued automatically.
+
+Enable suggestions in **Settings → General → Pairing Suggestions**.
+
+---
+
+## Diagnostic test buttons
+
+Each service section on the Settings page includes a **Test** button that verifies connectivity and authentication in one click. Supported services: Audiobookshelf, Storyteller, Booklore, Calibre-Web Automated, Hardcover, and Telegram.
 
 ---
 

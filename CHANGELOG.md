@@ -4,6 +4,34 @@
 
 All notable changes to Book Sync will be documented in this file.
 
+## [1.0.6] - 2026-03-05
+
+### Added
+
+- **Diagnostic test buttons** — Each service section on the Settings page now has a "Test" button that verifies connectivity and authentication in one click. Covers Audiobookshelf, Storyteller, Booklore, CWA, Hardcover, and Telegram. Returns human-readable error messages (e.g., "Authentication failed — check your username and password") instead of raw HTTP status codes.
+- **Storyteller native alignment** — Alignment maps can now be built directly from Storyteller's word-level timing data (`wordTimeline`), bypassing Whisper transcription entirely. Mount Storyteller's processing directory and set the Assets Directory in Settings. New alignment priority chain: Storyteller native → SMIL → Whisper.
+- **Socket-driven suggestion discovery** — When an unmapped audiobook is detected via ABS Socket.IO events, Book Sync automatically queues a suggestion search in the background. Thread-safe with lock + in-flight set to prevent duplicate work.
+- **Reverse suggestions** — Books with reading progress in Storyteller or Booklore now trigger searches for matching audiobooks in Audiobookshelf, surfacing pairing candidates in both directions.
+- **Storyteller as suggestion source** — Storyteller is now searched alongside Booklore and CWA when discovering ebook matches for audiobook suggestions.
+- **Pairing suggestions page** — Dedicated `/suggestions` page with card grid, cover images, match candidates with source labels, filter/search, and Dismiss/Link/Never Ask actions.
+- **Suggestions nav link** — Added "Suggestions" to the navigation bar.
+- **Processing books dashboard UX** — Dedicated "Processing" section on the dashboard with status-specific card rendering: striped progress bars for active jobs, pulsing dot for queued books, retry count for failed jobs. CSS status accents (cyan/amber/red left borders), contextual footer text, and sanitized menu actions for pending/processing/failed states. Live polling via `/api/processing-status` refreshes every 5 seconds and reloads the page on status transitions.
+- **Reading date sync from external sources** — `started_at` and `finished_at` dates are now pulled from Hardcover (`user_book_reads`) and Audiobookshelf (`mediaProgress.startedAt`/`finishedAt`) instead of defaulting to today's date. A one-time backfill runs on dashboard load for books missing dates. Books found to be finished externally are automatically marked as completed.
+- **Sync Reading Dates button** — New "Sync Reading Dates" tool in Settings → Tools tab. Triggers an on-demand pull of reading dates from Hardcover and ABS for all books missing them, with a summary of updated/completed/error counts.
+
+### Changed
+
+- **Suggestions Link button** — Clicking "Link" on a suggestion now pre-fills the match page with the book's title and pre-selects the audiobook, instead of opening an empty match page.
+- **Suggestions empty state** — Shows context-aware messages: explains that no candidates have been found yet when suggestions are enabled, or prompts the user to enable them in Settings (with a direct link) when disabled.
+
+### Fixed
+
+- **Hardcover test button** — Hardcover's GraphQL API returns `me` as a list; the test now handles both list and dict response shapes.
+- **KOSync stale shadow documents** — Sibling document resolution now skips documents not updated in the last 30 days, preventing stale shadow entries from overriding current progress.
+- **Alignment map validation** — Loading alignment maps from the database now validates each point for required `char` (int) and `ts` (float) keys, skipping malformed entries with a warning instead of crashing.
+
+---
+
 ## [1.0.5] - 2026-03-04
 
 ### Added
