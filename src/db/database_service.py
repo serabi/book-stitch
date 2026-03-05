@@ -780,6 +780,12 @@ class DatabaseService:
         """Update reading-specific fields on a book (started_at, finished_at, rating, read_count).
         Separate from save_book() to prevent sync paths from overwriting reading data."""
         allowed = {'started_at', 'finished_at', 'rating', 'read_count'}
+        rating = kwargs.get('rating')
+        if rating is not None and not (0.0 <= rating <= 5.0):
+            raise ValueError("rating must be between 0 and 5")
+        read_count = kwargs.get('read_count')
+        if read_count is not None and read_count < 1:
+            raise ValueError("read_count must be >= 1")
         with self.get_session() as session:
             book = session.query(Book).filter(Book.abs_id == abs_id).first()
             if not book:
@@ -832,6 +838,8 @@ class DatabaseService:
 
     def save_reading_goal(self, year: int, target_books: int) -> ReadingGoal:
         """Set or update the reading goal for a year."""
+        if target_books < 0:
+            raise ValueError("target_books must be >= 0")
         with self.get_session() as session:
             existing = session.query(ReadingGoal).filter(ReadingGoal.year == year).first()
             if existing:
