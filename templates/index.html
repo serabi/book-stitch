@@ -502,11 +502,11 @@
 
         <div class="book-grid" id="currently-reading-grid">
             {% for mapping in mappings %}
-            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['paused', 'dnf', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
+            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['completed', 'paused', 'dnf', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
                 integrations) }} {% endif %} {% endfor %} </div>
         </div>
 
-                {% set finished_books = mappings|selectattr('unified_progress', 'ge', 100)|list %}
+                {% set finished_books = mappings|selectattr('status', 'equalto', 'completed')|list + mappings|rejectattr('status', 'equalto', 'completed')|selectattr('unified_progress', 'ge', 100)|list %}
                 <div class="book-section">
                 <div class="section-header mt-80">
                     <h2>Finished</h2>
@@ -595,11 +595,11 @@
                     const status = card.dataset.status || '';
                     const progress = parseFloat(card.dataset.progress) || 0;
                     if (filterValue === 'currently_reading') {
-                        if (!(progress > 0 && progress < 100 && status !== 'paused' && status !== 'dnf')) {
+                        if (!(progress > 0 && progress < 100 && status !== 'completed' && status !== 'paused' && status !== 'dnf')) {
                             isVisible = false;
                         }
                     } else if (filterValue === 'finished') {
-                        if (progress < 100) {
+                        if (status !== 'completed' && progress < 100) {
                             isVisible = false;
                         }
                     } else if (filterValue === 'paused' && status !== 'paused') {
