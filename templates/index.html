@@ -59,7 +59,21 @@
 
             <div class="book-author">{{ mapping.abs_author or mapping.ebook_filename or '—' }}</div>
 
-            {% if mapping.status in ['active', 'paused', 'dnf'] %}
+            {% if mapping.status == 'processing' %}
+            <div class="book-progress progress-processing" data-processing-bar>
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" style="width: {{ mapping.job_progress|default(0) }}%"></div>
+                </div>
+                <span class="progress-percent">Transcribing... {{ '%.0f' | format(mapping.job_progress|default(0)) }}%</span>
+            </div>
+            {% elif mapping.status == 'pending' %}
+            <div class="processing-status-text">
+                <span class="pending-dot"></span>
+                <span>Queued for processing</span>
+            </div>
+            {% elif mapping.status == 'failed_retry_later' %}
+            <div class="retry-status-text">Retry scheduled{% if mapping.retry_count|default(0) > 0 %} (attempt {{ mapping.retry_count }}){% endif %}</div>
+            {% elif mapping.status in ['active', 'paused', 'dnf'] %}
             <div class="book-progress {% if mapping.status == 'paused' %}progress-paused{% elif mapping.status == 'dnf' %}progress-dnf{% endif %}">
                 <div class="progress-bar">
                     <div class="progress-bar-fill" style="width: {{ mapping.unified_progress }}%"></div>
@@ -97,7 +111,7 @@
             {% endif %}
 
             <div class="card-footer">
-                <div class="last-sync">Synced {{ mapping.last_sync }}</div>
+                <div class="last-sync">{% if mapping.status == 'processing' %}Processing...{% elif mapping.status == 'pending' %}Queued{% elif mapping.status == 'failed_retry_later' %}Retry pending{% else %}Synced {{ mapping.last_sync }}{% endif %}</div>
                 <div class="card-menu">
                     <button class="card-menu-trigger" aria-label="Actions" aria-expanded="false">⋮</button>
                     <div class="card-menu-dropdown">
@@ -258,7 +272,9 @@
 
                         <div class="card-menu-divider"></div>
                         {# Actions - conditional on status #}
-                        {% if mapping.status == 'active' %}
+                        {% if mapping.status in ['pending', 'processing'] %}
+                        {# Processing books only get Cancel (Delete) — no sync/progress actions #}
+                        {% elif mapping.status == 'active' %}
                         <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync Now</button>
                         <button class="card-menu-item" onclick='pauseBook({{ mapping.abs_id|tojson }}, this)'>Pause</button>
                         <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
@@ -270,13 +286,15 @@
                         <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
                         {% elif mapping.status == 'dnf' %}
                         <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume Reading</button>
+                        {% elif mapping.status == 'failed_retry_later' %}
+                        <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
                         {% else %}
                         <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync Now</button>
                         <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
                         <button type="button" class="card-menu-item card-menu-warning"
                             onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
                         {% endif %}
-                        {% if mapping.status in ['failed_retry_later', 'failed_permanent'] %}
+                        {% if mapping.status == 'failed_permanent' %}
                         <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
                         {% endif %}
                         <div class="card-menu-divider"></div>
@@ -463,6 +481,20 @@
             </div>
         </div>
 
+        {% set processing_books = mappings|selectattr('status', 'in', ['pending', 'processing', 'failed_retry_later'])|list %}
+        {% if processing_books %}
+        <div class="book-section" id="processing-section">
+        <div class="section-header">
+            <h2>Processing</h2>
+        </div>
+        <div class="book-grid" id="processing-grid">
+            {% for mapping in processing_books %}
+            {{ render_book_card(mapping, integrations) }}
+            {% endfor %}
+        </div>
+        </div>
+        {% endif %}
+
         <div class="book-section">
         <div class="section-header">
             <h2>Currently Reading</h2>
@@ -470,7 +502,7 @@
 
         <div class="book-grid" id="currently-reading-grid">
             {% for mapping in mappings %}
-            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['paused', 'dnf'] %} {{ render_book_card(mapping,
+            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['paused', 'dnf', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
                 integrations) }} {% endif %} {% endfor %} </div>
         </div>
 
@@ -534,6 +566,7 @@
         </div>
 
         <script>
+            const processingGrid = document.getElementById('processing-grid');
             const currentlyReadingGrid = document.getElementById('currently-reading-grid');
             const finishedGrid = document.getElementById('finished-grid');
             const pausedGrid = document.getElementById('paused-grid');
@@ -743,6 +776,7 @@
                 updateSortIndicator(direction);
 
                 // Sort Grids
+                sortCards(processingGrid, sortBy, direction);
                 sortCards(currentlyReadingGrid, sortBy, direction);
                 sortCards(finishedGrid, sortBy, direction);
                 sortCards(pausedGrid, sortBy, direction);
@@ -872,6 +906,71 @@
             });
 
             setTimeout(refreshDashboard, 30000);
+
+            // --- Processing status polling (5s, only when processing books exist) ---
+            function pollProcessingStatus() {
+                const processingSection = document.getElementById('processing-section');
+                if (!processingSection) return; // No processing books, stop polling
+
+                fetch('/api/processing-status')
+                    .then(r => r.json())
+                    .then(data => {
+                        const ids = Object.keys(data);
+                        if (ids.length === 0) {
+                            // All books finished processing — reload to move cards
+                            location.reload();
+                            return;
+                        }
+
+                        let anyStillProcessing = false;
+                        ids.forEach(absId => {
+                            const info = data[absId];
+                            const card = processingSection.querySelector(`.book-card[data-abs-id="${absId}"]`);
+                            if (!card) return;
+
+                            // Check if status changed from what the card shows
+                            const cardStatus = card.dataset.status;
+                            if (info.status === 'active' || (cardStatus !== info.status && info.status === 'active')) {
+                                location.reload();
+                                return;
+                            }
+
+                            anyStillProcessing = true;
+
+                            // Update progress bar for processing books
+                            if (info.status === 'processing') {
+                                const fill = card.querySelector('.progress-bar-fill');
+                                const pct = card.querySelector('.progress-percent');
+                                if (fill) fill.style.width = `${info.job_progress}%`;
+                                if (pct) pct.textContent = `Transcribing... ${Math.round(info.job_progress)}%`;
+                            }
+
+                            // Update data-status if changed (e.g. pending -> processing)
+                            if (cardStatus !== info.status) {
+                                location.reload();
+                                return;
+                            }
+                        });
+
+                        // Check if any processing card is now missing from the response (completed)
+                        const processingCards = processingSection.querySelectorAll('.book-card');
+                        processingCards.forEach(card => {
+                            if (!data[card.dataset.absId]) {
+                                location.reload();
+                            }
+                        });
+
+                        if (anyStillProcessing) {
+                            setTimeout(pollProcessingStatus, 5000);
+                        }
+                    })
+                    .catch(() => setTimeout(pollProcessingStatus, 5000));
+            }
+
+            // Start polling if there are processing books
+            if (document.getElementById('processing-section')) {
+                setTimeout(pollProcessingStatus, 5000);
+            }
         </script>
 
         <!-- Hardcover Edition Picker Modal -->

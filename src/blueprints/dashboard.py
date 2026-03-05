@@ -143,12 +143,14 @@ def index():
             'states': {}
         }
 
-        if book.status == 'processing':
+        if book.status in ('pending', 'processing', 'failed_retry_later'):
             job = database_service.get_latest_job(book.abs_id)
             if job:
                 mapping['job_progress'] = round((job.progress or 0.0) * 100, 1)
+                mapping['retry_count'] = job.retry_count or 0
             else:
                 mapping['job_progress'] = 0.0
+                mapping['retry_count'] = 0
 
         latest_update_time = 0
         max_progress = 0
