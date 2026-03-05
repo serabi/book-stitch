@@ -292,14 +292,13 @@
                         <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync status to all services</button>
                         <button type="button" class="card-menu-item card-menu-warning"
                             onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
+                        {% elif mapping.status == 'failed_permanent' %}
+                        <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
                         {% else %}
                         <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync Now</button>
                         <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
                         <button type="button" class="card-menu-item card-menu-warning"
                             onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
-                        {% endif %}
-                        {% if mapping.status == 'failed_permanent' %}
-                        <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
                         {% endif %}
                         <div class="card-menu-divider"></div>
                         <button type="button" class="card-menu-item card-menu-danger"

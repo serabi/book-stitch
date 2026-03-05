@@ -10,6 +10,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import socketio
@@ -71,6 +72,7 @@ class ABSSocketListener:
         self._lock = threading.Lock()
 
         self._running = True
+        self._suggestion_pool = ThreadPoolExecutor(max_workers=1)
 
         self._sio = socketio.Client(
             reconnection=True,
@@ -216,11 +218,7 @@ class ABSSocketListener:
         book = self._db.get_book(library_item_id)
         if not book:
             logger.debug(f"ABS Socket.IO: Progress event for '{library_item_id[:12]}...' — not a tracked book, queuing suggestion discovery")
-            threading.Thread(
-                target=self._sync_manager.queue_suggestion,
-                args=(library_item_id,),
-                daemon=True,
-            ).start()
+            self._suggestion_pool.submit(self._sync_manager.queue_suggestion, library_item_id)
             return
         if book.status in ('paused', 'dnf') and not book.activity_flag:
             book.activity_flag = True
@@ -315,6 +313,7 @@ class ABSSocketListener:
         is connected, disconnects it and logs the action.
         """
         self._running = False
+        self._suggestion_pool.shutdown(wait=False)
         try:
             if self._sio.connected:
                 self._sio.disconnect()

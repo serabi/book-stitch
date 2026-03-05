@@ -185,7 +185,7 @@
         {% if suggestions %}
         <div class="suggestion-grid" id="suggestion-grid">
             {% for s in suggestions %}
-            <div class="suggestion-card" id="suggestion-{{ s.source_id }}" data-title="{{ s.title|lower }}" data-author="{{ (s.author or '')|lower }}">
+            <div class="suggestion-card" data-source-id="{{ s.source_id }}" data-title="{{ s.title|lower }}" data-author="{{ (s.author or '')|lower }}">
                 <div class="suggestion-top">
                     {% if s.cover_url %}
                     <img src="{{ s.cover_url }}" alt="" class="suggestion-cover" loading="lazy">
@@ -258,12 +258,12 @@
 
         function dismissSuggestion(sourceId, btn) {
             if (!confirm('Dismiss this suggestion? It can be re-suggested later.')) return;
-            _actOnSuggestion('/api/suggestions/' + sourceId + '/dismiss', sourceId, btn);
+            _actOnSuggestion('/api/suggestions/' + encodeURIComponent(sourceId) + '/dismiss', sourceId, btn);
         }
 
         function ignoreSuggestion(sourceId, btn) {
             if (!confirm('Permanently ignore this book? It will never be suggested again.')) return;
-            _actOnSuggestion('/api/suggestions/' + sourceId + '/ignore', sourceId, btn);
+            _actOnSuggestion('/api/suggestions/' + encodeURIComponent(sourceId) + '/ignore', sourceId, btn);
         }
 
         function _actOnSuggestion(url, sourceId, btn) {
@@ -272,7 +272,7 @@
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.success) {
-                        var card = document.getElementById('suggestion-' + sourceId);
+                        var card = document.querySelector('[data-source-id="' + CSS.escape(sourceId) + '"]');
                         if (card) {
                             card.style.transition = 'opacity 0.3s, transform 0.3s';
                             card.style.opacity = '0';

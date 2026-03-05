@@ -7,6 +7,7 @@ import requests as http_requests
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 
 from src.blueprints.helpers import get_container, get_database_service
+from src.utils.logging_utils import sanitize_log_data
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,7 @@ def test_connection(service):
     try:
         success, detail = tester()
     except Exception as e:
-        logger.warning(f"Connection test for '{service}' failed: {e}")
+        logger.warning(f"Connection test for '{service}' failed: {sanitize_log_data(e)}")
         success, detail = False, _test_conn_error(e)
     return jsonify({'success': success, 'detail': detail})
 
@@ -203,7 +204,7 @@ def _test_conn_error(e: Exception) -> str:
         return 'Request timed out'
     if 'NameResolutionError' in msg or 'getaddrinfo' in msg:
         return 'Server hostname could not be resolved — check the URL'
-    return msg[:120]
+    return str(sanitize_log_data(msg))
 
 
 _HTTP_FRIENDLY = {

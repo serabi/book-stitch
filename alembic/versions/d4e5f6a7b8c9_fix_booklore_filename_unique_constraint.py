@@ -46,4 +46,29 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    pass
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if 'booklore_books' not in inspector.get_table_names():
+        return
+
+    # Check for duplicate filenames that would violate the old single-column constraint
+    result = bind.execute(
+        sa.text("SELECT filename, COUNT(*) AS cnt FROM booklore_books GROUP BY filename HAVING cnt > 1")
+    )
+    dupes = result.fetchall()
+    if dupes:
+        filenames = [row[0] for row in dupes]
+        raise RuntimeError(
+            f"Cannot downgrade: duplicate filenames exist that would violate "
+            f"the old single-column unique constraint: {filenames}"
+        )
+
+    with op.batch_alter_table(
+        'booklore_books',
+        recreate='always',
+        table_args=[
+            sa.UniqueConstraint('filename', name='uq_booklore_books_filename'),
+        ],
+    ):
+        pass

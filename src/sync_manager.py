@@ -536,7 +536,10 @@ class SyncManager:
             logger.error(f"Error checking suggestions: {e}")
 
         # Reverse suggestions: ebook sources → ABS audiobooks
-        self._check_reverse_suggestions()
+        try:
+            self._check_reverse_suggestions()
+        except Exception as e:
+            logger.warning(f"Reverse suggestions check failed: {e}")
 
     def _check_reverse_suggestions(self):
         """Check Storyteller and Booklore for books with progress that could match ABS audiobooks."""
@@ -613,6 +616,8 @@ class SyncManager:
 
     def _find_abs_audiobook_matches(self, clean_title: str, abs_by_title: dict, mapped_abs_ids: set) -> list[dict]:
         """Find ABS audiobooks matching a title, excluding already-mapped ones."""
+        if not clean_title:
+            return []
         matches = []
         for indexed_title, audiobooks in abs_by_title.items():
             # Check for substring match in either direction

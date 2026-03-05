@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import time
+from pathlib import Path
 
 import requests
 
@@ -273,7 +274,7 @@ class StorytellerAPIClient:
         the API, then looks for transcript files in:
             {STORYTELLER_ASSETS_DIR}/assets/{title}{suffix}/transcriptions/
 
-        Accepts both 00000-xxxxx.json and 00001-xxxxx.json chapter prefixes.
+        Accepts any 5-digit prefix chapter files (e.g. 00000-00001.json).
         Returns a list of chapter dicts with 'words' entries, or None if unavailable.
         """
         assets_dir = os.environ.get('STORYTELLER_ASSETS_DIR', '').strip()
@@ -291,10 +292,14 @@ class StorytellerAPIClient:
         if not title:
             return None
 
-        # Directory name is "{title}{suffix}" (suffix includes leading space if present)
+        # Validate that resolved paths stay within the assets root (path traversal defense)
+        assets_root = (Path(assets_dir) / 'assets').resolve()
         dir_name = f"{title}{suffix}"
-        transcripts_dir = os.path.join(assets_dir, 'assets', dir_name, 'transcriptions')
-        if not os.path.isdir(transcripts_dir):
+        transcripts_dir = (assets_root / dir_name / 'transcriptions').resolve()
+        if assets_root not in transcripts_dir.parents:
+            logger.warning("Storyteller: Refusing out-of-root transcript path")
+            return None
+        if not transcripts_dir.is_dir():
             logger.debug(f"Storyteller: No transcriptions dir at {transcripts_dir}")
             return None
 
@@ -303,9 +308,12 @@ class StorytellerAPIClient:
         for filename in sorted(os.listdir(transcripts_dir)):
             if not pattern.match(filename):
                 continue
-            filepath = os.path.join(transcripts_dir, filename)
+            filepath = (transcripts_dir / filename).resolve()
+            if transcripts_dir not in filepath.parents and filepath.parent != transcripts_dir:
+                logger.warning(f"Storyteller: Refusing out-of-root transcript file: {filename}")
+                continue
             try:
-                with open(filepath) as f:
+                with filepath.open() as f:
                     data = json.load(f)
                 # wordTimeline is the key containing word-level timing data
                 timeline = data.get('wordTimeline') or data.get('timeline')

@@ -83,6 +83,7 @@ class AlignmentService:
         segments = []
         current_words = []
         segment_start = 0.0
+        last_word_start = 0.0
 
         for chapter in storyteller_chapters:
             for entry in chapter.get('words', []):
@@ -95,6 +96,7 @@ class AlignmentService:
                     segment_start = start_time
 
                 current_words.append(word)
+                last_word_start = start_time
 
                 # Close segment when duration exceeds threshold
                 if start_time - segment_start >= SEGMENT_DURATION and len(current_words) > 1:
@@ -107,10 +109,10 @@ class AlignmentService:
 
         # Flush remaining words
         if current_words:
-            end_time = segments[-1]['end'] if segments else segment_start + 1.0
+            end_time = max(last_word_start, segment_start + 1.0)
             segments.append({
                 'start': segment_start,
-                'end': end_time + 1.0,
+                'end': end_time,
                 'text': ' '.join(current_words),
             })
 
@@ -404,7 +406,11 @@ class AlignmentService:
         with self.database_service.get_session() as session:
             entry = session.query(BookAlignment).filter_by(abs_id=abs_id).first()
             if entry:
-                raw = json.loads(entry.alignment_map_json)
+                try:
+                    raw = json.loads(entry.alignment_map_json)
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Corrupt alignment data for {abs_id}: {e}")
+                    return None
                 # Validate structure: each point must have int 'char' and float 'ts'
                 validated = []
                 for point in raw:

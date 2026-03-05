@@ -2,7 +2,7 @@
 
 import logging
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,9 @@ def pull_reading_dates(abs_id, container, database_service):
             progress = abs_client.get_progress(abs_id)
             if progress:
                 if progress.get("startedAt"):
-                    dates['started_at'] = date.fromtimestamp(progress["startedAt"] / 1000).isoformat()
+                    dates['started_at'] = datetime.fromtimestamp(progress["startedAt"] / 1000, tz=timezone.utc).date().isoformat()
                 if progress.get("finishedAt"):
-                    dates['finished_at'] = date.fromtimestamp(progress["finishedAt"] / 1000).isoformat()
+                    dates['finished_at'] = datetime.fromtimestamp(progress["finishedAt"] / 1000, tz=timezone.utc).date().isoformat()
                 if dates:
                     logger.debug(f"Pulled dates from ABS for '{abs_id}': {dates}")
     except Exception as e:
@@ -204,10 +204,10 @@ def sync_reading_dates(database_service, container):
             if should_check_completion:
                 # Path 1: external source says it's finished
                 if dates.get('finished_at'):
-                    # Re-read guard: if local progress is between 1-95%, skip —
-                    # the user is likely re-reading a previously finished book
+                    # Re-read guard: if book was already finished AND local progress
+                    # is below 99%, skip — the user is likely re-reading
                     local_pct = _max_state_progress(book.abs_id, database_service)
-                    if 0.01 < local_pct < 0.95:
+                    if book.finished_at and local_pct < 0.99:
                         logger.debug(
                             f"Skipping auto-complete for '{book.abs_title}': "
                             f"external finished_at='{dates['finished_at']}' but "
