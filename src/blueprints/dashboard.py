@@ -30,6 +30,20 @@ def index():
 
     books = database_service.get_all_books()
 
+    # One-time backfill: pull real started_at / finished_at from Hardcover/ABS
+    from src.services.reading_date_service import sync_reading_dates
+    needs_backfill = any(
+        (not b.started_at and b.status in ('active', 'paused', 'completed', 'dnf'))
+        or (not b.finished_at and b.status == 'completed')
+        for b in books
+    )
+    if needs_backfill:
+        stats = sync_reading_dates(database_service, container)
+        if stats['updated'] or stats['completed']:
+            logger.info(f"Reading dates backfill: {stats}")
+            # Refresh books list to reflect updates
+            books = database_service.get_all_books()
+
     abs_service = get_abs_service()
 
     # Fetch ABS metadata once for the whole dashboard (single API call)

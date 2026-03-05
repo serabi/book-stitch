@@ -144,6 +144,17 @@ def clear_stale_suggestions():
     return jsonify({"success": True, "count": count})
 
 
+@api_bp.route('/api/sync-reading-dates', methods=['POST'])
+def sync_reading_dates_api():
+    """Pull started_at / finished_at from Hardcover and ABS for books missing them."""
+    from src.services.reading_date_service import sync_reading_dates
+    database_service = get_database_service()
+    container = get_container()
+    stats = sync_reading_dates(database_service, container)
+    logger.info(f"Sync reading dates: {stats}")
+    return jsonify({"success": True, **stats})
+
+
 # ---------------- Storyteller ----------------
 
 @api_bp.route('/api/storyteller/search', methods=['GET'])

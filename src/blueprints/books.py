@@ -48,7 +48,8 @@ def suggestions():
             'matches': s.matches,
             'created_at': s.created_at,
         })
-    return render_template('suggestions.html', suggestions=suggestions_list)
+    suggestions_enabled = os.environ.get('SUGGESTIONS_ENABLED', 'false').lower() == 'true'
+    return render_template('suggestions.html', suggestions=suggestions_list, suggestions_enabled=suggestions_enabled)
 
 
 @books_bp.route('/match', methods=['GET', 'POST'])
@@ -294,6 +295,7 @@ def match():
     search = request.args.get('search', '').strip().lower()
     attach_to = request.args.get('attach_to', '').strip()
     link_to = request.args.get('link_to', '').strip()
+    preselect_abs_id = request.args.get('abs_id', '').strip()
     attach_title = ''
     link_title = ''
 
@@ -325,11 +327,23 @@ def match():
                 except Exception as e:
                     logger.warning(f"Storyteller search failed in match route: {e}")
 
+    # If abs_id provided (e.g. from suggestions) but not in search results, fetch it directly
+    preselected_audiobook = None
+    if preselect_abs_id and not attach_to:
+        already_listed = any(ab['id'] == preselect_abs_id for ab in audiobooks)
+        if not already_listed:
+            all_audiobooks = get_audiobooks_conditionally()
+            preselected_audiobook = next((ab for ab in all_audiobooks if ab['id'] == preselect_abs_id), None)
+            if preselected_audiobook:
+                preselected_audiobook['cover_url'] = abs_service.get_cover_proxy_url(preselect_abs_id)
+                audiobooks.insert(0, preselected_audiobook)
+
     return render_template('match.html', audiobooks=audiobooks, ebooks=ebooks,
                            storyteller_books=storyteller_books, search=search,
                            get_title=manager.get_abs_title,
                            attach_to=attach_to, attach_title=attach_title,
-                           link_to=link_to, link_title=link_title)
+                           link_to=link_to, link_title=link_title,
+                           preselect_abs_id=preselect_abs_id)
 
 
 @books_bp.route('/batch-match', methods=['GET', 'POST'])
@@ -543,6 +557,13 @@ def sync_now(abs_id):
     return jsonify({"success": True})
 
 
+def _pull_started_at(abs_id, container, database_service):
+    """Try to get the real started_at date from Hardcover or ABS, falling back to today."""
+    from src.services.reading_date_service import pull_reading_dates
+    dates = pull_reading_dates(abs_id, container, database_service)
+    return dates.get('started_at', date.today().isoformat())
+
+
 @books_bp.route('/api/mark-complete/<abs_id>', methods=['POST'])
 def mark_complete(abs_id):
     container = get_container()
@@ -577,7 +598,7 @@ def mark_complete(abs_id):
         today = date.today().isoformat()
         reading_updates = {'finished_at': today}
         if not book.started_at:
-            reading_updates['started_at'] = today
+            reading_updates['started_at'] = _pull_started_at(abs_id, container, database_service)
         if book.finished_at:
             # Re-read: increment read_count
             reading_updates['read_count'] = (book.read_count or 1) + 1
@@ -672,13 +693,15 @@ def resume_book(abs_id):
     book.activity_flag = False
     database_service.save_book(book)
     database_service.add_reading_journal(abs_id, event='resumed')
+    container = get_container()
     if not book.started_at:
-        database_service.update_book_reading_fields(abs_id, started_at=date.today().isoformat())
+        database_service.update_book_reading_fields(
+            abs_id, started_at=_pull_started_at(abs_id, container, database_service)
+        )
     logger.info(f"Book resumed: '{sanitize_log_data(book.abs_title or abs_id)}'")
 
     # If resuming from DNF or Paused, reset Hardcover to Currently Reading (status_id=2)
     if was_inactive:
-        container = get_container()
         hardcover_client = container.hardcover_client()
         if hardcover_client.is_configured():
             hc_details = database_service.get_hardcover_details(abs_id)
