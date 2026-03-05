@@ -6,6 +6,8 @@
 
 **Keep your place across every book, every app, every format.**
 
+<img src="static/2026-03-05 - PageKeeper Preview.png" alt="PageKeeper dashboard preview" width="700">
+
 [![License](https://img.shields.io/github/license/serabi/pagekeeper?cacheSeconds=3600)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/serabi/pagekeeper)](https://github.com/serabi/pagekeeper/releases)
 [![Snyk Security](https://snyk.io/test/github/serabi/pagekeeper/badge.svg)](https://snyk.io/test/github/serabi/pagekeeper)
