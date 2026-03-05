@@ -577,6 +577,15 @@
             const allBooksGrid = document.getElementById('all-books-grid');
             const sortSelect = document.getElementById('sort-select');
             const filterSelect = document.getElementById('filter-select');
+
+            // One-time migration: read new key, fall back to legacy key, migrate forward
+            function migrateLocalStorage(newKey, legacyKey) {
+                let val = localStorage.getItem(newKey);
+                if (val !== null) return val;
+                val = localStorage.getItem(legacyKey);
+                if (val !== null) localStorage.setItem(newKey, val);
+                return val;
+            }
             const directionBtn = document.getElementById('sort-direction');
             const dashboardSearch = document.getElementById('dashboard-search');
 
@@ -696,8 +705,8 @@
             let lastSort = null;
 
             // Load saved preferences
-            const savedSort = localStorage.getItem('pagekeeper_sort') || 'title';
-            const savedSortState = localStorage.getItem('pagekeeper_sort_state');
+            const savedSort = migrateLocalStorage('pagekeeper_sort', 'book_sync_sort') || 'title';
+            const savedSortState = migrateLocalStorage('pagekeeper_sort_state', 'book_sync_sort_state');
 
             if (savedSort) {
                 sortSelect.value = savedSort;
@@ -824,7 +833,7 @@
             // Filter Logic initialization
             if (filterSelect) {
                 filterSelect.addEventListener('change', filterBooks);
-                const savedFilter = localStorage.getItem('pagekeeper_filter') || 'all';
+                const savedFilter = migrateLocalStorage('pagekeeper_filter', 'book_sync_filter') || 'all';
                 filterSelect.value = savedFilter;
                 // Apply filter initially
                 filterBooks();
