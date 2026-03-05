@@ -18,17 +18,26 @@ All notable changes to Book Sync will be documented in this file.
 - **Processing books dashboard UX** — Dedicated "Processing" section on the dashboard with status-specific card rendering: striped progress bars for active jobs, pulsing dot for queued books, retry count for failed jobs. CSS status accents (cyan/amber/red left borders), contextual footer text, and sanitized menu actions for pending/processing/failed states. Live polling via `/api/processing-status` refreshes every 5 seconds and reloads the page on status transitions.
 - **Reading date sync from external sources** — `started_at` and `finished_at` dates are now pulled from Hardcover (`user_book_reads`) and Audiobookshelf (`mediaProgress.startedAt`/`finishedAt`) instead of defaulting to today's date. A one-time backfill runs on dashboard load for books missing dates. Books found to be finished externally are automatically marked as completed.
 - **Sync Reading Dates button** — New "Sync Reading Dates" tool in Settings → Tools tab. Triggers an on-demand pull of reading dates from Hardcover and ABS for all books missing them, with a summary of updated/completed/error counts.
+- **Auto-complete at 100% progress** — Active books reaching ≥ 99% sync progress are automatically marked as completed and push 100% to all services. Includes re-read guard: skips auto-complete if local progress is 1–95% with an external `finished_at` date set.
+- **Sync read status to Booklore** — Mark Complete pushes `READ` status to Booklore (auto-sets `dateFinished`). Resume pushes `READING` status. Supports dual Booklore instances.
+- **Sync status to all services (completed books)** — Completed books now have a "Sync status to all services" menu action that pushes 100% completion to all configured services and reloads the page.
 
 ### Changed
 
 - **Suggestions Link button** — Clicking "Link" on a suggestion now pre-fills the match page with the book's title and pre-selects the audiobook, instead of opening an empty match page.
 - **Suggestions empty state** — Shows context-aware messages: explains that no candidates have been found yet when suggestions are enabled, or prompts the user to enable them in Settings (with a direct link) when disabled.
+- **Completed book menu cleanup** — Completed books now show only "Sync status to all services" and "Clear Progress" in the kebab menu. Removed redundant "Mark Complete" and "Sync Now" actions.
 
 ### Fixed
 
 - **Hardcover test button** — Hardcover's GraphQL API returns `me` as a list; the test now handles both list and dict response shapes.
 - **KOSync stale shadow documents** — Sibling document resolution now skips documents not updated in the last 30 days, preventing stale shadow entries from overriding current progress.
 - **Alignment map validation** — Loading alignment maps from the database now validates each point for required `char` (int) and `ts` (float) keys, skipping malformed entries with a warning instead of crashing.
+- **Completed books missing from Finished section** — Books with `status == 'completed'` now appear in the Finished section regardless of their `unified_progress` value.
+- **Clear progress re-sync bounce** — After clearing progress, 0% state records are now saved to the database. Previously states were only deleted, causing the next sync cycle to re-sync stale external progress back.
+- **Clear progress blocking UI** — Clear progress now runs in a background thread to avoid blocking the UI for ~37 seconds waiting on the sync lock.
+- **Booklore UNIQUE constraint with multiple sources** — Migration force-recreates `booklore_books` table with composite `(filename, source)` unique constraint, replacing the stale single-column constraint that failed when the same filename existed across multiple Booklore instances.
+- **Sync Now silent failure for completed books** — Fixed broken import in `reading_date_service.py` and routed completed books to push 100% completion directly instead of going through `sync_cycle` (which skips non-active books).
 
 ---
 
