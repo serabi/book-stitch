@@ -157,9 +157,11 @@ class TestClearProgressMethod(unittest.TestCase):
             self.assertTrue(result['client_reset_results'][client_name]['success'])
             self.assertEqual(result['client_reset_results'][client_name]['message'], 'Reset to 0%')
 
-        # Verify database states were cleared
+        # Verify database states were reset to 0% (saved back to prevent re-sync from external)
         remaining_states = self.db_service.get_states_for_book('test-book-123')
-        self.assertEqual(len(remaining_states), 0, "All state records should be cleared")
+        self.assertEqual(len(remaining_states), 3, "Should have 0% state for each successful client reset")
+        for state in remaining_states:
+            self.assertEqual(state.percentage, 0.0, f"State for {state.client_name} should be 0%")
 
         # Verify KoSync document was deleted
         self.assertIsNone(self.db_service.get_kosync_document('test-hash-123'), "KoSync document should be deleted")
@@ -201,10 +203,12 @@ class TestClearProgressMethod(unittest.TestCase):
         # Call clear_progress
         result = self.sync_manager.clear_progress('test-book-123')
 
-        # Verify database was still cleared
+        # Verify database was cleared then 0% states saved for successful resets
         self.assertEqual(result['database_states_cleared'], 3)
         remaining_states = self.db_service.get_states_for_book('test-book-123')
-        self.assertEqual(len(remaining_states), 0)
+        self.assertEqual(len(remaining_states), 2, "Should have 0% state for kosync and abs (storyteller failed)")
+        for state in remaining_states:
+            self.assertEqual(state.percentage, 0.0)
 
         # Verify partial success
         self.assertEqual(result['successful_resets'], 2)  # kosync and abs succeeded

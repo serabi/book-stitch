@@ -1625,19 +1625,24 @@ class SyncManager:
                 cleared_count = self.database_service.delete_states_for_book(abs_id)
                 logger.info(f"Cleared {cleared_count} state records from database")
 
-                # Delete KOSync document record to bypass "furthest wins" protection
-                # Without this, the integrated KOSync server will reject the 0% update
-                # and the old progress will sync back on the next cycle
-                if book.kosync_doc_id:
-                    deleted = self.database_service.delete_kosync_document(book.kosync_doc_id)
-                    if deleted:
-                        logger.info(f"Deleted KOSync document record: {book.kosync_doc_id[:8]}...")
+                # Delete ALL KOSync document records for this book (primary + siblings)
+                # Without this, sibling hashes retain old progress and the sync daemon
+                # re-syncs from stale KOSync data on the next cycle
+                sibling_docs = self.database_service.get_kosync_documents_for_book(abs_id)
+                for doc in sibling_docs:
+                    self.database_service.delete_kosync_document(doc.document_hash)
+                    logger.info(f"Deleted KOSync document record: {doc.document_hash[:8]}...")
+                if not sibling_docs and book.kosync_doc_id:
+                    # Fallback: delete by primary hash if no siblings found
+                    self.database_service.delete_kosync_document(book.kosync_doc_id)
+                    logger.info(f"Deleted KOSync document record: {book.kosync_doc_id[:8]}...")
 
                 # Reset all sync clients to 0% progress
                 reset_results = {}
                 locator = LocatorResult(percentage=0.0)
                 request = UpdateProgressRequest(locator_result=locator, txt="", previous_location=None)
 
+                now = int(time.time())
                 for client_name, client in self.sync_clients.items():
                     if client_name == 'ABS' and book.sync_mode == 'ebook_only':
                         logger.debug(f"'{book.abs_title}' Ebook-only mode - skipping ABS progress reset")
@@ -1650,6 +1655,15 @@ class SyncManager:
                         }
                         if result.success:
                             logger.info(f"Reset '{client_name}' to 0%")
+                            # Save 0% state so the sync daemon doesn't re-sync from external
+                            state = State(
+                                abs_id=abs_id,
+                                client_name=client_name.lower(),
+                                percentage=0.0,
+                                timestamp=now,
+                                last_updated=now
+                            )
+                            self.database_service.save_state(state)
                         else:
                             logger.warning(f"Failed to reset '{client_name}'")
                     except Exception as e:
