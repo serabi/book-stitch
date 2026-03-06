@@ -278,6 +278,22 @@ function initReadingPage(currentYear) {
         })
         .then(data => {
           if (data.success) window.location.reload();
+        })
+        .catch(() => { goalSave.disabled = false; });
+    });
+  }
+}
+
+
+function initReadingDetail() {
+  // ── Rating stars ──
+  const rc = document.getElementById('rating-stars');
+  if (rc) {
+    const absId = rc.dataset.absId;
+    const stars = rc.querySelectorAll('.r-star-btn');
+    const label = document.getElementById('rating-label');
+
+    stars.forEach(star => {
       star.addEventListener('click', () => {
         const value = parseInt(star.dataset.value, 10);
         fetch(`/api/reading/book/${absId}/rating`, {
@@ -302,23 +318,6 @@ function initReadingPage(currentYear) {
             // Optionally show user feedback
           });
       });
-        const value = parseInt(star.dataset.value, 10);
-        fetch(`/api/reading/book/${absId}/rating`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rating: value }),
-        })
-          .then(r => r.json())
-          .then(data => {
-            if (data.success) {
-              stars.forEach((s, i) => {
-                s.classList.toggle('filled', i + 1 <= data.rating);
-                s.classList.remove('half');
-              });
-              if (label) label.textContent = data.rating + '/5';
-            }
-          });
-      });
     });
   }
 
@@ -339,6 +338,25 @@ function initReadingPage(currentYear) {
           if (!data.success) {
             input.style.outline = '2px solid var(--color-danger, red)';
             setTimeout(() => { input.style.outline = ''; }, 2000);
+          }
+        });
+    });
+  }
+  bindDate('started_at', 'started-at');
+  bindDate('finished_at', 'finished-at');
+
+  // ── Journal ──
+  const form = document.getElementById('journal-form');
+  if (form) {
+    const absId = form.dataset.absId;
+    const textarea = document.getElementById('journal-entry');
+    const timeline = document.getElementById('journal-timeline');
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const entry = textarea.value.trim();
+      if (!entry) return;
+
       fetch(`/api/reading/book/${absId}/journal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -360,29 +378,6 @@ function initReadingPage(currentYear) {
         })
         .catch(() => {
           // Show error feedback to user
-        });
-    const timeline = document.getElementById('journal-timeline');
-
-    form.addEventListener('submit', e => {
-      e.preventDefault();
-      const entry = textarea.value.trim();
-      if (!entry) return;
-
-      fetch(`/api/reading/book/${absId}/journal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (!data.success) return;
-          textarea.value = '';
-
-          if (timeline) {
-            const empty = timeline.querySelector('.r-journal-empty');
-            if (empty) empty.remove();
-            timeline.prepend(buildJournalNode(data.journal));
-          }
         });
     });
 

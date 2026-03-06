@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .base_repository import BaseRepository
 from .models import (
@@ -98,7 +98,7 @@ class IntegrationRepository(BaseRepository):
                     BookloreBook.source == source
                 ).delete(synchronize_session=False)
                 return deleted > 0
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to delete Booklore book '{filename}': {e}")
             return False
 
@@ -121,16 +121,16 @@ class IntegrationRepository(BaseRepository):
                 seen_in_batch.add(highlight_id)
                 existing = lookup.get(highlight_id)
                 if existing:
-                    existing.content = h['content']
+                    existing.content = h.get('content', '')
                     existing.chapter_heading = h.get('chapter_heading')
                     existing.book_title = h.get('book_title')
                     existing.highlighted_at = h.get('highlighted_at')
                     existing.quote_text = h.get('quote_text')
                 else:
                     session.add(BookfusionHighlight(
-                        bookfusion_book_id=h['bookfusion_book_id'],
-                        highlight_id=h['highlight_id'],
-                        content=h['content'],
+                        bookfusion_book_id=h.get('bookfusion_book_id'),
+                        highlight_id=highlight_id,
+                        content=h.get('content', ''),
                         book_title=h.get('book_title'),
                         chapter_heading=h.get('chapter_heading'),
                         highlighted_at=h.get('highlighted_at'),
@@ -162,6 +162,8 @@ class IntegrationRepository(BaseRepository):
             ).first()
             if hl:
                 hl.matched_abs_id = abs_id
+                return True
+            return False
 
     def link_bookfusion_book(self, bookfusion_book_id, abs_id):
         with self.get_session() as session:
@@ -186,8 +188,11 @@ class IntegrationRepository(BaseRepository):
         saved = 0
         with self.get_session() as session:
             for b in books:
+                bookfusion_id = b.get('bookfusion_id')
+                if not bookfusion_id:
+                    continue
                 existing = session.query(BookfusionBook).filter(
-                    BookfusionBook.bookfusion_id == b['bookfusion_id']
+                    BookfusionBook.bookfusion_id == bookfusion_id
                 ).first()
                 title = b.get('title') or ''
                 if title.endswith('.md'):
@@ -204,7 +209,7 @@ class IntegrationRepository(BaseRepository):
                     existing.last_updated = datetime.now(UTC)
                 else:
                     session.add(BookfusionBook(
-                        bookfusion_id=b['bookfusion_id'],
+                        bookfusion_id=bookfusion_id,
                         title=title,
                         authors=b.get('authors'),
                         filename=b.get('filename'),

@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Blueprint, render_template
 
 from src.blueprints.helpers import get_abs_service, get_booklore_clients, get_container, get_database_service
-from src.version import APP_VERSION, get_update_status
+from src.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -305,7 +305,7 @@ def index():
 
         # Booklore cover fallback for books without an ABS cover
         if not mapping['cover_url'] and mapping.get('booklore_id'):
-            mapping['cover_url'] = f"/api/cover-proxy/booklore/{mapping.get('booklore_source_tag', 'booklore')}/{mapping['booklore_id']}"
+            mapping['cover_url'] = f"/api/cover-proxy/booklore/{mapping.get('booklore_source_tag') or 'booklore'}/{mapping['booklore_id']}"
 
         duration = mapping.get('duration', 0)
         progress_pct = mapping.get('unified_progress', 0)
@@ -323,8 +323,6 @@ def index():
     else:
         overall_progress = 0
 
-    latest_version, update_available = get_update_status()
-
     booklore_label = os.environ.get('BOOKLORE_LABEL', 'Booklore') or 'Booklore'
 
     return render_template(
@@ -334,7 +332,5 @@ def index():
         progress=overall_progress,
         suggestions=suggestions,
         app_version=APP_VERSION,
-        update_available=update_available,
-        latest_version=latest_version,
         booklore_label=booklore_label,
     )

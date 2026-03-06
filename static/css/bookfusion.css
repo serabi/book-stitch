@@ -72,8 +72,9 @@
     font-size: 14px;
 }
 .bf-search input:focus {
-    outline: none;
     border-color: var(--color-bookfusion);
+    outline: 2px solid var(--color-bookfusion);
+    outline-offset: -2px;
 }
 
 /* Book list */
@@ -208,6 +209,10 @@
     font-size: 0.8rem;
     max-width: 200px;
 }
+.bf-book-select:focus-visible {
+    outline: 2px solid var(--color-bookfusion);
+    outline-offset: 1px;
+}
 
 /* Custom Combobox */
 .bf-combobox {
@@ -227,8 +232,9 @@
     box-sizing: border-box;
 }
 .bf-combobox-input:focus {
-    outline: none;
     border-color: var(--color-bookfusion);
+    outline: 2px solid var(--color-bookfusion);
+    outline-offset: -2px;
 }
 .bf-combobox-dropdown {
     position: absolute;

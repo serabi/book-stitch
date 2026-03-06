@@ -74,6 +74,21 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                     Advanced
                 </button>
+
+                <div class="sidebar-version">
+                    <span class="sidebar-version-text">
+                        {% if app_version.startswith('dev') %}
+                        Build {{ app_version }}
+                        {% else %}
+                        v{{ app_version.lstrip('v') }}
+                        {% endif %}
+                    </span>
+                    {% if update_available %}
+                    <a href="https://github.com/serabi/pagekeeper/releases/latest" target="_blank" class="sidebar-update-link">
+                        ↑ v{{ latest_version }} Available
+                    </a>
+                    {% endif %}
+                </div>
             </nav>
 
             <!-- ═══ Content ═══ -->

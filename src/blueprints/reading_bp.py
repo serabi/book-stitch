@@ -6,7 +6,7 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request
 
 from src.blueprints.helpers import get_abs_service, get_booklore_clients, get_database_service
 from src.db.models import State
@@ -212,9 +212,7 @@ def reading_detail(abs_id):
 
     book = database_service.get_book(abs_id)
     if not book:
-        return render_template('reading.html', all_books=[], section_counts={},
-                               finished_years=[], stats={}, goal=None,
-                               current_year=date.today().year, total_books=0), 404
+        abort(404)
 
     all_states = database_service.get_all_states()
     states_by_book = {}

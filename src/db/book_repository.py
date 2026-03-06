@@ -70,6 +70,18 @@ class BookRepository(BaseRepository):
         """Migrate all associated data from one book ID to another."""
         with self.get_session() as session:
             try:
+                # Delete states for new_abs_id that would conflict with incoming ones
+                incoming_clients = {
+                    r[0] for r in session.query(State.client_name).filter(
+                        State.abs_id == old_abs_id
+                    ).all()
+                }
+                if incoming_clients:
+                    session.query(State).filter(
+                        State.abs_id == new_abs_id,
+                        State.client_name.in_(incoming_clients),
+                    ).delete(synchronize_session=False)
+
                 session.query(State).filter(State.abs_id == old_abs_id).update(
                     {State.abs_id: new_abs_id}, synchronize_session=False)
                 session.query(Job).filter(Job.abs_id == old_abs_id).update(

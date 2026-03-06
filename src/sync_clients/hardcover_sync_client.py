@@ -61,7 +61,7 @@ class HardcoverSyncClient(SyncClient):
 
         return match, None  # Return valid match, no rejected match
 
-    def _automatch_hardcover(self, book):
+    def automatch_hardcover(self, book):
         """
         Match a book with Hardcover using various search strategies.
         Tries page-based editions first, falls back to audiobook editions.
@@ -233,7 +233,7 @@ class HardcoverSyncClient(SyncClient):
             return SyncResult(None, False)
 
         # Ensure we have hardcover details (auto-match if needed)
-        self._automatch_hardcover(book)
+        self.automatch_hardcover(book)
 
         percentage = request.locator_result.percentage
 

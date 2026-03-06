@@ -249,7 +249,7 @@ class BaseSyncCycleTestCase(unittest.TestCase, ABC):
         )
 
         # Mock helper methods to avoid side effects
-        manager._automatch_hardcover = Mock()
+        manager.automatch_hardcover = Mock()
         manager._sync_to_hardcover = Mock()
 
         # Run the sync cycle

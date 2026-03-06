@@ -82,28 +82,30 @@ class DatabaseService:
             from sqlalchemy import inspect as sa_inspect
             engine = create_engine(f"sqlite:///{self.db_path}")
 
-            inspector = sa_inspect(engine)
-            tables = inspector.get_table_names()
+            try:
+                inspector = sa_inspect(engine)
+                tables = inspector.get_table_names()
 
-            if tables and 'alembic_version' not in tables:
-                # Legacy database without Alembic — stamp it at head
-                logger.info("Legacy database detected — stamping at current Alembic head")
-                command.stamp(alembic_cfg, "head")
-            else:
-                # Normal migration path
-                with engine.connect() as conn:
-                    context = MigrationContext.configure(conn)
-                    current_rev = context.get_current_revision()
-
-                if current_rev is None and not tables:
-                    # Fresh database — will be created by create_all, then stamp
-                    Base.metadata.create_all(engine)
+                if tables and 'alembic_version' not in tables:
+                    # Legacy database without Alembic — stamp it at head
+                    logger.info("Legacy database detected — stamping at current Alembic head")
                     command.stamp(alembic_cfg, "head")
                 else:
-                    command.upgrade(alembic_cfg, "head")
+                    # Normal migration path
+                    with engine.connect() as conn:
+                        context = MigrationContext.configure(conn)
+                        current_rev = context.get_current_revision()
 
-            engine.dispose()
-            logger.debug("Alembic migrations completed successfully")
+                    if current_rev is None and not tables:
+                        # Fresh database — will be created by create_all, then stamp
+                        Base.metadata.create_all(engine)
+                        command.stamp(alembic_cfg, "head")
+                    else:
+                        command.upgrade(alembic_cfg, "head")
+
+                logger.debug("Alembic migrations completed successfully")
+            finally:
+                engine.dispose()
 
         except Exception as e:
             logger.warning(f"Alembic migration failed (non-fatal): {e}")
@@ -135,7 +137,8 @@ class DatabaseService:
                             if isinstance(default_val, bool):
                                 default_clause = f" DEFAULT {'TRUE' if default_val else 'FALSE'}"
                             elif isinstance(default_val, str):
-                                default_clause = f" DEFAULT '{default_val}'"
+                                escaped = default_val.replace("'", "''")
+                                default_clause = f" DEFAULT '{escaped}'"
                             elif isinstance(default_val, (int, float)):
                                 default_clause = f" DEFAULT {default_val}"
 

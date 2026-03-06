@@ -1,5 +1,7 @@
 import glob
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 from src.utils.logging_utils import sanitize_log_data
@@ -19,7 +21,7 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, booklore_clients=N
     """
     booklore_clients = booklore_clients or []
     books_search_dir = Path(books_dir) if books_dir else Path("/books")
-    epub_cache_dir = Path(epub_cache_dir)
+    epub_cache_dir = Path(epub_cache_dir) if epub_cache_dir else Path("/tmp/epub_cache")
 
     # First, try to find on filesystem
     escaped_filename = glob.escape(ebook_filename)
@@ -60,8 +62,16 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, booklore_clients=N
 
         content = bl_client.download_book(book_id)
         if content:
-            with open(cached_path, 'wb') as f:
-                f.write(content)
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=cached_path.parent, suffix='.tmp')
+            try:
+                with os.fdopen(tmp_fd, 'wb') as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, cached_path)
+            except BaseException:
+                os.unlink(tmp_path)
+                raise
             logger.info(f"Downloaded EPUB to cache: '{cached_path}'")
             return cached_path
 

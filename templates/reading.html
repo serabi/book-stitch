@@ -20,7 +20,7 @@
 {# ── Cover image macro ── #}
 {% macro book_cover(book) %}
 {% if book.cover_url %}
-<img src="{{ book.cover_url }}" alt="" loading="lazy" class="r-cover-img"
+<img src="{{ book.cover_url|e }}" alt="" loading="lazy" class="r-cover-img"
     {% if book.kosync_doc_id %}data-fallback-id="{{ book.kosync_doc_id|e }}"{% endif %}>
 <div class="r-cover-placeholder hidden"></div>
 {% elif book.kosync_doc_id %}
@@ -141,7 +141,7 @@
         <div class="r-grid" id="book-grid">
             {% for book in all_books %}
             <a href="/reading/book/{{ book.abs_id }}" class="r-book-card{% if book.display_status == 'paused' %} r-card-paused{% elif book.display_status == 'dnf' %} r-card-dnf{% elif book.display_status == 'not_started' %} r-card-unstarted{% endif %}"
-               data-title="{{ book.abs_title }}"
+               data-title="{{ book.abs_title|e }}"
                data-status="{{ book.display_status }}"
                data-progress="{{ book.unified_progress }}"
                data-rating="{{ book.rating or 0 }}"
@@ -164,7 +164,7 @@
                     {% endif %}
                 </div>
                 <div class="r-card-info">
-                    <span class="r-card-title">{{ book.abs_title }}</span>
+                    <span class="r-card-title">{{ book.abs_title|e }}</span>
                     <div class="r-card-meta-row">
                         {{ star_rating(book.rating) }}
                         {% if book.finished_at and book.display_status == 'finished' %}

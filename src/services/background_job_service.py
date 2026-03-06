@@ -222,14 +222,17 @@ class BackgroundJobService:
                 try:
                     st_chapters = self.storyteller_client.get_word_timeline_chapters(book.storyteller_uuid)
                     if st_chapters:
-                        logger.info(f"Using Storyteller wordTimeline for '{book.abs_title}' ({len(st_chapters)} chapters)")
-                        update_progress(0.5, 2)
-                        success = self.alignment_service.align_storyteller_and_store(
-                            abs_id, st_chapters, book_text
-                        )
-                        if success:
-                            transcript_source = "STORYTELLER_NATIVE"
-                            update_progress(1.0, 2)
+                        if not self.alignment_service:
+                            logger.warning(f"Skipping Storyteller alignment for '{book.abs_title}': alignment_service not available")
+                        else:
+                            logger.info(f"Using Storyteller wordTimeline for '{book.abs_title}' ({len(st_chapters)} chapters)")
+                            update_progress(0.5, 2)
+                            success = self.alignment_service.align_storyteller_and_store(
+                                abs_id, st_chapters, book_text
+                            )
+                            if success:
+                                transcript_source = "STORYTELLER_NATIVE"
+                                update_progress(1.0, 2)
                 except Exception as e:
                     logger.warning(f"Storyteller wordTimeline failed for '{book.abs_title}': {e}")
 
@@ -266,6 +269,9 @@ class BackgroundJobService:
             else:
                 if not raw_transcript:
                     raise Exception("Failed to generate transcript from both SMIL and Whisper.")
+
+                if not self.alignment_service:
+                    raise Exception("Cannot align transcript: alignment_service not available")
 
                 logger.info(f"Aligning transcript ({transcript_source}) using Anchored Alignment...")
                 update_progress(0.1, 3)

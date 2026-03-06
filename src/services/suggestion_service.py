@@ -47,20 +47,8 @@ class SuggestionService:
         if self.database_service.suggestion_exists(abs_id):
             return
 
-        # Prevent concurrent suggestion creation for the same ID
-        with self._suggestion_lock:
-            if abs_id in self._suggestion_in_flight:
-                return
-            self._suggestion_in_flight.add(abs_id)
-
-        try:
-            logger.info(f"Socket.IO: Queuing suggestion discovery for '{abs_id[:12]}...'")
-            self._create_suggestion(abs_id, None)
-        except Exception as e:
-            logger.warning(f"Socket.IO: Suggestion discovery failed for '{abs_id[:12]}...': {e}")
-        finally:
-            with self._suggestion_lock:
-                self._suggestion_in_flight.discard(abs_id)
+        logger.info(f"Socket.IO: Queuing suggestion discovery for '{abs_id[:12]}...'")
+        self._create_suggestion(abs_id, None)
 
     def check_for_suggestions(self, abs_progress_map, active_books):
         """Check for unmapped books with progress and create suggestions."""
@@ -156,7 +144,7 @@ class SuggestionService:
                         continue
 
                     # Search ABS for a matching audiobook
-                    clean_title = re.sub(r'\s*[\(\[].*?[\)\]]', '', title_lower).strip()
+                    clean_title = re.sub(r'\s*[\(\[].*?[\)\]]', '', title_lower).strip().lower()
                     matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
                     if matches:
                         self._save_reverse_suggestion(matches, clean_title, f"storyteller:{uuid}")
@@ -234,9 +222,13 @@ class SuggestionService:
 
     def _create_suggestion(self, abs_id, progress_data):
         """Create a new suggestion for an unmapped book."""
-        logger.info(f"Found potential new book for suggestion: '{abs_id}'")
+        with self._suggestion_lock:
+            if abs_id in self._suggestion_in_flight:
+                return
+            self._suggestion_in_flight.add(abs_id)
 
         try:
+            logger.info(f"Found potential new book for suggestion: '{abs_id}'")
             # 1. Get Details from ABS
             item = self.abs_client.get_item_details(abs_id)
             if not item:
@@ -407,3 +399,6 @@ class SuggestionService:
         except Exception as e:
             logger.error(f"Failed to create suggestion for '{abs_id}': {e}")
             logger.debug(traceback.format_exc())
+        finally:
+            with self._suggestion_lock:
+                self._suggestion_in_flight.discard(abs_id)

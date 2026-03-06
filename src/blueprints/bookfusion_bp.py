@@ -174,15 +174,17 @@ def _auto_match_highlights(db_service) -> int:
             abs_id = book_map[norm_bf][0]
         else:
             # Fuzzy match (only if unambiguous)
-            best_ratio = 0.0
+            candidates = []
             for norm_pk in norm_keys:
                 if len(book_map[norm_pk]) != 1:
                     continue
                 ratio = difflib.SequenceMatcher(None, norm_bf, norm_pk).ratio()
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    if ratio > 0.85:
-                        abs_id = book_map[norm_pk][0]
+                if ratio > 0.85:
+                    candidates.append((ratio, book_map[norm_pk][0]))
+            if candidates:
+                candidates.sort(key=lambda c: c[0], reverse=True)
+                if len(candidates) == 1 or (candidates[0][0] - candidates[1][0]) >= 0.05:
+                    abs_id = candidates[0][1]
 
         if abs_id:
             bf_ids = {hl.bookfusion_book_id for hl in highlights if hl.bookfusion_book_id}

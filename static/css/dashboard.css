@@ -673,41 +673,6 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* Version Indicator */
-.version-indicator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 20px;
-  margin-top: 40px;
-  border-top: 1px solid var(--color-border-light);
-}
-
-.version-text {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  font-family: monospace;
-}
-
-.update-link {
-  font-size: 11px;
-  color: #7C3AED;
-  text-decoration: none;
-  background: rgba(124, 58, 237, 0.15);
-  border: 1px solid rgba(124, 58, 237, 0.3);
-  border-radius: 4px;
-  padding: 3px 8px;
-  white-space: nowrap;
-  transition: all 0.2s;
-  font-weight: 600;
-}
-
-.update-link:hover {
-  background: rgba(124, 58, 237, 0.25);
-}
 
 /* Clickable cover link */
 .book-cover-link {
@@ -719,10 +684,6 @@
 .book-cover-link:focus-visible .book-cover-inner {
   outline: 2px solid var(--color-primary-hover);
   outline-offset: 2px;
-}
-.book-cover-link:active .book-cover-inner {
-  opacity: 0.85;
-}
 }
 .book-cover-link:active .book-cover-inner {
   opacity: 0.85;

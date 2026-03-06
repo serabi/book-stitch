@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 
 from src.blueprints.helpers import get_container, get_database_service
 from src.utils.logging_utils import sanitize_log_data
+from src.version import APP_VERSION, get_update_status
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +147,14 @@ def settings():
     message = session.pop('message', None)
     is_error = session.pop('is_error', False)
 
+    latest_version, update_available = get_update_status()
+
     return render_template('settings.html',
                            message=message,
-                           is_error=is_error)
+                           is_error=is_error,
+                           app_version=APP_VERSION,
+                           update_available=update_available,
+                           latest_version=latest_version)
 
 
 @settings_bp.route('/api/settings/secret/<key>', methods=['GET'])

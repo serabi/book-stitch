@@ -2,10 +2,9 @@
 
 import hashlib
 import logging
-import os
 from pathlib import Path
 
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
 
 from src.blueprints.helpers import (
     audiobook_matches_search,
@@ -23,8 +22,6 @@ from src.utils.logging_utils import sanitize_log_data
 from src.utils.path_utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
-
-ABS_COLLECTION_NAME = os.environ.get("ABS_COLLECTION_NAME", "Synced with KOReader")
 
 matching_bp = Blueprint('matching', __name__)
 
@@ -45,7 +42,7 @@ def suggestions():
             'matches': s.matches,
             'created_at': s.created_at,
         })
-    suggestions_enabled = os.environ.get('SUGGESTIONS_ENABLED', 'false').lower() == 'true'
+    suggestions_enabled = current_app.config.get('SUGGESTIONS_ENABLED', False)
     return render_template('suggestions.html', suggestions=suggestions_list, suggestions_enabled=suggestions_enabled)
 
 
@@ -78,10 +75,10 @@ def match():
                 sync_mode='audiobook',
             )
             database_service.save_book(book)
-            abs_service.add_to_collection(abs_id, ABS_COLLECTION_NAME)
+            abs_service.add_to_collection(abs_id, current_app.config['ABS_COLLECTION_NAME'])
             hardcover_sync_client = container.sync_clients().get('Hardcover')
             if hardcover_sync_client and hardcover_sync_client.is_configured():
-                hardcover_sync_client._automatch_hardcover(book)
+                hardcover_sync_client.automatch_hardcover(book)
             database_service.dismiss_suggestion(abs_id)
             return redirect(url_for('dashboard.index'))
 
@@ -190,11 +187,10 @@ def match():
                 logger.info(f"Successfully merged {link_book_id} into {abs_id}")
             except Exception as e:
                 logger.error(f"Failed to merge book data: {e}")
-                raise
-            abs_service.add_to_collection(abs_id, ABS_COLLECTION_NAME)
+            abs_service.add_to_collection(abs_id, current_app.config['ABS_COLLECTION_NAME'])
             hardcover_sync_client = container.sync_clients().get('Hardcover')
             if hardcover_sync_client and hardcover_sync_client.is_configured():
-                hardcover_sync_client._automatch_hardcover(new_book)
+                hardcover_sync_client.automatch_hardcover(new_book)
             database_service.dismiss_suggestion(abs_id)
             if new_book.kosync_doc_id:
                 database_service.dismiss_suggestion(new_book.kosync_doc_id)
@@ -271,9 +267,9 @@ def match():
         # Trigger Hardcover Automatch
         hardcover_sync_client = container.sync_clients().get('Hardcover')
         if hardcover_sync_client and hardcover_sync_client.is_configured():
-            hardcover_sync_client._automatch_hardcover(book)
+            hardcover_sync_client.automatch_hardcover(book)
 
-        abs_service.add_to_collection(abs_id, ABS_COLLECTION_NAME)
+        abs_service.add_to_collection(abs_id, current_app.config['ABS_COLLECTION_NAME'])
         if bl_match_client:
             shelf_filename = original_ebook_filename or ebook_filename
             try:
@@ -406,10 +402,10 @@ def batch_match():
                         sync_mode='audiobook',
                     )
                     database_service.save_book(book)
-                    abs_service.add_to_collection(item['abs_id'], ABS_COLLECTION_NAME)
+                    abs_service.add_to_collection(item['abs_id'], current_app.config['ABS_COLLECTION_NAME'])
                     hardcover_sync_client = container.sync_clients().get('Hardcover')
                     if hardcover_sync_client and hardcover_sync_client.is_configured():
-                        hardcover_sync_client._automatch_hardcover(book)
+                        hardcover_sync_client.automatch_hardcover(book)
                     database_service.dismiss_suggestion(item['abs_id'])
                     continue
 
@@ -476,9 +472,9 @@ def batch_match():
                 # Trigger Hardcover Automatch
                 hardcover_sync_client = container.sync_clients().get('Hardcover')
                 if hardcover_sync_client and hardcover_sync_client.is_configured():
-                    hardcover_sync_client._automatch_hardcover(book)
+                    hardcover_sync_client.automatch_hardcover(book)
 
-                abs_service.add_to_collection(item['abs_id'], ABS_COLLECTION_NAME)
+                abs_service.add_to_collection(item['abs_id'], current_app.config['ABS_COLLECTION_NAME'])
                 if bl_match_client:
                     shelf_filename = original_ebook_filename or ebook_filename
                     try:

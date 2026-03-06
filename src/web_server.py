@@ -123,6 +123,10 @@ def apply_settings(app):
     except Exception as e:
         errors.append(f"socket listener reconciliation failed: {e}")
 
+    # 4. Refresh config values that blueprints read from app.config
+    app.config['ABS_COLLECTION_NAME'] = os.environ.get('ABS_COLLECTION_NAME', 'Synced with KOReader')
+    app.config['SUGGESTIONS_ENABLED'] = os.environ.get('SUGGESTIONS_ENABLED', 'false').lower() == 'true'
+
     if errors:
         error_message = "; ".join(errors)
         logger.error(f"Failed to apply one or more settings: {error_message}")
@@ -283,6 +287,8 @@ def setup_dependencies(app, test_container=None):
     app.config['DATA_DIR'] = DATA_DIR
     app.config['EBOOK_DIR'] = EBOOK_DIR
     app.config['COVERS_DIR'] = COVERS_DIR
+    app.config['ABS_COLLECTION_NAME'] = os.environ.get('ABS_COLLECTION_NAME', 'Synced with KOReader')
+    app.config['SUGGESTIONS_ENABLED'] = os.environ.get('SUGGESTIONS_ENABLED', 'false').lower() == 'true'
 
     # Register KoSync Blueprint and initialize with dependencies
     init_kosync_server(database_service, container, manager, EBOOK_DIR)

@@ -211,19 +211,22 @@
                 fileName: book.fileName,
             })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (!r.ok) throw new Error('Upload failed');
+            return r.json();
+        })
         .then(function(data) {
             if (data.success) {
-                btn.innerHTML = 'Done';
+                btn.textContent = 'Done';
                 btn.classList.add('done');
             } else {
-                btn.innerHTML = escapeHtml(data.error || 'Error');
+                btn.textContent = data.error || 'Error';
                 btn.classList.add('error');
                 btn.disabled = false;
             }
         })
         .catch(function() {
-            btn.innerHTML = 'Error';
+            btn.textContent = 'Error';
             btn.classList.add('error');
             btn.disabled = false;
         });
@@ -248,7 +251,10 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ full_resync: !!fullResync })
         })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Sync failed');
+                return r.json();
+            })
             .then(function(data) {
                 btn.disabled = false;
                 resyncBtn.disabled = false;
@@ -360,7 +366,8 @@
         linkHighlight(bookfusionBookId, absId);
     }
 
-    function handleSaveJournalClick(btn, bookTitle) {
+    function handleSaveJournalClick(btn) {
+        const bookTitle = btn.dataset.bookTitle;
         const groupData = _currentHighlightGroups[bookTitle];
         if (!groupData) return;
         const comboboxEl = btn.previousElementSibling;
@@ -370,10 +377,10 @@
 
     function saveToJournal(btn, absId, highlights) {
         if (!absId) {
-            btn.innerHTML = 'Select a book first';
+            btn.textContent = 'Select a book first';
             btn.classList.add('error');
             setTimeout(function() {
-                btn.innerHTML = 'Save to Journal';
+                btn.textContent = 'Save to Journal';
                 btn.classList.remove('error');
             }, 2000);
             return;
@@ -393,19 +400,22 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ abs_id: absId, highlights: payload })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (!r.ok) throw new Error('Save failed');
+            return r.json();
+        })
         .then(function(data) {
             if (data.success) {
-                btn.innerHTML = '✔ Saved ' + data.saved;
+                btn.textContent = '\u2714 Saved ' + data.saved;
                 btn.classList.add('done');
             } else {
-                btn.innerHTML = escapeHtml(data.error || 'Error');
+                btn.textContent = data.error || 'Error';
                 btn.classList.add('error');
                 btn.disabled = false;
             }
         })
         .catch(function() {
-            btn.innerHTML = 'Error';
+            btn.textContent = 'Error';
             btn.classList.add('error');
             btn.disabled = false;
         });
@@ -419,7 +429,10 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ bookfusion_book_id: bookfusionBookId, abs_id: absId || null })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (!r.ok) throw new Error('Link failed');
+            return r.json();
+        })
         .then(function(data) {
             inputs.forEach(function(s) { s.disabled = false; });
             if (data.success) {
@@ -446,7 +459,10 @@
         list.innerHTML = '<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">⏳</div>Loading...</div>';
 
         fetch('/api/bookfusion/library')
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Failed to load library');
+                return r.json();
+            })
             .then(function(data) {
                 _libraryData = data.books || [];
                 _dashboardBooks = data.dashboard_books || [];
@@ -571,19 +587,22 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ abs_id: book.abs_id })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (!r.ok) throw new Error('Unlink failed');
+            return r.json();
+        })
         .then(function(data) {
             if (data.success) {
                 book.on_dashboard = false;
                 book.abs_id = null;
                 renderLibrary(_currentRenderedBooks);
             } else {
-                btn.innerHTML = 'Unlink';
+                btn.textContent = 'Unlink';
                 btn.disabled = false;
             }
         })
         .catch(function() {
-            btn.innerHTML = 'Unlink';
+            btn.textContent = 'Unlink';
             btn.disabled = false;
         });
     }
@@ -594,6 +613,13 @@
         const input = comboboxEl.querySelector('.bf-combobox-input');
         if (input.dataset.selectedValue) {
             matchToBook(btn, input, book, index);
+        } else {
+            btn.classList.add('error');
+            btn.textContent = 'Select a book first';
+            setTimeout(function() {
+                btn.classList.remove('error');
+                btn.textContent = 'Link';
+            }, 2000);
         }
     }
 
@@ -624,7 +650,10 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ bookfusion_ids: book.bookfusion_ids || [book.bookfusion_id], abs_id: absId })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (!r.ok) throw new Error('Match failed');
+            return r.json();
+        })
         .then(function(data) {
             if (data.success) {
                 book.on_dashboard = true;
@@ -637,13 +666,13 @@
                     if (actionsEl) _showDateNote(actionsEl, data);
                 }, 50);
             } else {
-                btn.innerHTML = 'Link';
+                btn.textContent = 'Link';
                 btn.disabled = false;
                 input.disabled = false;
             }
         })
         .catch(function() {
-            btn.innerHTML = 'Link';
+            btn.textContent = 'Link';
             btn.disabled = false;
             input.disabled = false;
         });
@@ -658,7 +687,10 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ bookfusion_ids: book.bookfusion_ids || [book.bookfusion_id] })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (!r.ok) throw new Error('Add failed');
+            return r.json();
+        })
         .then(function(data) {
             if (data.success) {
                 book.on_dashboard = true;
@@ -670,13 +702,13 @@
                     if (actionsEl) _showDateNote(actionsEl, data);
                 }, 50);
             } else {
-                btn.innerHTML = escapeHtml(data.error || 'Error');
+                btn.textContent = data.error || 'Error';
                 btn.classList.add('error');
                 btn.disabled = false;
             }
         })
         .catch(function() {
-            btn.innerHTML = 'Error';
+            btn.textContent = 'Error';
             btn.classList.add('error');
             btn.disabled = false;
         });
