@@ -36,8 +36,8 @@ def test_clear_progress_optimization():
         sync_manager.clear_progress("test_book")
 
         print(f"DEBUG: Book status: {book.status}")
-        assert book.status == "active", "Book should remain active if alignment exists"
-        db_service.save_book.assert_not_called() # It was already active
+        assert book.status == "not_started", "Book should be not_started after clearing progress with alignment"
+        db_service.save_book.assert_called()
 
     # CASE B: Smart Reset Enabled, Alignment MISSING
     print("\n[CASE B] Smart Reset enabled, Alignment MISSING")
@@ -61,9 +61,8 @@ def test_clear_progress_optimization():
         sync_manager.clear_progress("test_book")
 
         print(f"DEBUG: Book status: {book.status}")
-        assert book.status == "active", "Book should remain active if smart reset is disabled"
-        # In my implementation, I explicitly set it to active and saved it if it was something else,
-        # but here it's already active.
+        assert book.status == "not_started", "Book should be not_started after clearing progress with smart reset disabled"
+        db_service.save_book.assert_called()
 
     print("\n[PASS] All clear_progress optimization tests passed!")
 

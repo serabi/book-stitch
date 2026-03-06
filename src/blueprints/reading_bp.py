@@ -90,6 +90,8 @@ def _is_genuinely_reading(book_data):
     We only count it as "currently reading" if it has meaningful progress (>1%).
     We don't trust started_at alone because ABS/Hardcover auto-set it on first sync.
     """
+    if book_data['status'] == 'not_started':
+        return False
     if book_data['status'] != 'active':
         return True  # paused/completed/dnf are explicit user actions
     return book_data['unified_progress'] > 1.0
@@ -104,7 +106,7 @@ def reading_index():
     books = database_service.get_all_books()
 
     # Only include books with reading-relevant statuses
-    reading_statuses = {'active', 'completed', 'paused', 'dnf'}
+    reading_statuses = {'active', 'completed', 'paused', 'dnf', 'not_started'}
     books = [b for b in books if b.status in reading_statuses]
 
     # Fetch all states at once to avoid N+1
@@ -125,7 +127,7 @@ def reading_index():
         for b in books
     ]
 
-    # Organize into sections
+    # Classify books and assign display_status
     currently_reading = []
     finished = []
     paused = []
@@ -134,19 +136,47 @@ def reading_index():
 
     for bd in all_book_data:
         if bd['status'] == 'completed':
+            bd['display_status'] = 'finished'
             finished.append(bd)
         elif bd['status'] == 'paused':
+            bd['display_status'] = 'paused'
             paused.append(bd)
         elif bd['status'] == 'dnf':
+            bd['display_status'] = 'dnf'
             dnf.append(bd)
+        elif bd['status'] == 'not_started':
+            bd['display_status'] = 'not_started'
+            not_started.append(bd)
         elif _is_genuinely_reading(bd):
+            bd['display_status'] = 'reading'
             currently_reading.append(bd)
         else:
+            bd['display_status'] = 'not_started'
             not_started.append(bd)
 
-    # Sort sections
+    # Sort each section for default ordering
     currently_reading.sort(key=lambda b: b['unified_progress'], reverse=True)
     finished.sort(key=lambda b: b['finished_at'] or '', reverse=True)
+    paused.sort(key=lambda b: (b['abs_title'] or '').lower())
+    dnf.sort(key=lambda b: (b['abs_title'] or '').lower())
+    not_started.sort(key=lambda b: (b['abs_title'] or '').lower())
+
+    # Build flat list in default display order
+    all_books = currently_reading + finished + paused + dnf + not_started
+
+    section_counts = {
+        'reading': len(currently_reading),
+        'finished': len(finished),
+        'paused': len(paused),
+        'dnf': len(dnf),
+        'not_started': len(not_started),
+    }
+
+    # Collect unique years from finished books for year dividers
+    finished_years = sorted(
+        {bd['finished_at'][:4] for bd in finished if bd.get('finished_at')},
+        reverse=True,
+    )
 
     current_year = date.today().year
     stats = database_service.get_reading_stats(current_year)
@@ -154,11 +184,9 @@ def reading_index():
 
     return render_template(
         'reading.html',
-        currently_reading=currently_reading,
-        finished=finished,
-        paused=paused,
-        dnf=dnf,
-        not_started=not_started,
+        all_books=all_books,
+        section_counts=section_counts,
+        finished_years=finished_years,
         stats=stats,
         goal=goal,
         current_year=current_year,
@@ -174,8 +202,8 @@ def reading_detail(abs_id):
 
     book = database_service.get_book(abs_id)
     if not book:
-        return render_template('reading.html', currently_reading=[], finished=[],
-                               paused=[], dnf=[], not_started=[], stats={}, goal=None,
+        return render_template('reading.html', all_books=[], section_counts={},
+                               finished_years=[], stats={}, goal=None,
                                current_year=date.today().year, total_books=0), 404
 
     all_states = database_service.get_all_states()

@@ -73,7 +73,7 @@
             </div>
             {% elif mapping.status == 'failed_retry_later' %}
             <div class="retry-status-text">Retry scheduled{% if mapping.retry_count|default(0) > 0 %} (attempt {{ mapping.retry_count }}){% endif %}</div>
-            {% elif mapping.status in ['active', 'paused', 'dnf'] %}
+            {% elif mapping.status in ['active', 'paused', 'dnf', 'not_started'] %}
             <div class="book-progress {% if mapping.status == 'paused' %}progress-paused{% elif mapping.status == 'dnf' %}progress-dnf{% endif %}">
                 <div class="progress-bar">
                     <div class="progress-bar-fill" style="width: {{ mapping.unified_progress }}%"></div>
@@ -286,6 +286,10 @@
                         <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
                         {% elif mapping.status == 'dnf' %}
                         <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume Reading</button>
+                        {% elif mapping.status == 'not_started' %}
+                        <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Start Reading</button>
+                        <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
+                        <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
                         {% elif mapping.status == 'failed_retry_later' %}
                         <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
                         {% elif mapping.status == 'completed' %}
@@ -505,7 +509,7 @@
 
         <div class="book-grid" id="currently-reading-grid">
             {% for mapping in mappings %}
-            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['completed', 'paused', 'dnf', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
+            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['completed', 'paused', 'dnf', 'not_started', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
                 integrations) }} {% endif %} {% endfor %} </div>
         </div>
 
@@ -607,7 +611,7 @@
                     const status = card.dataset.status || '';
                     const progress = parseFloat(card.dataset.progress) || 0;
                     if (filterValue === 'currently_reading') {
-                        if (!(progress > 0 && progress < 100 && status !== 'completed' && status !== 'paused' && status !== 'dnf')) {
+                        if (!(progress > 0 && progress < 100 && status !== 'completed' && status !== 'paused' && status !== 'dnf' && status !== 'not_started')) {
                             isVisible = false;
                         }
                     } else if (filterValue === 'finished') {

@@ -535,7 +535,7 @@ def kosync_put_progress():
 
     if linked_book:
         # Flag activity on paused/DNF books
-        if linked_book.status in ('paused', 'dnf') and not linked_book.activity_flag:
+        if linked_book.status in ('paused', 'dnf', 'not_started') and not linked_book.activity_flag:
             linked_book.activity_flag = True
             _database_service.save_book(linked_book)
             logger.info(f"KOSync PUT: Activity detected on {linked_book.status} book '{linked_book.abs_title}'")

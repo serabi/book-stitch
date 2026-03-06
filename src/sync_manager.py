@@ -1701,6 +1701,12 @@ class SyncManager:
 
             # Clear started_at so the book appears as "not started"
             self.database_service.update_book_reading_fields(abs_id, started_at=None)
+
+            # Set not_started immediately so the sync daemon won't pick this book up
+            if book.status not in ('pending', 'processing'):
+                book.status = 'not_started'
+                self.database_service.save_book(book)
+
             logger.info("Phase 1 complete: local states cleared, 0% states saved")
 
             # ── Phase 2: Reset external clients (needs sync lock) ──
@@ -1754,7 +1760,7 @@ class SyncManager:
                     'total_clients': len(reset_results)
                 }
 
-                # Handle book status update based on alignment presence
+                # Handle alignment-based re-processing (status already set to not_started in Phase 1)
                 smart_reset = os.getenv('REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT', 'true').lower() == 'true'
 
                 if smart_reset:
@@ -1763,18 +1769,12 @@ class SyncManager:
                         has_alignment = bool(self.alignment_service._get_alignment(abs_id))
 
                     if has_alignment:
-                        if book.status != 'active':
-                            book.status = 'active'
-                            self.database_service.save_book(book)
                         logger.info("   Alignment map exists — Reset progress to 0% without triggering re-transcription")
                     else:
                         book.status = 'pending'
                         self.database_service.save_book(book)
                         logger.info("   Book marked as 'pending' to trigger alignment check")
                 else:
-                    if book.status != 'active':
-                        book.status = 'active'
-                        self.database_service.save_book(book)
                     logger.info("   Reset progress to 0% (Smart re-process disabled)")
 
                 logger.info(f"Progress clearing completed for '{sanitize_log_data(book.abs_title)}'")

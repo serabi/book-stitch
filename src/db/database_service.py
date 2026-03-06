@@ -872,7 +872,7 @@ class DatabaseService:
             ).count()
             currently_reading = session.query(Book).filter(Book.status == 'active').count()
             total_tracked = session.query(Book).filter(
-                Book.status.in_(['active', 'completed', 'paused', 'dnf'])
+                Book.status.in_(['active', 'completed', 'paused', 'dnf', 'not_started'])
             ).count()
             goal = session.query(ReadingGoal).filter(ReadingGoal.year == year).first()
 

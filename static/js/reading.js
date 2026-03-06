@@ -1,24 +1,233 @@
 /* PageKeeper — Reading Tab */
 
 function initReadingPage(currentYear) {
+  const grid = document.getElementById('book-grid');
+  if (!grid) return;
+
+  const cards = () => Array.from(grid.querySelectorAll('.r-book-card'));
   const searchInput = document.getElementById('reading-search');
+  const sortSelect = document.getElementById('reading-sort');
+  const tabs = document.querySelectorAll('.r-tab');
+  const viewBtns = document.querySelectorAll('.r-view-btn');
+  const resultsInfo = document.getElementById('results-info');
+  const resultsText = document.getElementById('results-text');
+  const emptyTab = document.getElementById('empty-tab');
+
+  let activeFilter = 'all';
+  let originalOrder = cards().map(c => c.dataset.title + c.dataset.status);
+
+  // ── Tab switching ──────────────────────────────────────────
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      activeFilter = tab.dataset.filter;
+      applyFilters();
+    });
+  });
+
+  // ── Search ─────────────────────────────────────────────────
 
   if (searchInput) {
-    searchInput.addEventListener('input', () => {
-      const term = searchInput.value.toLowerCase();
-      document.querySelectorAll('.r-book-card').forEach(card => {
-        const title = (card.dataset.title || '').toLowerCase();
-        card.style.display = title.includes(term) ? '' : 'none';
+    searchInput.addEventListener('input', () => applyFilters());
+  }
+
+  // ── Sort ───────────────────────────────────────────────────
+
+  if (sortSelect) {
+    sortSelect.addEventListener('change', () => applySort());
+  }
+
+  // ── View toggle ────────────────────────────────────────────
+
+  viewBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      viewBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const view = btn.dataset.view;
+      grid.classList.toggle('r-list-view', view === 'list');
+      try { localStorage.setItem('pk-reading-view', view); } catch (e) {}
+    });
+  });
+
+  // Restore saved view preference
+  try {
+    const savedView = localStorage.getItem('pk-reading-view');
+    if (savedView === 'list') {
+      grid.classList.add('r-list-view');
+      viewBtns.forEach(b => {
+        b.classList.toggle('active', b.dataset.view === 'list');
       });
-      // Hide empty sections
-      document.querySelectorAll('.r-section').forEach(section => {
-        const visible = section.querySelectorAll('.r-book-card:not([style*="display: none"])');
-        section.style.display = visible.length ? '' : 'none';
+    }
+  } catch (e) {}
+
+  // ── Core filter/display logic ──────────────────────────────
+
+  function applyFilters() {
+    const term = (searchInput ? searchInput.value : '').toLowerCase();
+    let visibleCount = 0;
+    let totalForTab = 0;
+
+    // Remove existing dividers
+    grid.querySelectorAll('.r-grid-divider').forEach(d => d.remove());
+
+    cards().forEach(card => {
+      const status = card.dataset.status;
+      const title = (card.dataset.title || '').toLowerCase();
+      const matchesTab = activeFilter === 'all' || status === activeFilter;
+      const matchesSearch = !term || title.includes(term);
+      const visible = matchesTab && matchesSearch;
+      card.style.display = visible ? '' : 'none';
+      if (matchesTab) totalForTab++;
+      if (visible) visibleCount++;
+    });
+
+    // Show/hide empty state
+    if (emptyTab) {
+      emptyTab.style.display = visibleCount === 0 ? '' : 'none';
+    }
+    grid.style.display = visibleCount === 0 ? 'none' : '';
+
+    // Show results info when searching
+    if (resultsInfo && resultsText) {
+      if (term) {
+        resultsInfo.style.display = '';
+        resultsText.textContent = `Showing ${visibleCount} of ${totalForTab} books`;
+      } else {
+        resultsInfo.style.display = 'none';
+      }
+    }
+
+    // Insert dividers
+    const sortValue = sortSelect ? sortSelect.value : 'default';
+    if (activeFilter === 'all' && sortValue === 'default') {
+      insertStatusDividers();
+    } else if (activeFilter === 'finished') {
+      insertYearDividers();
+    }
+  }
+
+  // ── Sort logic ─────────────────────────────────────────────
+
+  function applySort() {
+    const sortValue = sortSelect ? sortSelect.value : 'default';
+    const allCards = cards();
+
+    if (sortValue === 'default') {
+      // Restore original order by re-sorting to match originalOrder
+      allCards.sort((a, b) => {
+        const keyA = a.dataset.title + a.dataset.status;
+        const keyB = b.dataset.title + b.dataset.status;
+        return originalOrder.indexOf(keyA) - originalOrder.indexOf(keyB);
       });
+    } else {
+      allCards.sort((a, b) => {
+        switch (sortValue) {
+          case 'title-asc':
+            return (a.dataset.title || '').localeCompare(b.dataset.title || '');
+          case 'title-desc':
+            return (b.dataset.title || '').localeCompare(a.dataset.title || '');
+          case 'rating':
+            return (parseFloat(b.dataset.rating) || 0) - (parseFloat(a.dataset.rating) || 0);
+          case 'finished-desc':
+            return (b.dataset.finished || '').localeCompare(a.dataset.finished || '');
+          case 'started-desc':
+            return (b.dataset.started || '').localeCompare(a.dataset.started || '');
+          case 'progress-desc':
+            return (parseFloat(b.dataset.progress) || 0) - (parseFloat(a.dataset.progress) || 0);
+          default:
+            return 0;
+        }
+      });
+    }
+
+    // Re-append in sorted order (moves DOM nodes)
+    allCards.forEach(card => grid.appendChild(card));
+
+    // Re-apply filters to update visibility and year dividers
+    applyFilters();
+  }
+
+  // ── Divider helpers ─────────────────────────────────────────
+
+  const statusLabels = {
+    reading: 'Currently Reading',
+    finished: 'Finished',
+    paused: 'Paused',
+    dnf: 'Did Not Finish',
+    not_started: 'Not Started',
+  };
+
+  function makeDivider(text, count) {
+    const div = document.createElement('div');
+    div.className = 'r-grid-divider';
+    const label = document.createElement('span');
+    label.textContent = text;
+    div.appendChild(label);
+    if (count != null) {
+      const badge = document.createElement('span');
+      badge.className = 'r-divider-count';
+      badge.textContent = count;
+      div.appendChild(badge);
+    }
+    return div;
+  }
+
+  function insertStatusDividers() {
+    const visibleCards = cards().filter(c => c.style.display !== 'none');
+    let lastStatus = null;
+
+    visibleCards.forEach(card => {
+      const status = card.dataset.status;
+      if (status !== lastStatus) {
+        lastStatus = status;
+        const group = visibleCards.filter(c => c.dataset.status === status);
+        grid.insertBefore(
+          makeDivider(statusLabels[status] || status, group.length),
+          card
+        );
+      }
+    });
+
+    // Also insert year sub-dividers within the finished group
+    let lastYear = null;
+    visibleCards.filter(c => c.dataset.status === 'finished').forEach(card => {
+      const finished = card.dataset.finished;
+      if (!finished) return;
+      const year = finished.substring(0, 4);
+      if (year !== lastYear) {
+        lastYear = year;
+        const div = makeDivider(year);
+        div.classList.add('r-grid-divider-sub');
+        grid.insertBefore(div, card);
+      }
     });
   }
 
-  // Goal modal
+  function insertYearDividers() {
+    const visibleCards = cards().filter(c => c.style.display !== 'none');
+    let lastYear = null;
+
+    visibleCards.forEach(card => {
+      const finished = card.dataset.finished;
+      if (!finished) return;
+      const year = finished.substring(0, 4);
+      if (year !== lastYear) {
+        lastYear = year;
+        const count = visibleCards.filter(c =>
+          c.style.display !== 'none' && (c.dataset.finished || '').startsWith(year)
+        ).length;
+        grid.insertBefore(makeDivider(year, count), card);
+      }
+    });
+  }
+
+  // Run on initial load so All tab gets its dividers
+  applyFilters();
+
+  // ── Goal modal ─────────────────────────────────────────────
+
   const goalCard = document.getElementById('goal-card');
   const goalModal = document.getElementById('goal-modal');
   const goalClose = document.getElementById('goal-modal-close');

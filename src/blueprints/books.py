@@ -636,7 +636,7 @@ def pause_book(abs_id):
     book = database_service.get_book(abs_id)
     if not book:
         return jsonify({"success": False, "error": "Book not found"}), 404
-    if book.status != 'active':
+    if book.status not in ('active', 'not_started'):
         return jsonify({"success": False, "error": f"Cannot pause a book with status '{book.status}'"}), 400
 
     book.status = 'paused'
@@ -668,7 +668,7 @@ def dnf_book(abs_id):
     book = database_service.get_book(abs_id)
     if not book:
         return jsonify({"success": False, "error": "Book not found"}), 404
-    if book.status not in ('active', 'paused'):
+    if book.status not in ('active', 'paused', 'not_started'):
         return jsonify({"success": False, "error": f"Cannot mark DNF a book with status '{book.status}'"}), 400
 
     book.status = 'dnf'
@@ -700,7 +700,7 @@ def resume_book(abs_id):
     book = database_service.get_book(abs_id)
     if not book:
         return jsonify({"success": False, "error": "Book not found"}), 404
-    if book.status not in ('paused', 'dnf'):
+    if book.status not in ('paused', 'dnf', 'not_started'):
         return jsonify({"success": False, "error": f"Cannot resume a book with status '{book.status}'"}), 400
 
     was_inactive = book.status in ('dnf', 'paused')

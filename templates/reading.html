@@ -93,149 +93,105 @@
 
         {% else %}
 
-        {# ── Search ── #}
-        <div class="r-search-bar">
-            <input type="text" id="reading-search" placeholder="Search by title..." class="search-box">
+        {# ══════════════════════════════════════════════
+           TOOLBAR: Tabs + Search + Sort + View Toggle
+           ══════════════════════════════════════════════ #}
+        <div class="r-toolbar" id="reading-toolbar">
+            <div class="r-toolbar-row">
+                <div class="r-tab-bar">
+                    <button class="r-tab active" data-filter="all">All <span class="r-tab-count">{{ total_books }}</span></button>
+                    <button class="r-tab" data-filter="reading">Reading <span class="r-tab-count">{{ section_counts.reading|default(0) }}</span></button>
+                    <button class="r-tab" data-filter="finished">Finished <span class="r-tab-count">{{ section_counts.finished|default(0) }}</span></button>
+                    <button class="r-tab" data-filter="paused">Paused <span class="r-tab-count">{{ section_counts.paused|default(0) }}</span></button>
+                    <button class="r-tab" data-filter="dnf">DNF <span class="r-tab-count">{{ section_counts.dnf|default(0) }}</span></button>
+                    <button class="r-tab" data-filter="not_started">Not Started <span class="r-tab-count">{{ section_counts.not_started|default(0) }}</span></button>
+                </div>
+            </div>
+            <div class="r-toolbar-row r-toolbar-controls">
+                <input type="text" id="reading-search" placeholder="Search by title..." class="search-box">
+                <select id="reading-sort" class="r-sort-select">
+                    <option value="default">Default</option>
+                    <option value="title-asc">Title A-Z</option>
+                    <option value="title-desc">Title Z-A</option>
+                    <option value="rating">Rating</option>
+                    <option value="finished-desc">Date Finished</option>
+                    <option value="started-desc">Date Started</option>
+                    <option value="progress-desc">Progress</option>
+                </select>
+                <div class="r-view-toggle">
+                    <button class="r-view-btn active" data-view="grid" title="Grid view">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+                    </button>
+                    <button class="r-view-btn" data-view="list" title="List view">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+                    </button>
+                </div>
+            </div>
         </div>
 
         {# ══════════════════════════════════════════════
-           SECTION: Currently Reading
+           RESULTS INFO
            ══════════════════════════════════════════════ #}
-        {% if currently_reading %}
-        <section class="r-section" id="section-reading">
-            <div class="r-section-header">
-                <h3>Currently Reading</h3>
-                <span class="r-section-count">{{ currently_reading|length }}</span>
-            </div>
-            <div class="r-shelf">
-                {% for book in currently_reading %}
-                <a href="/reading/book/{{ book.abs_id }}" class="r-book-card" data-title="{{ book.abs_title }}" data-status="{{ book.status }}">
-                    <div class="r-card-cover">
-                        {{ book_cover(book) }}
-                        <div class="r-card-progress-ring">
-                            <svg viewBox="0 0 36 36">
-                                <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
-                                <circle cx="18" cy="18" r="16" fill="none" stroke="var(--color-success)" stroke-width="2.5"
-                                    stroke-dasharray="{{ (book.unified_progress * 1.005)|round(1) }} 100.5"
-                                    stroke-linecap="round" transform="rotate(-90 18 18)"/>
-                            </svg>
-                            <span class="r-ring-pct">{{ book.unified_progress|round(0)|int }}%</span>
-                        </div>
+        <div class="r-results-info" id="results-info" style="display: none;">
+            <span id="results-text"></span>
+        </div>
+
+        {# ══════════════════════════════════════════════
+           BOOK GRID / LIST
+           ══════════════════════════════════════════════ #}
+        <div class="r-grid" id="book-grid">
+            {% for book in all_books %}
+            <a href="/reading/book/{{ book.abs_id }}" class="r-book-card{% if book.display_status == 'paused' %} r-card-paused{% elif book.display_status == 'dnf' %} r-card-dnf{% elif book.display_status == 'not_started' %} r-card-unstarted{% endif %}"
+               data-title="{{ book.abs_title }}"
+               data-status="{{ book.display_status }}"
+               data-progress="{{ book.unified_progress }}"
+               data-rating="{{ book.rating or 0 }}"
+               data-started="{{ book.started_at or '' }}"
+               data-finished="{{ book.finished_at or '' }}">
+                <div class="r-card-cover">
+                    {{ book_cover(book) }}
+                    {% if book.display_status == 'reading' and book.unified_progress > 0 %}
+                    <div class="r-card-progress-ring">
+                        <svg viewBox="0 0 36 36">
+                            <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+                            <circle cx="18" cy="18" r="16" fill="none" stroke="var(--color-success)" stroke-width="2.5"
+                                stroke-dasharray="{{ (book.unified_progress * 1.005)|round(1) }} 100.5"
+                                stroke-linecap="round" transform="rotate(-90 18 18)"/>
+                        </svg>
+                        <span class="r-ring-pct">{{ book.unified_progress|round(0)|int }}%</span>
                     </div>
-                    <div class="r-card-info">
-                        <span class="r-card-title">{{ book.abs_title }}</span>
+                    {% elif book.display_status == 'paused' and book.unified_progress > 0 %}
+                    <div class="r-card-pct-badge">{{ book.unified_progress|round(0)|int }}%</div>
+                    {% endif %}
+                </div>
+                <div class="r-card-info">
+                    <span class="r-card-title">{{ book.abs_title }}</span>
+                    <div class="r-card-meta-row">
                         {{ star_rating(book.rating) }}
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
-
-        {# ══════════════════════════════════════════════
-           SECTION: Finished
-           ══════════════════════════════════════════════ #}
-        {% if finished %}
-        <section class="r-section" id="section-finished">
-            <div class="r-section-header">
-                <h3>Finished</h3>
-                <span class="r-section-count">{{ finished|length }}</span>
-            </div>
-            <div class="r-shelf">
-                {% for book in finished %}
-                <a href="/reading/book/{{ book.abs_id }}" class="r-book-card r-card-finished" data-title="{{ book.abs_title }}" data-status="{{ book.status }}">
-                    <div class="r-card-cover">
-                        {{ book_cover(book) }}
-                    </div>
-                    <div class="r-card-info">
-                        <span class="r-card-title">{{ book.abs_title }}</span>
-                        <div class="r-card-meta-row">
-                            {{ star_rating(book.rating) }}
-                            {% if book.finished_at %}
-                            <span class="r-card-date">{{ book.finished_at }}</span>
-                            {% endif %}
-                        </div>
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
-
-        {# ══════════════════════════════════════════════
-           SECTION: Paused
-           ══════════════════════════════════════════════ #}
-        {% if paused %}
-        <section class="r-section" id="section-paused">
-            <div class="r-section-header">
-                <h3>Paused</h3>
-                <span class="r-section-count">{{ paused|length }}</span>
-            </div>
-            <div class="r-shelf">
-                {% for book in paused %}
-                <a href="/reading/book/{{ book.abs_id }}" class="r-book-card r-card-paused" data-title="{{ book.abs_title }}" data-status="{{ book.status }}">
-                    <div class="r-card-cover">
-                        {{ book_cover(book) }}
-                        {% if book.unified_progress > 0 %}
-                        <div class="r-card-pct-badge">{{ book.unified_progress|round(0)|int }}%</div>
+                        {% if book.finished_at and book.display_status == 'finished' %}
+                        <span class="r-card-date">{{ book.finished_at }}</span>
                         {% endif %}
                     </div>
-                    <div class="r-card-info">
-                        <span class="r-card-title">{{ book.abs_title }}</span>
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
+                </div>
+                {# List-view metadata (hidden in grid mode) #}
+                <div class="r-list-meta">
+                    {% if book.unified_progress > 0 and book.display_status != 'finished' %}
+                    <span class="r-list-progress">{{ book.unified_progress|round(0)|int }}%</span>
+                    {% endif %}
+                    {{ star_rating(book.rating) }}
+                    {% if book.finished_at %}
+                    <span class="r-list-date">{{ book.finished_at }}</span>
+                    {% endif %}
+                    <span class="status-badge status-{{ book.display_status }}">{{ book.display_status|replace('_', ' ')|title }}</span>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
 
-        {# ══════════════════════════════════════════════
-           SECTION: Did Not Finish
-           ══════════════════════════════════════════════ #}
-        {% if dnf %}
-        <section class="r-section" id="section-dnf">
-            <div class="r-section-header">
-                <h3>Did Not Finish</h3>
-                <span class="r-section-count">{{ dnf|length }}</span>
-            </div>
-            <div class="r-shelf">
-                {% for book in dnf %}
-                <a href="/reading/book/{{ book.abs_id }}" class="r-book-card r-card-dnf" data-title="{{ book.abs_title }}" data-status="{{ book.status }}">
-                    <div class="r-card-cover">
-                        {{ book_cover(book) }}
-                    </div>
-                    <div class="r-card-info">
-                        <span class="r-card-title">{{ book.abs_title }}</span>
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
-
-        {# ══════════════════════════════════════════════
-           SECTION: Not Started (synced but not reading)
-           ══════════════════════════════════════════════ #}
-        {% if not_started %}
-        <section class="r-section r-section-muted" id="section-not-started">
-            <div class="r-section-header">
-                <h3>Not Started</h3>
-                <span class="r-section-count">{{ not_started|length }}</span>
-            </div>
-            <div class="r-shelf">
-                {% for book in not_started %}
-                <a href="/reading/book/{{ book.abs_id }}" class="r-book-card r-card-unstarted" data-title="{{ book.abs_title }}" data-status="{{ book.status }}">
-                    <div class="r-card-cover">
-                        {{ book_cover(book) }}
-                    </div>
-                    <div class="r-card-info">
-                        <span class="r-card-title">{{ book.abs_title }}</span>
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
+        {# ── Empty tab message (shown by JS when a filtered tab has 0 results) ── #}
+        <div class="r-empty-tab" id="empty-tab" style="display: none;">
+            <p>No books in this category</p>
+        </div>
 
         {% endif %} {# end total_books > 0 #}
     </div>
@@ -258,7 +214,7 @@
         </div>
     </div>
 
-    <script src="/static/js/reading.js"></script>
+    <script src="/static/js/reading.js?v=2"></script>
     <script>
         initReadingPage({{ current_year }});
     </script>

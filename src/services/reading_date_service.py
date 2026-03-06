@@ -187,7 +187,7 @@ def sync_reading_dates(database_service, container):
     stats = {'updated': 0, 'completed': 0, 'errors': 0}
 
     for book in books:
-        if book.status in ('pending', 'processing', 'failed_retry_later', 'failed_permanent'):
+        if book.status in ('pending', 'processing', 'failed_retry_later', 'failed_permanent', 'not_started'):
             continue
 
         needs_started = not book.started_at and book.status in ('active', 'paused', 'completed', 'dnf')
