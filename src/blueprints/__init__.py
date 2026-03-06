@@ -10,11 +10,13 @@ def register_blueprints(app):
     from src.blueprints.covers import covers_bp
     from src.blueprints.dashboard import dashboard_bp
     from src.blueprints.logs import logs_bp
+    from src.blueprints.matching_bp import matching_bp
     from src.blueprints.reading_bp import reading_bp
     from src.blueprints.settings_bp import settings_bp
 
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(books_bp)
+    app.register_blueprint(matching_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(covers_bp)
     app.register_blueprint(api_bp)

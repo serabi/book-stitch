@@ -132,9 +132,9 @@ class TestSuggestionsFeature(unittest.TestCase):
     def test_auto_dismiss_on_match(self):
         """Test that /match endpoint calls dismiss_suggestion."""
         # Mock dependencies for match
-        import src.blueprints.books
-        original_get_kosync = src.blueprints.books.get_kosync_id_for_ebook
-        src.blueprints.books.get_kosync_id_for_ebook = Mock(return_value='test-kosync-id')
+        import src.blueprints.matching_bp
+        original_get_kosync = src.blueprints.matching_bp.get_kosync_id_for_ebook
+        src.blueprints.matching_bp.get_kosync_id_for_ebook = Mock(return_value='test-kosync-id')
 
         try:
             self.mock_container.mock_abs_client.get_all_audiobooks.return_value = [
@@ -154,7 +154,7 @@ class TestSuggestionsFeature(unittest.TestCase):
             self.mock_container.mock_database_service.dismiss_suggestion.assert_any_call('test-kosync-id')
 
         finally:
-            src.blueprints.books.get_kosync_id_for_ebook = original_get_kosync
+            src.blueprints.matching_bp.get_kosync_id_for_ebook = original_get_kosync
 
 if __name__ == '__main__':
     unittest.main()
