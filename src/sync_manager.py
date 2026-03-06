@@ -1627,10 +1627,28 @@ class SyncManager:
             for pending_id in pending:
                 try:
                     self._reset_external_clients(pending_id)
+                    self._finalize_clear_status(pending_id)
                     with self._pending_clears_lock:
                         self._pending_clears.discard(pending_id)
                 except Exception as e:
                     logger.warning(f"Deferred clear failed for '{pending_id}': {e}")
+
+    def _finalize_clear_status(self, abs_id):
+        """Handle smart-reset status finalization after clearing progress."""
+        smart_reset = os.getenv('REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT', 'true').lower() == 'true'
+        if not smart_reset:
+            logger.info("   Reset progress to 0% (Smart re-process disabled)")
+            return
+
+        has_alignment = bool(self.alignment_service and self.alignment_service._get_alignment(abs_id))
+        if has_alignment:
+            logger.info(f"   Alignment map exists for '{sanitize_log_data(abs_id)}' — no re-transcription needed")
+        else:
+            book = self.database_service.get_book(abs_id)
+            if book:
+                book.status = 'pending'
+                self.database_service.save_book(book)
+                logger.info(f"   Book '{sanitize_log_data(abs_id)}' marked 'pending' for alignment check")
 
     def _reset_external_clients(self, abs_id):
         """Push 0% progress to all external sync clients for a book."""
@@ -1773,21 +1791,7 @@ class SyncManager:
                 }
 
                 # Handle alignment-based re-processing (status already set to not_started in Phase 1)
-                smart_reset = os.getenv('REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT', 'true').lower() == 'true'
-
-                if smart_reset:
-                    has_alignment = False
-                    if self.alignment_service:
-                        has_alignment = bool(self.alignment_service._get_alignment(abs_id))
-
-                    if has_alignment:
-                        logger.info("   Alignment map exists — Reset progress to 0% without triggering re-transcription")
-                    else:
-                        book.status = 'pending'
-                        self.database_service.save_book(book)
-                        logger.info("   Book marked as 'pending' to trigger alignment check")
-                else:
-                    logger.info("   Reset progress to 0% (Smart re-process disabled)")
+                self._finalize_clear_status(abs_id)
 
                 logger.info(f"Progress clearing completed for '{sanitize_log_data(book.abs_title)}'")
                 logger.info(f"   Database states cleared: {cleared_count}")
