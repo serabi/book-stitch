@@ -311,6 +311,30 @@
             </div>
         </div>
         <script src="/static/js/hardcover-modal.js" defer></script>
+        <!-- Booklore Link Modal -->
+        <div id="bl-modal" class="hc-modal" style="display:none;">
+            <div class="hc-modal-backdrop" onclick="closeBookloreModal()"></div>
+            <div class="hc-modal-content">
+                <div class="hc-modal-header">
+                    <h3 id="bl-modal-title">Link to Booklore</h3>
+                    <button class="hc-modal-close" onclick="closeBookloreModal()" aria-label="Close">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round">
+                            <path d="M1 1l12 12M13 1L1 13" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="hc-modal-body">
+                    <div class="st-search-bar">
+                        <input type="text" id="bl-search-input" placeholder="Search Booklore..." class="hc-input"
+                            style="flex:1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white;">
+                        <button onclick="searchBooklore()" class="btn btn-primary">Search</button>
+                    </div>
+                    <div id="bl-results" class="st-results"></div>
+                </div>
+            </div>
+        </div>
+        <script src="/static/js/booklore-link-modal.js" defer></script>
         <!-- Storyteller Link Modal -->
         <div id="st-modal" class="hidden">
             <div class="st-modal-content">

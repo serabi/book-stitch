@@ -254,6 +254,7 @@ def index():
 
         # Booklore deep links (check all instances)
         mapping['booklore_id'] = None
+        mapping['booklore_source_tag'] = None
         mapping['booklore_url'] = None
         mapping['booklore_2_url'] = None
         if book.ebook_filename:
@@ -268,6 +269,7 @@ def index():
                         url = f"{bl_client.base_url}/book/{bl_book.get('id')}?tab=view"
                         if bl_client.source_tag == 'booklore':
                             mapping['booklore_id'] = bl_book.get('id')
+                            mapping['booklore_source_tag'] = bl_client.source_tag
                             mapping['booklore_url'] = url
                         else:
                             mapping['booklore_2_url'] = url
@@ -304,6 +306,10 @@ def index():
             mapping['cover_url'] = abs_service.get_cover_proxy_url(book.abs_id)
         else:
             mapping['cover_url'] = None
+
+        # Booklore cover fallback for books without an ABS cover
+        if not mapping['cover_url'] and mapping.get('booklore_id'):
+            mapping['cover_url'] = f"/api/cover-proxy/booklore/{mapping.get('booklore_source_tag', 'booklore')}/{mapping['booklore_id']}"
 
         duration = mapping.get('duration', 0)
         progress_pct = mapping.get('unified_progress', 0)

@@ -5,10 +5,11 @@ ABS-specific routes (/api/abs/*, /api/cover-proxy/*) are in abs_bp.py.
 
 import json
 import logging
+import os
 
 from flask import Blueprint, jsonify, request
 
-from src.blueprints.helpers import get_container, get_database_service
+from src.blueprints.helpers import get_booklore_clients, get_container, get_database_service
 
 logger = logging.getLogger(__name__)
 
@@ -215,3 +216,58 @@ def get_booklore_libraries():
 def get_booklore_2_libraries():
     """Return available Booklore 2 libraries."""
     return _get_booklore_libraries(lambda c: c.booklore_client_2(), "Booklore 2")
+
+
+@api_bp.route('/api/booklore/search', methods=['GET'])
+def api_booklore_search():
+    """Search Booklore books by title/author/filename."""
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify([])
+
+    results = []
+    for client in get_booklore_clients():
+        if not client.is_configured():
+            continue
+        try:
+            label = os.environ.get(f"{client.config_prefix}_LABEL", "Booklore")
+            books = client.search_books(query)
+            for b in (books or []):
+                results.append({
+                    'id': b.get('id'),
+                    'title': b.get('title', ''),
+                    'authors': b.get('authors', ''),
+                    'fileName': b.get('fileName', ''),
+                    'source': label,
+                    'source_tag': client.source_tag,
+                })
+        except Exception as e:
+            logger.warning(f"Booklore search failed: {e}")
+
+    return jsonify(results)
+
+
+@api_bp.route('/api/booklore/link/<abs_id>', methods=['POST'])
+def api_booklore_link(abs_id):
+    """Link or unlink a PageKeeper book to a Booklore book by filename."""
+    database_service = get_database_service()
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"error": "Book not found"}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    filename = data.get('filename', '').strip()
+
+    if not filename:
+        logger.info(f"Unlinking Booklore for '{book.abs_title}'")
+        book.ebook_filename = None
+        database_service.save_book(book)
+        return jsonify({"success": True, "message": "Booklore unlinked"})
+
+    book.ebook_filename = filename
+    database_service.save_book(book)
+    logger.info(f"Linked Booklore file '{filename}' to '{book.abs_title}'")
+    return jsonify({"success": True, "message": "Linked successfully"})

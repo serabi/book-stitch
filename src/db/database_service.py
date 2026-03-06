@@ -56,6 +56,9 @@ class DatabaseService:
         # (handles cases where migration files are unavailable, e.g. Docker dev mounts)
         self._ensure_model_columns()
 
+        # One-time cleanup: strip .md suffix from BookFusion titles
+        self._cleanup_bookfusion_md_titles()
+
     def _run_alembic_migrations(self):
         """Run Alembic migrations to ensure database schema is up to date."""
         import io
@@ -159,6 +162,29 @@ class DatabaseService:
                         except Exception as e:
                             logger.warning(f"Could not auto-add column '{col.name}' to table '{table.name}': {e}")
             conn.commit()
+
+    def _cleanup_bookfusion_md_titles(self):
+        """One-time cleanup: strip .md suffix from BookFusion titles in existing data."""
+        from sqlalchemy import text
+        try:
+            with self.db_manager.engine.connect() as conn:
+                from sqlalchemy import inspect
+                tables = inspect(self.db_manager.engine).get_table_names()
+                if 'bookfusion_books' in tables:
+                    r1 = conn.execute(text(
+                        "UPDATE bookfusion_books SET title = SUBSTR(title, 1, LENGTH(title)-3) WHERE title LIKE '%.md'"
+                    ))
+                    if r1.rowcount:
+                        logger.info(f"Cleaned .md suffix from {r1.rowcount} BookFusion book title(s)")
+                if 'bookfusion_highlights' in tables:
+                    r2 = conn.execute(text(
+                        "UPDATE bookfusion_highlights SET book_title = SUBSTR(book_title, 1, LENGTH(book_title)-3) WHERE book_title LIKE '%.md'"
+                    ))
+                    if r2.rowcount:
+                        logger.info(f"Cleaned .md suffix from {r2.rowcount} BookFusion highlight title(s)")
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"BookFusion .md cleanup skipped: {e}")
 
     @contextmanager
     def get_session(self):
@@ -1062,8 +1088,12 @@ class DatabaseService:
                 existing = session.query(BookfusionBook).filter(
                     BookfusionBook.bookfusion_id == b['bookfusion_id']
                 ).first()
+                title = b.get('title') or ''
+                if title.endswith('.md'):
+                    title = title[:-3].strip()
+
                 if existing:
-                    existing.title = b.get('title') or existing.title
+                    existing.title = title or existing.title
                     existing.authors = b.get('authors') or existing.authors
                     existing.filename = b.get('filename') or existing.filename
                     existing.frontmatter = b.get('frontmatter') or existing.frontmatter
@@ -1074,7 +1104,7 @@ class DatabaseService:
                 else:
                     session.add(BookfusionBook(
                         bookfusion_id=b['bookfusion_id'],
-                        title=b.get('title'),
+                        title=title or b.get('title'),
                         authors=b.get('authors'),
                         filename=b.get('filename'),
                         frontmatter=b.get('frontmatter'),
@@ -1129,6 +1159,34 @@ class DatabaseService:
             if book:
                 session.expunge(book)
             return book
+
+    def unlink_bookfusion_by_abs_id(self, abs_id: str):
+        """Clear BookFusion catalog and highlight links for a dashboard book."""
+        with self.get_session() as session:
+            session.query(BookfusionBook).filter(
+                BookfusionBook.matched_abs_id == abs_id
+            ).update({BookfusionBook.matched_abs_id: None},
+                     synchronize_session=False)
+            session.query(BookfusionHighlight).filter(
+                BookfusionHighlight.matched_abs_id == abs_id
+            ).update({BookfusionHighlight.matched_abs_id: None},
+                     synchronize_session=False)
+
+    def get_bookfusion_highlight_date_range(self, bookfusion_book_ids: list[str]) -> tuple | None:
+        """Return (earliest_highlighted_at, latest_highlighted_at, count) for given book IDs."""
+        from sqlalchemy import func
+        with self.get_session() as session:
+            result = session.query(
+                func.min(BookfusionHighlight.highlighted_at),
+                func.max(BookfusionHighlight.highlighted_at),
+                func.count(BookfusionHighlight.id),
+            ).filter(
+                BookfusionHighlight.bookfusion_book_id.in_(bookfusion_book_ids),
+                BookfusionHighlight.highlighted_at.isnot(None),
+            ).first()
+            if result and result[2] > 0:
+                return result
+            return None
 
     def get_bookfusion_linked_abs_ids(self) -> set[str]:
         """Return all abs_ids that have a BookFusion catalog or highlight link."""

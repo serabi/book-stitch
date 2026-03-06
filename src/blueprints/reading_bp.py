@@ -47,7 +47,7 @@ def _build_book_reading_data(book, database_service, abs_service, states_by_book
         if state.percentage:
             max_progress = max(max_progress, round(state.percentage * 100, 1))
 
-    # Cover URL — try ABS proxy first, then KOSync cover
+    # Cover URL — try ABS proxy first, then KOSync cover, then Booklore cover
     cover_url = None
     if book.abs_id and book_type != 'ebook-only':
         cover_url = abs_service.get_cover_proxy_url(book.abs_id)
@@ -56,11 +56,12 @@ def _build_book_reading_data(book, database_service, abs_service, states_by_book
 
     # Enrich title from Booklore if it looks like a filename
     display_title = book.abs_title or ''
+    bl_meta = None
     if booklore_by_filename:
         for fn in (book.ebook_filename, getattr(book, 'original_ebook_filename', None)):
             if fn:
                 candidates = booklore_by_filename.get(fn.lower(), [])
-                bl_meta = next((b for b in candidates if b.title), None)
+                bl_meta = next((b for b in candidates if b.title), candidates[0] if candidates else None)
                 if bl_meta and bl_meta.title:
                     stems = set()
                     for check_fn in (book.ebook_filename, getattr(book, 'original_ebook_filename', None)):
@@ -69,6 +70,12 @@ def _build_book_reading_data(book, database_service, abs_service, states_by_book
                     if display_title in stems or display_title == book.ebook_filename:
                         display_title = bl_meta.title
                     break
+
+    # Booklore cover fallback
+    if not cover_url and bl_meta:
+        bl_id = bl_meta.raw_metadata_dict.get('id')
+        if bl_id:
+            cover_url = f"/api/cover-proxy/booklore/{bl_meta.source or 'booklore'}/{bl_id}"
 
     return {
         'abs_id': book.abs_id,

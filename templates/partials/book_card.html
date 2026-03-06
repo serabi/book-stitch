@@ -206,7 +206,8 @@ else 0 %}
                         {% endif %}
 
                         {# Booklore - hide for audio-only #}
-                        {% if bt != 'audio-only' and integrations.booklore and (mapping.states.booklore is defined or mapping.booklore_id) %}
+                        {% if bt != 'audio-only' and integrations.booklore %}
+                        {% if mapping.states.booklore is defined or mapping.booklore_id %}
                         <a href="{{ mapping.booklore_url|default('#') }}" target="_blank" rel="noopener noreferrer"
                             class="service-item" title="Open in {{ booklore_label }}">
                             <img src="/static/booklore.png" alt="BL" class="service-icon">
@@ -219,6 +220,17 @@ else 0 %}
                                 {% endif %}
                             </span>
                         </a>
+                        {% else %}
+                        <div class="service-item">
+                            <img src="/static/booklore.png" alt="BL" class="service-icon grayscale-muted">
+                            <span class="service-name">{{ booklore_label }}</span>
+                            <span class="service-value cursor-pointer color-inherit"
+                                onclick='openBookloreModal({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'
+                                title="Link to {{ booklore_label }}">
+                                <span class="link-icon">+</span>
+                            </span>
+                        </div>
+                        {% endif %}
                         {% endif %}
 
                         {# Booklore 2 - hide for audio-only #}
@@ -269,17 +281,9 @@ else 0 %}
                         <div class="service-item">
                             <svg class="service-icon {% if not mapping.bookfusion_linked %}grayscale-muted{% endif %}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-bookfusion)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                             <span class="service-name">BookFusion</span>
-                            {% if mapping.bookfusion_linked and mapping.bookfusion_highlight_count > 0 %}
-                            <span class="service-value">
-                                <span class="bf-svc-badge">{{ mapping.bookfusion_highlight_count }} hl{{ 's' if mapping.bookfusion_highlight_count != 1 }}</span>
-                            </span>
-                            {% elif mapping.bookfusion_linked %}
-                            <span class="service-value">Linked</span>
-                            {% else %}
-                            <a href="/bookfusion?tab=library&q={{ mapping.abs_title|urlencode }}" class="service-value cursor-pointer color-inherit" title="Link in BookFusion">
-                                <span class="link-icon">+</span>
+                            <a href="/bookfusion?tab=library&q={{ mapping.abs_title|urlencode }}" class="service-value cursor-pointer color-inherit" title="{% if mapping.bookfusion_linked %}Manage BookFusion link{% else %}Link in BookFusion{% endif %}">
+                                {% if mapping.bookfusion_linked %}Linked{% else %}<span class="link-icon">+</span>{% endif %}
                             </a>
-                            {% endif %}
                         </div>
                         {% endif %}
                     </div>

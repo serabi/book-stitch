@@ -448,9 +448,29 @@
             return;
         }
         var filtered = _libraryData.filter(function(b) {
-            return (b.title + ' ' + b.authors + ' ' + b.series + ' ' + b.filename).toLowerCase().indexOf(q) !== -1;
+            var searchable = b.title + ' ' + b.authors + ' ' + b.series + ' ' + (b.filenames || []).join(' ');
+            return searchable.toLowerCase().indexOf(q) !== -1;
         });
         renderLibrary(filtered);
+    }
+
+    function _extractExt(filename) {
+        var dot = filename.lastIndexOf('.');
+        if (dot > 0) return filename.substring(dot + 1).toUpperCase();
+        return '';
+    }
+
+    function _formatDateNote(data) {
+        if (!data.dates_set) return null;
+        var parts = [];
+        if (data.started_at) parts.push(data.started_at);
+        if (data.finished_at) parts.push(data.finished_at);
+        if (!parts.length) return null;
+        var range = parts.join(' to ');
+        if (data.dates_source === 'hardcover') {
+            return 'Reading dates set from Hardcover \u2014 ' + range;
+        }
+        return 'Dates estimated from highlights \u2014 ' + range;
     }
 
     function renderLibrary(books) {
@@ -478,53 +498,120 @@
                 meta.appendChild(document.createTextNode(' '));
                 meta.appendChild(el('span', 'bf-hl-count', b.highlight_count + ' highlight' + (b.highlight_count !== 1 ? 's' : '')));
             }
-            if (b.filename) {
-                meta.appendChild(document.createElement('br'));
-                meta.appendChild(document.createTextNode(b.filename));
+            // Show format tags from filenames
+            var filenames = b.filenames || (b.filename ? [b.filename] : []);
+            if (filenames.length) {
+                meta.appendChild(document.createTextNode(' '));
+                var exts = [];
+                filenames.forEach(function(fn) {
+                    var ext = _extractExt(fn);
+                    if (ext && ext !== 'MD' && exts.indexOf(ext) === -1) exts.push(ext);
+                });
+                exts.forEach(function(ext) {
+                    var tag = el('span', 'bf-format-tag', ext);
+                    meta.appendChild(tag);
+                });
             }
             info.appendChild(meta);
             item.appendChild(info);
 
             var actions = el('div', 'bf-library-actions');
             if (b.on_dashboard) {
-                var badge = document.createElement('a');
-                badge.className = 'bf-dashboard-badge';
-                badge.textContent = '\u2714 Matched';
-                badge.href = '/reading/book/' + encodeURIComponent(b.abs_id);
-                actions.appendChild(badge);
+                _renderMatchedActions(actions, b);
             } else {
-                // Match dropdown + confirm button
-                var select = document.createElement('select');
-                select.className = 'bf-book-select';
-                var defaultOpt = document.createElement('option');
-                defaultOpt.value = '';
-                defaultOpt.textContent = 'Match to book\u2026';
-                select.appendChild(defaultOpt);
-                _dashboardBooks.forEach(function(db) {
-                    var opt = document.createElement('option');
-                    opt.value = db.abs_id;
-                    opt.textContent = db.title;
-                    select.appendChild(opt);
-                });
-                actions.appendChild(select);
-
-                var linkBtn = el('button', 'bf-upload-btn bf-link-btn', 'Link');
-                linkBtn.addEventListener('click', function() {
-                    if (select.value) {
-                        matchToBook(linkBtn, select, b);
-                    }
-                });
-                actions.appendChild(linkBtn);
-
-                // Add as new book button
-                var btn = el('button', 'bf-upload-btn', 'Add New');
-                btn.addEventListener('click', function() { addToDashboard(btn, b); });
-                actions.appendChild(btn);
+                _renderMatchControls(actions, b);
             }
             item.appendChild(actions);
 
             list.appendChild(item);
         });
+    }
+
+    function _renderMatchedActions(actions, book) {
+        var badge = document.createElement('a');
+        badge.className = 'bf-dashboard-badge';
+        badge.textContent = '\u2714 Matched';
+        badge.href = '/reading/book/' + encodeURIComponent(book.abs_id);
+        actions.appendChild(badge);
+
+        var unlinkBtn = el('button', 'bf-upload-btn bf-unlink-btn', 'Unlink');
+        unlinkBtn.addEventListener('click', function() {
+            unlinkBtn.disabled = true;
+            unlinkBtn.textContent = 'Unlinking...';
+            fetch('/api/bookfusion/unlink', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ abs_id: book.abs_id })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    book.on_dashboard = false;
+                    book.abs_id = null;
+                    clearChildren(actions);
+                    _renderMatchControls(actions, book);
+                } else {
+                    unlinkBtn.textContent = 'Unlink';
+                    unlinkBtn.disabled = false;
+                }
+            })
+            .catch(function() {
+                unlinkBtn.textContent = 'Unlink';
+                unlinkBtn.disabled = false;
+            });
+        });
+        actions.appendChild(unlinkBtn);
+    }
+
+    function _renderMatchControls(actions, book) {
+        var select = document.createElement('select');
+        select.className = 'bf-book-select';
+        var defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'Match to book\u2026';
+        select.appendChild(defaultOpt);
+        _dashboardBooks.forEach(function(db) {
+            var opt = document.createElement('option');
+            opt.value = db.abs_id;
+            opt.textContent = db.title;
+            select.appendChild(opt);
+        });
+        actions.appendChild(select);
+
+        var linkBtn = el('button', 'bf-upload-btn bf-link-btn', 'Link');
+        linkBtn.addEventListener('click', function() {
+            if (select.value) {
+                matchToBook(linkBtn, select, book);
+            }
+        });
+        actions.appendChild(linkBtn);
+
+        var addBtn = el('button', 'bf-upload-btn', 'Add New');
+        addBtn.addEventListener('click', function() { addToDashboard(addBtn, book); });
+        actions.appendChild(addBtn);
+    }
+
+    function _showDateNote(parentEl, data) {
+        var note = _formatDateNote(data);
+        if (!note) return;
+        var noteEl = el('div', 'bf-date-note', note);
+        noteEl.style.cssText = 'font-size: 0.75rem; color: var(--color-text-muted); margin-top: 4px; opacity: 0; transition: opacity 0.4s;';
+        parentEl.appendChild(noteEl);
+        requestAnimationFrame(function() { noteEl.style.opacity = '1'; });
+    }
+
+    function _replaceWithMatchedBadge(actionsEl, absId, data, book) {
+        clearChildren(actionsEl);
+        if (book) {
+            _renderMatchedActions(actionsEl, book);
+        } else {
+            var badge = document.createElement('a');
+            badge.className = 'bf-dashboard-badge';
+            badge.textContent = '\u2714 Matched';
+            badge.href = '/reading/book/' + encodeURIComponent(absId);
+            actionsEl.appendChild(badge);
+        }
+        _showDateNote(actionsEl, data);
     }
 
     function matchToBook(btn, select, book) {
@@ -536,15 +623,14 @@
         fetch('/api/bookfusion/match-to-book', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ bookfusion_id: book.bookfusion_id, abs_id: absId })
+            body: JSON.stringify({ bookfusion_ids: book.bookfusion_ids || [book.bookfusion_id], abs_id: absId })
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
-                btn.textContent = '\u2714 Linked';
-                btn.classList.add('done');
                 book.on_dashboard = true;
                 book.abs_id = absId;
+                _replaceWithMatchedBadge(btn.closest('.bf-library-actions'), absId, data, book);
             } else {
                 btn.textContent = 'Link';
                 btn.disabled = false;
@@ -565,15 +651,14 @@
         fetch('/api/bookfusion/add-to-dashboard', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ bookfusion_id: book.bookfusion_id })
+            body: JSON.stringify({ bookfusion_ids: book.bookfusion_ids || [book.bookfusion_id] })
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
-                btn.textContent = '\u2714 Added';
-                btn.classList.add('done');
                 book.on_dashboard = true;
                 book.abs_id = data.abs_id;
+                _replaceWithMatchedBadge(btn.closest('.bf-library-actions'), data.abs_id, data, book);
             } else {
                 btn.textContent = data.error || 'Error';
                 btn.classList.add('error');
