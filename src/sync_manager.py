@@ -1634,6 +1634,8 @@ class SyncManager:
 
     def _reset_external_clients(self, abs_id):
         """Push 0% progress to all external sync clients for a book."""
+        from src.services.write_tracker import record_write
+
         book = self.database_service.get_book(abs_id)
         if not book:
             return
@@ -1645,6 +1647,7 @@ class SyncManager:
             try:
                 result = client.update_progress(book, request)
                 if result.success:
+                    record_write(client_name, book.abs_id)
                     logger.info(f"Deferred reset: '{client_name}' -> 0% for '{sanitize_log_data(book.abs_title)}'")
                 else:
                     logger.warning(f"Deferred reset failed for '{client_name}'")
@@ -1732,6 +1735,8 @@ class SyncManager:
                     'note': 'Local DB cleared; external client reset deferred (sync cycle running)',
                 }
             try:
+                from src.services.write_tracker import record_write
+
                 reset_results = {}
                 locator = LocatorResult(percentage=0.0)
                 request = UpdateProgressRequest(locator_result=locator, txt="", previous_location=None)
@@ -1747,6 +1752,7 @@ class SyncManager:
                             'message': 'Reset to 0%' if result.success else 'Failed to reset'
                         }
                         if result.success:
+                            record_write(client_name, book.abs_id)
                             logger.info(f"Reset '{client_name}' to 0%")
                         else:
                             logger.warning(f"Failed to reset '{client_name}'")

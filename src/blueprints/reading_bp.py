@@ -1,6 +1,7 @@
 """Reading Tab blueprint — reading tracker pages and API endpoints."""
 
 import logging
+import math
 from datetime import date, datetime
 from pathlib import Path
 
@@ -255,7 +256,7 @@ def update_rating(abs_id):
             rating = float(rating)
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid rating value"}), 400
-        if rating < 0 or rating > 5:
+        if not math.isfinite(rating) or rating < 0 or rating > 5:
             return jsonify({"success": False, "error": "Rating must be between 0 and 5"}), 400
 
     book = database_service.update_book_reading_fields(abs_id, rating=rating)
