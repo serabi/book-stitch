@@ -380,7 +380,7 @@ def get_library():
         groups[norm].append(b)
 
     result = []
-    for norm_title, group in groups.items():
+    for _norm_title, group in groups.items():
         # Pick the entry with the most highlights as the "primary" for metadata
         group.sort(key=lambda b: b.highlight_count or 0, reverse=True)
         primary = group[0]

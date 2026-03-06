@@ -45,16 +45,16 @@ def _build_multipart(fields: list[tuple[str, str | tuple[str, bytes]]]) -> tuple
             parts.append(
                 f'--{boundary}\r\n'
                 f'Content-Disposition: form-data; name="{name}"; filename="{fname}"\r\n'
-                f'\r\n'.encode('utf-8') + fdata + b'\r\n'
+                f'\r\n'.encode() + fdata + b'\r\n'
             )
         else:
             parts.append(
                 f'--{boundary}\r\n'
                 f'Content-Disposition: form-data; name="{name}"\r\n'
                 f'\r\n'
-                f'{value}\r\n'.encode('utf-8')
+                f'{value}\r\n'.encode()
             )
-    parts.append(f'--{boundary}--\r\n'.encode('utf-8'))
+    parts.append(f'--{boundary}--\r\n'.encode())
     body = b''.join(parts)
     content_type = f'multipart/form-data; boundary={boundary}'
     return body, content_type
@@ -62,7 +62,7 @@ def _build_multipart(fields: list[tuple[str, str | tuple[str, bytes]]]) -> tuple
 
 def _calibre_auth_header(api_key: str) -> str:
     """Build Basic auth header matching the Calibre plugin's format (key: with empty password)."""
-    token = base64.b64encode(f'{api_key}:'.encode('utf-8')).decode('ascii')
+    token = base64.b64encode(f'{api_key}:'.encode()).decode('ascii')
     return f'Basic {token}'
 
 
@@ -398,6 +398,8 @@ class BookFusionClient:
                 raw_frontmatter = page.get('frontmatter')
                 parsed = _parse_frontmatter(raw_frontmatter)
                 book_title = parsed['title'] or page.get('filename', '')
+                if book_title.endswith('.md'):
+                    book_title = book_title[:-3].strip()
 
                 # Collect book metadata (deduplicate by book_id)
                 hl_count = len(page.get('highlights', []))
@@ -458,6 +460,8 @@ class BookFusionClient:
                 if not bid or bid in all_books:
                     continue
                 title = item.get('title', '') or item.get('filename', '')
+                if title.endswith('.md'):
+                    title = title[:-3].strip()
                 authors = item.get('author', '') or item.get('authors', '')
                 if isinstance(authors, list):
                     authors = ', '.join(authors)
