@@ -1085,7 +1085,7 @@
             var keyVal = document.getElementById(inputId).value.trim();
             var url = '/api/test-connection/' + service;
             var fetchOptions = { method: 'POST', headers: {'Content-Type': 'application/json'} };
-            if (keyVal) fetchOptions.body = JSON.stringify({ api_key: keyVal });
+            fetchOptions.body = JSON.stringify(keyVal ? { api_key: keyVal } : {});
             var originalText = btn.textContent;
             btn.textContent = 'Testing...';
             btn.disabled = true;
