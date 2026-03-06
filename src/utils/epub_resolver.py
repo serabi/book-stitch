@@ -18,7 +18,8 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, booklore_clients=N
         booklore_clients: List of Booklore API clients to try downloading from
     """
     booklore_clients = booklore_clients or []
-    books_search_dir = books_dir or Path("/books")
+    books_search_dir = Path(books_dir) if books_dir else Path("/books")
+    epub_cache_dir = Path(epub_cache_dir)
 
     # First, try to find on filesystem
     escaped_filename = glob.escape(ebook_filename)
@@ -29,7 +30,12 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, booklore_clients=N
 
     # Check persistent EPUB cache
     epub_cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_root = epub_cache_dir.resolve()
     cached_path = epub_cache_dir / ebook_filename
+    # Prevent path traversal via untrusted filenames (e.g., ../../etc/passwd)
+    if not cached_path.resolve().is_relative_to(cache_root):
+        logger.error(f"Invalid filename detected: {sanitize_log_data(ebook_filename)}")
+        return None
     if cached_path.exists():
         logger.info(f"Found EPUB in cache: '{cached_path}'")
         return cached_path
@@ -39,17 +45,27 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, booklore_clients=N
         if not (hasattr(bl_client, 'is_configured') and bl_client.is_configured()):
             continue
         book = bl_client.find_book_by_filename(ebook_filename)
-        if book:
-            logger.info(f"Downloading EPUB from Booklore: {sanitize_log_data(ebook_filename)}")
-            if hasattr(bl_client, 'download_book'):
-                content = bl_client.download_book(book['id'])
-                if content:
-                    with open(cached_path, 'wb') as f:
-                        f.write(content)
-                    logger.info(f"Downloaded EPUB to cache: '{cached_path}'")
-                    return cached_path
-                else:
-                    logger.error("Failed to download EPUB content from Booklore")
+        if not book:
+            continue
+
+        logger.info(f"Downloading EPUB from Booklore: {sanitize_log_data(ebook_filename)}")
+        if not hasattr(bl_client, 'download_book'):
+            logger.error("Booklore client missing download_book method")
+            continue
+
+        book_id = book.get('id')
+        if not book_id:
+            logger.warning("Booklore returned book without ID")
+            continue
+
+        content = bl_client.download_book(book_id)
+        if content:
+            with open(cached_path, 'wb') as f:
+                f.write(content)
+            logger.info(f"Downloaded EPUB to cache: '{cached_path}'")
+            return cached_path
+
+        logger.error("Failed to download EPUB content from Booklore")
 
     if not filesystem_matches and not any(c.is_configured() for c in booklore_clients if hasattr(c, 'is_configured')):
         logger.error("EPUB not found on filesystem and Booklore not configured")

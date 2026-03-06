@@ -310,63 +310,6 @@
                         </div>
                     </div>
 
-                    <!-- Booklore 2 -->
-                    {% set booklore2_configured = get_val('BOOKLORE_2_SERVER') != '' %}
-                    {% set booklore2_enabled = get_bool('BOOKLORE_2_ENABLED') or (booklore2_configured and get_val('BOOKLORE_2_ENABLED') == '') %}
-                    <div class="sub-section">
-                        <div class="sub-section-header">
-                            <h3><span class="accent-dot" style="background: var(--color-booklore);"></span> Booklore — Secondary</h3>
-                            <div class="toggle-switch-wrapper">
-                                <button type="button" class="btn btn-sm" onclick="testConnection('booklore_2', this)">Test</button>
-                                <span class="toggle-label">Enable</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="toggle_booklore2" name="BOOKLORE_2_ENABLED"
-                                        onchange="toggleSection('booklore2_body', this.checked)" {% if booklore2_enabled %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                        <div id="booklore2_body" class="sub-section-body {% if not booklore2_enabled %}collapsed{% endif %}">
-                            <div class="form-group full-width">
-                                <label>Display Label</label>
-                                <input type="text" name="BOOKLORE_2_LABEL" value="{{ get_val('BOOKLORE_2_LABEL') }}"
-                                    placeholder="Booklore 2">
-                                <div class="help-text">Custom name shown on dashboard (e.g., "DiscordReads").</div>
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Server URL</label>
-                                <input type="text" name="BOOKLORE_2_SERVER" value="{{ get_val('BOOKLORE_2_SERVER') }}">
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Web URL (Navbar Link)</label>
-                                <input type="text" name="BOOKLORE_2_WEB_URL" value="{{ get_val('BOOKLORE_2_WEB_URL') }}"
-                                    placeholder="https://booklore2.example.com">
-                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
-                            </div>
-                            <div class="form-group">
-                                <label>Username</label>
-                                <input type="text" name="BOOKLORE_2_USER" value="{{ get_val('BOOKLORE_2_USER') }}">
-                            </div>
-                            <div class="form-group">
-                                <label>Password</label>
-                                <input type="password" name="BOOKLORE_2_PASSWORD" placeholder="{{ '(unchanged)' if get_val('BOOKLORE_2_PASSWORD') else '' }}">
-                            </div>
-                            <div class="form-group">
-                                <label>Shelf Name</label>
-                                <input type="text" name="BOOKLORE_2_SHELF_NAME" value="{{ get_val('BOOKLORE_2_SHELF_NAME') }}">
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Booklore — Secondary Library ID (Optional)</label>
-                                <div style="display: flex; gap: 10px;">
-                                    <input type="text" name="BOOKLORE_2_LIBRARY_ID" value="{{ get_val('BOOKLORE_2_LIBRARY_ID') }}"
-                                        placeholder="e.g. 1" style="flex: 1;">
-                                    <button class="btn" type="button" onclick="checkBookloreLibs2(event)">Find IDs</button>
-                                </div>
-                                <div class="help-text">Restricts sync to a specific library (e.g., 1). Leave empty to sync all.</div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- CWA -->
                     {% set cwa_configured = get_val('CWA_SERVER') != '' %}
                     {% set cwa_enabled = get_bool('CWA_ENABLED') %}
@@ -884,23 +827,6 @@
                             </div>
                             {% endif %}
 
-                            {% if get_bool('BOOKLORE_2_ENABLED') %}
-                            <div class="form-group">
-                                <label>{{ get_val('BOOKLORE_2_LABEL', 'Booklore 2') or 'Booklore 2' }} Poll Mode</label>
-                                <select name="BOOKLORE_2_POLL_MODE" id="booklore2_poll_mode"
-                                        onchange="togglePollSeconds('booklore2_poll_seconds_row', this.value)">
-                                    <option value="global" {% if get_val('BOOKLORE_2_POLL_MODE', 'global') == 'global' %}selected{% endif %}>Global</option>
-                                    <option value="custom" {% if get_val('BOOKLORE_2_POLL_MODE') == 'custom' %}selected{% endif %}>Custom</option>
-                                </select>
-                            </div>
-                            <div class="form-group" id="booklore2_poll_seconds_row"
-                                 {% if get_val('BOOKLORE_2_POLL_MODE') != 'custom' %}style="opacity: 0.45; pointer-events: none;"{% endif %}>
-                                <label>{{ get_val('BOOKLORE_2_LABEL', 'Booklore 2') or 'Booklore 2' }} Poll Interval (seconds)</label>
-                                <input type="number" name="BOOKLORE_2_POLL_SECONDS" min="10"
-                                       value="{{ get_val('BOOKLORE_2_POLL_SECONDS', '300') }}">
-                                <div class="help-text">Recommended: 300s for Booklore.</div>
-                            </div>
-                            {% endif %}
                         </div>
                     </div>
 
@@ -1122,9 +1048,6 @@
             _fetchBookloreLibs('/api/booklore/libraries', event);
         }
 
-        function checkBookloreLibs2(event) {
-            _fetchBookloreLibs('/api/booklore/2/libraries', event);
-        }
 
         function _fetchBookloreLibs(url, event) {
             var btn = event.target;

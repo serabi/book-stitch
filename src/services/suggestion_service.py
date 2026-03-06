@@ -96,8 +96,8 @@ class SuggestionService:
                         # Check if book is already mostly finished (>70%)
                         # If a user has listened to >70% elsewhere, they probably don't need a suggestion
                         if pct > 0.70:
-                             logger.debug(f"Skipping {abs_id}: progress {pct:.1%} > 70% threshold")
-                             continue
+                            logger.debug(f"Skipping {abs_id}: progress {pct:.1%} > 70% threshold")
+                            continue
 
                         logger.debug(f"Creating suggestion for {abs_id} (progress: {pct:.1%})")
                         self._create_suggestion(abs_id, item_data)
@@ -256,7 +256,7 @@ class SuggestionService:
                 # Remove (Unabridged), [Dramatized Adaptation], etc.
                 search_title = re.sub(r'\s*[\(\[].*?[\)\]]', '', title).strip()
                 if search_title != title:
-                     logger.debug(f"cleaned title for search: '{title}' -> '{search_title}'")
+                    logger.debug(f"cleaned title for search: '{title}' -> '{search_title}'")
 
             logger.debug(f"Checking suggestions for '{title}' (Search: '{search_title}', Author: {author})")
 

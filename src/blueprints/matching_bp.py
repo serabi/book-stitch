@@ -5,7 +5,7 @@ import logging
 import os
 from pathlib import Path
 
-from flask import Blueprint, redirect, render_template, request, session, url_for
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from src.blueprints.helpers import (
     audiobook_matches_search,
@@ -184,12 +184,20 @@ def match():
                 original_ebook_filename=book.original_ebook_filename,
             )
             database_service.save_book(new_book)
-            database_service.migrate_book_data(link_book_id, abs_id)
-            database_service.delete_book(link_book_id)
+            try:
+                database_service.migrate_book_data(link_book_id, abs_id)
+                database_service.delete_book(link_book_id)
+                logger.info(f"Successfully merged {link_book_id} into {abs_id}")
+            except Exception as e:
+                logger.error(f"Failed to merge book data: {e}")
+                raise
             abs_service.add_to_collection(abs_id, ABS_COLLECTION_NAME)
             hardcover_sync_client = container.sync_clients().get('Hardcover')
             if hardcover_sync_client and hardcover_sync_client.is_configured():
                 hardcover_sync_client._automatch_hardcover(new_book)
+            database_service.dismiss_suggestion(abs_id)
+            if new_book.kosync_doc_id:
+                database_service.dismiss_suggestion(new_book.kosync_doc_id)
             return redirect(url_for('dashboard.index'))
 
         # --- Standard flow (requires audiobook) ---
@@ -347,8 +355,6 @@ def batch_match():
     manager = get_manager()
     database_service = get_database_service()
 
-    ABS_COLLECTION_NAME = os.environ.get("ABS_COLLECTION_NAME", "Synced with KOReader")
-
     abs_service = get_abs_service()
 
     if request.method == 'POST':
@@ -386,6 +392,7 @@ def batch_match():
             session.modified = True
             return redirect(url_for('matching.batch_match'))
         elif action == 'process_queue':
+            failed_items = []
             for item in session.get('queue', []):
                 # Handle audio-only queue items
                 if item.get('audio_only'):
@@ -421,6 +428,7 @@ def batch_match():
 
                 if not kosync_doc_id:
                     logger.warning(f"Could not compute KOSync ID for {sanitize_log_data(ebook_filename)}, skipping")
+                    failed_items.append(item.get('ebook_display_name') or ebook_filename)
                     continue
 
                 # Hash Preservation
@@ -485,8 +493,11 @@ def batch_match():
                     if device_doc and device_doc.document_hash != kosync_doc_id:
                         database_service.dismiss_suggestion(device_doc.document_hash)
                 except Exception as e:
-                    logger.debug(f"Failed to check/dismiss device hash during batch processing: {e}")
+                    logger.warning(f"Failed to check/dismiss device hash: {e}")
 
+            if failed_items:
+                names = ', '.join(failed_items)
+                flash(f"Could not compute KOSync ID for: {names}", 'warning')
             session['queue'] = []
             session.modified = True
             return redirect(url_for('dashboard.index'))

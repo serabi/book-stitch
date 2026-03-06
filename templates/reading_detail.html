@@ -70,11 +70,6 @@
                             <img src="/static/booklore.png" alt="Booklore" width="20" height="20">
                         </a>
                         {% endif %}
-                        {% if metadata.booklore_2_url %}
-                        <a href="{{ metadata.booklore_2_url }}" target="_blank" rel="noopener noreferrer" title="Booklore 2" class="r-svc-icon">
-                            <img src="/static/booklore.png" alt="Booklore 2" width="20" height="20">
-                        </a>
-                        {% endif %}
                         {% if metadata.hardcover_url %}
                         <a href="{{ metadata.hardcover_url }}" target="_blank" rel="noopener noreferrer" title="Hardcover" class="r-svc-icon">
                             <img src="/static/hardcover.svg" alt="Hardcover" width="20" height="20">
@@ -206,7 +201,7 @@
                 {% if metadata.description %}
                 <div class="r-meta-description">
                     <span class="r-meta-label">Description</span>
-                    <div class="r-meta-desc-text">{{ metadata.description | truncate(600) | sanitize_html }}</div>
+                    <div class="r-meta-desc-text">{{ metadata.description | sanitize_html | truncate(600) }}</div>
                 </div>
                 {% endif %}
             </div>
@@ -263,10 +258,10 @@
             <div class="r-highlights-body" id="highlights-body">
                 {% for hl in bf_highlights %}
                 <div class="r-highlight-card">
-                    <blockquote class="r-highlight-quote">{{ hl.quote_text or hl.content }}</blockquote>
+                    <blockquote class="r-highlight-quote">{{ (hl.quote_text or hl.content) | sanitize_html }}</blockquote>
                     <div class="r-highlight-meta">
                         {% if hl.chapter_heading %}
-                        <span class="r-highlight-chapter">{{ hl.chapter_heading | replace('# ', '') }}</span>
+                        <span class="r-highlight-chapter">{{ hl.chapter_heading | replace('# ', '') | e }}</span>
                         {% endif %}
                         {% if hl.highlighted_at %}
                         <span class="r-highlight-date">{{ hl.highlighted_at.strftime('%b %d, %Y') }}</span>
@@ -289,13 +284,16 @@
             var pct = parseFloat(input.value);
             if (isNaN(pct) || pct < 0 || pct > 100) return;
 
-            var absId = '{{ book.abs_id }}';
+            var absId = {{ book.abs_id | tojson }};
             fetch('/api/reading/book/' + encodeURIComponent(absId) + '/progress', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ percentage: pct / 100 })
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Request failed');
+                return r.json();
+            })
             .then(function(data) {
                 if (data.success) {
                     var fill = document.getElementById('progress-bar-fill');
@@ -317,6 +315,10 @@
                         pctBadge.textContent = Math.round(pct) + '% complete';
                     }
                 }
+            })
+            .catch(function(err) {
+                console.error('Failed to update progress:', err);
+                alert('Failed to save progress. Please try again.');
             });
         }
         (function() {
@@ -324,6 +326,7 @@
                 if (!toggleEl) return;
                 function doToggle() {
                     var body = document.getElementById(bodyId);
+                    if (!body) return;
                     body.classList.toggle('hidden');
                     toggleEl.querySelector('.' + chevronClass).classList.toggle('collapsed');
                     toggleEl.setAttribute('aria-expanded',

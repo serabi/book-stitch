@@ -212,11 +212,6 @@ def get_booklore_libraries():
     return _get_booklore_libraries(lambda c: c.booklore_client(), "Booklore")
 
 
-@api_bp.route('/api/booklore/2/libraries', methods=['GET'])
-def get_booklore_2_libraries():
-    """Return available Booklore 2 libraries."""
-    return _get_booklore_libraries(lambda c: c.booklore_client_2(), "Booklore 2")
-
 
 @api_bp.route('/api/booklore/search', methods=['GET'])
 def api_booklore_search():
@@ -242,7 +237,7 @@ def api_booklore_search():
                     'source_tag': client.source_tag,
                 })
         except Exception:
-            logger.warning("Booklore search failed for source_tag=%s", client.source_tag)
+            logger.warning("Booklore search failed for source_tag=%s", client.source_tag, exc_info=True)
 
     return jsonify(results)
 

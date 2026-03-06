@@ -1,33 +1,5 @@
 # PageKeeper — TODO
 
-
-
-## ABS Integration — Remove "Required" Assumptions
-
-### QUICKSTART.md
-- [x] Remove `# REQUIRED` from ABS env vars in compose template
-- [x] Rewrite Step 1 — replaced ABS-first flow with "Choose Your Services" approach
-- [x] Remove "Book Linker" reference
-- [x] Fix port references to 4477
-- [x] Remove emojis throughout
-- [x] Add ebook-only and audio-only setup paths
-
-### Settings UI
-- [x] Add `ABS_ENABLED` toggle to settings (matches Storyteller/Booklore pattern)
-
-### Backend / Sync Engine
-- [x] Fix `abs_sync_client.py` `is_configured()` — delegates to `ABSClient.is_configured()`
-- [x] Add `ABS_ENABLED` to `config_loader.py` `ALL_SETTINGS` and `DEFAULT_CONFIG`
-- [x] Add `ABS_ENABLED` to `settings_bp.py` `bool_keys` list
-- [x] `sync_manager.py` `_setup_sync_clients` — resolved by `is_configured()` fix
-- [x] `ABSClient.is_configured()` checks `ABS_ENABLED` env var
-- [x] `ABSEbookSyncClient.is_configured()` checks ABS availability before `SYNC_ABS_EBOOK`
-- [x] Extracted `ABSService` wrapper with `is_available()` guards
-- [x] Created `abs_bp` blueprint for ABS-specific routes (libraries, cover proxy)
-- [x] Migrated all direct `abs_client` calls in blueprints to use `abs_service`
-- [x] Guarded Hardcover automatch and resolve when ABS disabled
-- [x] Fix `sync_manager.py` cross-format normalization (line ~280): `if not has_abs or not ebook_clients: return None` assumes ABS is always present — ebook-only books should still normalize between ebook clients
-
 ## Frontend
 - [ ] Continue frontend improvements (UI/UX polish, responsiveness, design consistency)
 - [ ] Add a "Trigger Sync" button to the UI
@@ -94,11 +66,6 @@
 - [ ] Allow books to be anchored to any service (Storyteller, Booklore, ABS)
 - [ ] Update `PendingSuggestion` to support non-ABS source IDs
 - [ ] Update sync logic to handle books without ABS associations
-
-## Refactor: Extract Matching Routes ([#23](https://github.com/serabi/pagekeeper/issues/23))
-- [ ] Extract `suggestions()`, `match()`, `batch_match()` into `src/blueprints/matching.py`
-- [ ] Register new `matching_bp` blueprint in app factory
-- [ ] Inline or move `_pull_started_at()` into `reading_date_service.py`
 
 ## Create PWA ([#22](https://github.com/serabi/pagekeeper/issues/22))
 - [ ] Look into making the frontend a PWA for better mobile compatibility

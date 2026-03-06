@@ -1,5 +1,5 @@
 {# Book card macro — extracted from index.html for reuse and readability #}
-{% macro render_book_card(mapping, integrations, booklore_label='Booklore', booklore_2_label='Booklore 2') %}
+{% macro render_book_card(mapping, integrations, booklore_label='Booklore') %}
 {# Calculate sync discrepancy for highlighting #}
 {% set progress_values = [] %}
 {% if mapping.states.abs is defined and mapping.states.abs.percentage is not none %}
@@ -166,7 +166,7 @@ else 0 %}
                         <div class="service-item cursor-pointer"
                             title="Update KoReader Hash (Current: {{ mapping.kosync_doc_id }})"
                             data-abs-id="{{ mapping.abs_id }}" data-title="{{ mapping.abs_title|escape }}"
-                            data-hash="{{ mapping.kosync_doc_id }}" onclick="updateKoSyncHash(event)">
+                            data-hash="{{ mapping.kosync_doc_id|escape }}" onclick="updateKoSyncHash(event)">
                             <img src="/static/koreader-logo.svg" alt="KO" class="service-icon">
                             <span class="service-name">KoSync</span>
                             {% if mapping.states.kosync is defined %}
@@ -231,22 +231,6 @@ else 0 %}
                             </span>
                         </div>
                         {% endif %}
-                        {% endif %}
-
-                        {# Booklore 2 - hide for audio-only #}
-                        {% if bt != 'audio-only' and integrations.booklore2 and (mapping.states.booklore2 is defined or mapping.booklore_2_url) %}
-                        <a href="{{ mapping.booklore_2_url|default('#') }}" target="_blank" rel="noopener noreferrer"
-                            class="service-item" title="Open in {{ booklore_2_label }}">
-                            <img src="/static/booklore.png" alt="BL2" class="service-icon">
-                            <span class="service-name">{{ booklore_2_label }}</span>
-                            <span class="service-value">
-                                {% if mapping.states.booklore2 is defined %}
-                                {{ '%.1f' | format(mapping.states.booklore2.percentage) }}%
-                                {% else %}
-                                0.0%
-                                {% endif %}
-                            </span>
-                        </a>
                         {% endif %}
 
                         {# Hardcover #}

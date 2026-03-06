@@ -22,7 +22,6 @@ class ClientPoller:
     _POLLABLE = [
         ('Storyteller', 'STORYTELLER'),
         ('BookLore', 'BOOKLORE'),
-        ('BookLore2', 'BOOKLORE_2'),
     ]
 
     def __init__(self, database_service, sync_manager, sync_clients_dict: dict):

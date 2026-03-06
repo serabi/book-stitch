@@ -188,7 +188,7 @@
         </div>
         <div class="book-grid" id="processing-grid">
             {% for mapping in processing_books %}
-            {{ render_book_card(mapping, integrations, booklore_label, booklore_2_label) }}
+            {{ render_book_card(mapping, integrations, booklore_label) }}
             {% endfor %}
         </div>
         </div>
@@ -202,7 +202,7 @@
         <div class="book-grid" id="currently-reading-grid">
             {% for mapping in mappings %}
             {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['completed', 'paused', 'dnf', 'not_started', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
-                integrations, booklore_label, booklore_2_label) }} {% endif %} {% endfor %} </div>
+                integrations, booklore_label) }} {% endif %} {% endfor %} </div>
         </div>
 
                 {% set finished_books = mappings|selectattr('status', 'equalto', 'completed')|list + mappings|rejectattr('status', 'equalto', 'completed')|selectattr('unified_progress', 'ge', 100)|list %}
@@ -212,7 +212,7 @@
                 </div>
                 <div class="book-grid" id="finished-grid">
                     {% for mapping in finished_books %}
-                    {{ render_book_card(mapping, integrations, booklore_label, booklore_2_label) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>
@@ -224,7 +224,7 @@
                 </div>
                 <div class="book-grid" id="paused-grid">
                     {% for mapping in paused_books %}
-                    {{ render_book_card(mapping, integrations, booklore_label, booklore_2_label) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>
@@ -236,7 +236,7 @@
                 </div>
                 <div class="book-grid" id="dnf-grid">
                     {% for mapping in dnf_books %}
-                    {{ render_book_card(mapping, integrations, booklore_label, booklore_2_label) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>
@@ -248,7 +248,7 @@
 
                 <div class="book-grid" id="all-books-grid">
                     {% for mapping in mappings %}
-                    {{ render_book_card(mapping, integrations, booklore_label, booklore_2_label) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>

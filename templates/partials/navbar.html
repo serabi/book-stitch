@@ -11,11 +11,10 @@
     <nav class="nav-menu" id="nav-menu">
         {% set abs_url = (get_val('ABS_WEB_URL') or abs_server) if get_bool('ABS_ENABLED') else '' %}
         {% set booklore_url = (get_val('BOOKLORE_WEB_URL') or booklore_server) if get_bool('BOOKLORE_ENABLED') else '' %}
-        {% set booklore2_url = get_val('BOOKLORE_2_WEB_URL') if get_bool('BOOKLORE_2_ENABLED') else '' %}
         {% set storyteller_url = get_val('STORYTELLER_WEB_URL') if get_bool('STORYTELLER_ENABLED') else '' %}
         {% set cwa_url = get_val('CWA_WEB_URL') if get_bool('CWA_ENABLED') else '' %}
         {% set hardcover_url = get_val('HARDCOVER_WEB_URL') or ('https://hardcover.app' if get_bool('HARDCOVER_ENABLED') else '') %}
-        {% set has_any_link = abs_url or booklore_url or booklore2_url or storyteller_url or cwa_url or hardcover_url %}
+        {% set has_any_link = abs_url or booklore_url or storyteller_url or cwa_url or hardcover_url %}
 
         {% if has_any_link %}
         <div class="library-links">
@@ -37,13 +36,6 @@
             <a href="{{ booklore_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
                 title="{{ get_val('BOOKLORE_LABEL') or 'Booklore' }}">
                 <img src="/static/booklore.png" alt="Booklore" class="nav-service-icon">
-            </a>
-            {% endif %}
-
-            {% if booklore2_url %}
-            <a href="{{ booklore2_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
-                title="{{ get_val('BOOKLORE_2_LABEL') or 'Booklore 2' }}">
-                <img src="/static/booklore.png" alt="Booklore 2" class="nav-service-icon">
             </a>
             {% endif %}
 

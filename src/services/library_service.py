@@ -15,11 +15,10 @@ from src.db.models import Book
 logger = logging.getLogger(__name__)
 
 class LibraryService:
-    def __init__(self, database_service: DatabaseService, booklore_client, cwa_client: CWAClient, abs_client: ABSClient, epub_cache_dir: str, booklore_client_2=None):
+    def __init__(self, database_service: DatabaseService, booklore_client, cwa_client: CWAClient, abs_client: ABSClient, epub_cache_dir: str):
         self.database_service = database_service
         self.booklore = booklore_client
-        self.booklore_2 = booklore_client_2
-        self._booklore_clients = [c for c in [booklore_client, booklore_client_2] if c]
+        self._booklore_clients = [booklore_client] if booklore_client else []
         self.cwa_client = cwa_client
         self.abs_client = abs_client
         self.epub_cache_dir = epub_cache_dir

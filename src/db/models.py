@@ -354,7 +354,7 @@ class BookfusionHighlight(Base):
     fetched_at = Column(DateTime, default=datetime.utcnow)
     highlighted_at = Column(DateTime, nullable=True)
     quote_text = Column(Text, nullable=True)
-    matched_abs_id = Column(String(500), nullable=True)
+    matched_abs_id = Column(String(255), nullable=True)
 
     def __init__(self, bookfusion_book_id: str, highlight_id: str, content: str,
                  book_title: str = None, chapter_heading: str = None,
@@ -386,7 +386,7 @@ class BookfusionBook(Base):
     frontmatter = Column(Text)
     tags = Column(String(500))
     series = Column(String(500))
-    highlight_count = Column(Integer, default=0)
+    highlight_count = Column(Integer, default=0, nullable=False)
     matched_abs_id = Column(String(255), nullable=True)
     fetched_at = Column(DateTime, default=datetime.utcnow)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

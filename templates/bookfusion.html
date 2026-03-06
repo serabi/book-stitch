@@ -108,7 +108,10 @@
             return;
         }
         fetch('/api/bookfusion/booklore-books?q=' + encodeURIComponent(q))
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Search failed');
+                return r.json();
+            })
             .then(function(books) {
                 clearChildren(list);
                 if (!books.length) {
@@ -136,6 +139,10 @@
 
                     list.appendChild(item);
                 });
+            })
+            .catch(function() {
+                clearChildren(list);
+                list.appendChild(el('div', 'bf-empty', 'Search failed'));
             });
     }
 
@@ -269,7 +276,10 @@
 
     function loadHighlights() {
         fetch('/api/bookfusion/highlights')
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Failed to load highlights');
+                return r.json();
+            })
             .then(function(data) {
                 var container = document.getElementById('bf-highlights-container');
                 clearChildren(container);
@@ -291,17 +301,25 @@
                     var group = el('div', 'bf-highlight-group');
 
                     var header = el('div', 'bf-group-header');
+                    header.setAttribute('tabindex', '0');
+                    header.setAttribute('role', 'button');
                     header.appendChild(el('span', 'chevron', '\u25BC'));
                     header.appendChild(document.createTextNode(' ' + book + ' '));
                     header.appendChild(el('span', 'bf-count', '(' + hls.length + ')'));
                     if (matchedAbsId) {
                         header.appendChild(el('span', 'bf-match-badge', '\u2714 Linked'));
                     }
-                    header.addEventListener('click', function(e) {
-                        // Don't toggle when clicking the save button/select
+                    function toggleGroup(e) {
                         if (e.target.closest('.bf-journal-controls')) return;
                         header.classList.toggle('collapsed');
                         hlBody.classList.toggle('hidden');
+                    }
+                    header.addEventListener('click', toggleGroup);
+                    header.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleGroup(e);
+                        }
                     });
 
                     // Journal save controls
@@ -323,7 +341,7 @@
                         select.appendChild(opt);
                     });
                     select.addEventListener('change', function() {
-                        linkHighlight(groupData.bookfusion_book_id, select.value);
+                        linkHighlight(groupData.bookfusion_book_id, select.value, select);
                     });
                     controls.appendChild(select);
 
@@ -358,6 +376,11 @@
 
                     container.appendChild(group);
                 });
+            })
+            .catch(function() {
+                var container = document.getElementById('bf-highlights-container');
+                clearChildren(container);
+                container.appendChild(el('div', 'bf-empty', 'Failed to load highlights'));
             });
     }
 
@@ -404,6 +427,9 @@
         });
     }
     function linkHighlight(bookfusionBookId, absId) {
+        // Find and disable the select that triggered this
+        var selects = document.querySelectorAll('.bf-book-select[data-book-title]');
+        selects.forEach(function(s) { s.disabled = true; });
         fetch('/api/bookfusion/link-highlight', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -411,7 +437,24 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.success) loadHighlights();
+            selects.forEach(function(s) { s.disabled = false; });
+            if (data.success) {
+                loadHighlights();
+            } else {
+                console.error('Link failed:', data.error || 'unknown error');
+                loadHighlights();
+            }
+        })
+        .catch(function() {
+            selects.forEach(function(s) { s.disabled = false; });
+            console.error('Link request failed');
+            loadHighlights();
+        });
+    }
+        .catch(function() {
+            selects.forEach(function(s) { s.disabled = false; });
+            console.error('Link request failed');
+            loadHighlights();
         });
     }
 
@@ -451,7 +494,7 @@
             return;
         }
         var filtered = _libraryData.filter(function(b) {
-            var searchable = b.title + ' ' + b.authors + ' ' + b.series + ' ' + (b.filenames || []).join(' ');
+            var searchable = (b.title || '') + ' ' + (b.authors || '') + ' ' + (b.series || '') + ' ' + (b.filenames || []).join(' ');
             return searchable.toLowerCase().indexOf(q) !== -1;
         });
         renderLibrary(filtered);

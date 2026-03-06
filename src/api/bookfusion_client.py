@@ -13,7 +13,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import requests
 
@@ -129,7 +129,7 @@ def _parse_highlight_date(content: str) -> datetime | None:
     m = re.search(r'\*\*Date Created\*\*:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*UTC', content)
     if m:
         try:
-            return datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S')
+            return datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=UTC)
         except ValueError:
             return None
     return None
@@ -203,6 +203,8 @@ class BookFusionClient:
 
     def check_exists(self, digest: str) -> dict | None:
         """Check if a book already exists on BookFusion by SHA256 digest."""
+        if not self.upload_api_key:
+            return None
         try:
             resp = self.session.get(
                 f'{CALIBRE_API}/uploads/{digest}',
@@ -217,6 +219,9 @@ class BookFusionClient:
 
     def upload_book(self, filename: str, file_bytes: bytes, title: str, authors: str) -> dict | None:
         """Upload a book to BookFusion. Mirrors the Calibre plugin's 3-step flow."""
+        if not self.upload_api_key:
+            logger.warning("BookFusion upload skipped: upload API key not configured")
+            return None
         digest = _calibre_digest(file_bytes)
 
         existing = self.check_exists(digest)
@@ -340,7 +345,6 @@ class BookFusionClient:
                 if not books:
                     break
                 all_books.extend(books)
-                # Stop if we got fewer than a full page (no more pages)
                 if len(books) < 100:
                     break
                 page += 1
@@ -354,6 +358,8 @@ class BookFusionClient:
 
     def fetch_highlights(self, cursor: str | None = None) -> dict:
         """Fetch one page of highlights from the Obsidian sync API."""
+        if not self.highlights_api_key:
+            raise ValueError('Highlights API key not configured')
         resp = self.session.post(
             f'{BASE_URL}/obsidian-api/sync',
             headers={'X-Token': self.highlights_api_key, 'API-Version': '1', 'Content-Type': 'application/json'},
@@ -383,7 +389,6 @@ class BookFusionClient:
             data = self.fetch_highlights(cursor)
             pages = data.get('pages') or []
 
-            # Track next_sync_cursor from each response (save the last one)
             if data.get('next_sync_cursor'):
                 last_next_sync_cursor = data['next_sync_cursor']
 
@@ -403,7 +408,6 @@ class BookFusionClient:
                 if book_title.endswith('.md'):
                     book_title = book_title[:-3].strip()
 
-                # Collect book metadata (deduplicate by book_id)
                 hl_count = len(page.get('highlights') or [])
                 if book_id not in all_books:
                     all_books[book_id] = {
@@ -439,7 +443,6 @@ class BookFusionClient:
             if highlights_batch:
                 total_new += db_service.save_bookfusion_highlights(highlights_batch)
 
-            # Pagination: data.cursor is the next-page cursor (like the Obsidian plugin)
             next_page = data.get('cursor')
             if next_page is None:
                 break
@@ -453,11 +456,10 @@ class BookFusionClient:
             seen_cursors.add(next_page)
             cursor = next_page
 
-        # Save the sync cursor for future incremental syncs
         if last_next_sync_cursor:
             db_service.set_bookfusion_sync_cursor(last_next_sync_cursor)
 
-        # Merge full library catalog (books without highlights too)
+        # Merge full library catalog
         try:
             library = self.fetch_library()
             for item in library:
@@ -483,7 +485,6 @@ class BookFusionClient:
         except Exception as e:
             logger.warning(f"Could not fetch full BookFusion library: {e}")
 
-        # Save book catalog
         books_saved = 0
         if all_books:
             books_saved = db_service.save_bookfusion_books(list(all_books.values()))

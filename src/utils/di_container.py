@@ -98,13 +98,6 @@ class Container(containers.DeclarativeContainer):
         source_tag="booklore"
     )
 
-    booklore_client_2 = providers.Singleton(
-        BookloreClient,
-        database_service=database_service,
-        config_prefix="BOOKLORE_2",
-        source_tag="booklore_2"
-    )
-
     hardcover_client = providers.Singleton(HardcoverClient)
 
     cwa_client = providers.Singleton(CWAClient)
@@ -137,7 +130,6 @@ class Container(containers.DeclarativeContainer):
         LibraryService,
         database_service=database_service,
         booklore_client=booklore_client,
-        booklore_client_2=booklore_client_2,
         cwa_client=cwa_client,
         abs_client=abs_client,
         epub_cache_dir=epub_cache_dir
@@ -193,13 +185,6 @@ class Container(containers.DeclarativeContainer):
         client_name="BookLore"
     )
 
-    booklore_sync_client_2 = providers.Singleton(
-        BookloreSyncClient,
-        booklore_client_2,
-        ebook_parser,
-        client_name="BookLore2"
-    )
-
     abs_ebook_sync_client = providers.Singleton(
         ABSEbookSyncClient,
         abs_client,
@@ -219,7 +204,7 @@ class Container(containers.DeclarativeContainer):
         SuggestionService,
         database_service=database_service,
         abs_client=abs_client,
-        booklore_clients=providers.List(booklore_client, booklore_client_2),
+        booklore_clients=providers.List(booklore_client),
         storyteller_client=storyteller_client,
         library_service=library_service,
         books_dir=books_dir,
@@ -231,7 +216,7 @@ class Container(containers.DeclarativeContainer):
         BackgroundJobService,
         database_service=database_service,
         abs_client=abs_client,
-        booklore_clients=providers.List(booklore_client, booklore_client_2),
+        booklore_clients=providers.List(booklore_client),
         ebook_parser=ebook_parser,
         transcriber=transcriber,
         alignment_service=alignment_service,
@@ -249,7 +234,6 @@ class Container(containers.DeclarativeContainer):
         KoSync=kosync_sync_client,
         Storyteller=storyteller_sync_client,
         BookLore=booklore_sync_client,
-        BookLore2=booklore_sync_client_2,
         Hardcover=hardcover_sync_client
     )
 
@@ -258,7 +242,6 @@ class Container(containers.DeclarativeContainer):
         SyncManager,
         abs_client=abs_client,
         booklore_client=booklore_client,
-        booklore_client_2=booklore_client_2,
         hardcover_client=hardcover_client,
         storyteller_client=storyteller_client,
         transcriber=transcriber,

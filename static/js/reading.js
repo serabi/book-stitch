@@ -1,5 +1,24 @@
 /* PageKeeper — Reading Tab */
 
+// Attach cover-fallback logic via event delegation (no inline onerror needed)
+document.addEventListener('error', function (e) {
+  const img = e.target;
+  if (!img || !img.classList.contains('r-cover-img')) return;
+
+  const fallbackId = (img.dataset.fallbackId || '').trim();
+  if (fallbackId && !img.dataset.fallbackAttempted) {
+    img.dataset.fallbackAttempted = '1';
+    img.src = '/covers/' + encodeURIComponent(fallbackId) + '.jpg';
+    return;
+  }
+
+  img.style.display = 'none';
+  var placeholder = img.nextElementSibling;
+  if (placeholder) {
+    placeholder.classList.remove('hidden');
+  }
+}, true);
+
 function initReadingPage(currentYear) {
   const grid = document.getElementById('book-grid');
   if (!grid) return;
@@ -247,28 +266,42 @@ function initReadingPage(currentYear) {
     goalSave.addEventListener('click', () => {
       const target = parseInt(goalInput?.value, 10);
       if (!target || target < 1) return;
+      goalSave.disabled = true;
       fetch(`/api/reading/goal/${currentYear}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_books: target }),
       })
-        .then(r => r.json())
-        .then(data => { if (data.success) window.location.reload(); });
-    });
-  }
-}
-
-
-function initReadingDetail() {
-  // ── Rating stars ──
-  const rc = document.getElementById('rating-stars');
-  if (rc) {
-    const absId = rc.dataset.absId;
-    const stars = rc.querySelectorAll('.r-star-btn');
-    const label = document.getElementById('rating-label');
-
-    stars.forEach(star => {
+        .then(r => {
+          if (!r.ok) throw new Error('Failed to save goal');
+          return r.json();
+        })
+        .then(data => {
+          if (data.success) window.location.reload();
       star.addEventListener('click', () => {
+        const value = parseInt(star.dataset.value, 10);
+        fetch(`/api/reading/book/${absId}/rating`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating: value }),
+        })
+          .then(r => {
+            if (!r.ok) throw new Error('Failed to save rating');
+            return r.json();
+          })
+          .then(data => {
+            if (data.success) {
+              stars.forEach((s, i) => {
+                s.classList.toggle('filled', i + 1 <= data.rating);
+                s.classList.remove('half');
+              });
+              if (label) label.textContent = data.rating + '/5';
+            }
+          })
+          .catch(() => {
+            // Optionally show user feedback
+          });
+      });
         const value = parseInt(star.dataset.value, 10);
         fetch(`/api/reading/book/${absId}/rating`, {
           method: 'POST',
@@ -300,17 +333,34 @@ function initReadingDetail() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      });
-    });
-  }
-  bindDate('started_at', 'started-at');
-  bindDate('finished_at', 'finished-at');
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success) {
+            input.style.outline = '2px solid var(--color-danger, red)';
+            setTimeout(() => { input.style.outline = ''; }, 2000);
+      fetch(`/api/reading/book/${absId}/journal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry }),
+      })
+        .then(r => {
+          if (!r.ok) throw new Error('Failed to save');
+          return r.json();
+        })
+        .then(data => {
+          if (!data.success) return;
+          textarea.value = '';
 
-  // ── Journal ──
-  const form = document.getElementById('journal-form');
-  if (form) {
-    const absId = form.dataset.absId;
-    const textarea = document.getElementById('journal-entry');
+          if (timeline) {
+            const empty = timeline.querySelector('.r-journal-empty');
+            if (empty) empty.remove();
+            timeline.prepend(buildJournalNode(data.journal));
+          }
+        })
+        .catch(() => {
+          // Show error feedback to user
+        });
     const timeline = document.getElementById('journal-timeline');
 
     form.addEventListener('submit', e => {
@@ -328,29 +378,37 @@ function initReadingDetail() {
           if (!data.success) return;
           textarea.value = '';
 
-          const empty = timeline.querySelector('.r-journal-empty');
-          if (empty) empty.remove();
-
-          timeline.prepend(buildJournalNode(data.journal));
+          if (timeline) {
+            const empty = timeline.querySelector('.r-journal-empty');
+            if (empty) empty.remove();
+            timeline.prepend(buildJournalNode(data.journal));
+          }
         });
     });
 
     // Delete (event delegation)
-    timeline.addEventListener('click', e => {
+    if (timeline) timeline.addEventListener('click', e => {
       const btn = e.target.closest('.r-tl-delete');
       if (!btn) return;
+      function flashError() {
+        btn.style.outline = '2px solid var(--color-danger, red)';
+        setTimeout(() => { btn.style.outline = ''; }, 2000);
+      }
       fetch(`/api/reading/journal/${btn.dataset.journalId}`, { method: 'DELETE' })
-        .then(r => r.json())
+        .then(r => {
+          if (!r.ok) throw new Error('Delete failed');
+          return r.json();
+        })
         .then(data => {
-          if (data.success) {
-            const item = btn.closest('.r-tl-item');
-            if (item) {
-              item.style.transition = 'opacity 0.3s';
-              item.style.opacity = '0';
-              setTimeout(() => item.remove(), 300);
-            }
+          if (!data.success) { flashError(); return; }
+          const item = btn.closest('.r-tl-item');
+          if (item) {
+            item.style.transition = 'opacity 0.3s';
+            item.style.opacity = '0';
+            setTimeout(() => item.remove(), 300);
           }
-        });
+        })
+        .catch(() => flashError());
     });
   }
 }

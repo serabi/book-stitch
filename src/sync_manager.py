@@ -45,7 +45,6 @@ class SyncManager:
     def __init__(self,
                  abs_client=None,
                  booklore_client=None,
-                 booklore_client_2=None,
                  hardcover_client=None,
                  transcriber=None,
                  ebook_parser=None,
@@ -65,8 +64,7 @@ class SyncManager:
         # Use dependency injection
         self.abs_client = abs_client
         self.booklore_client = booklore_client
-        self.booklore_client_2 = booklore_client_2
-        self._booklore_clients = [c for c in [booklore_client, booklore_client_2] if c]
+        self._booklore_clients = [booklore_client] if booklore_client else []
         self.hardcover_client = hardcover_client
         self.transcriber = transcriber
         self.ebook_parser = ebook_parser

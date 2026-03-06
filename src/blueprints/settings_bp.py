@@ -74,7 +74,6 @@ def settings():
             'KOSYNC_ENABLED',
             'STORYTELLER_ENABLED',
             'BOOKLORE_ENABLED',
-            'BOOKLORE_2_ENABLED',
             'CWA_ENABLED',
             'HARDCOVER_ENABLED',
             'TELEGRAM_ENABLED',
@@ -88,7 +87,7 @@ def settings():
         current_settings = database_service.get_all_settings()
 
         secret_keys = {
-            'ABS_KEY', 'STORYTELLER_PASSWORD', 'BOOKLORE_PASSWORD', 'BOOKLORE_2_PASSWORD',
+            'ABS_KEY', 'STORYTELLER_PASSWORD', 'BOOKLORE_PASSWORD',
             'CWA_PASSWORD', 'KOSYNC_KEY', 'TELEGRAM_BOT_TOKEN', 'HARDCOVER_TOKEN',
             'DEEPGRAM_API_KEY', 'BOOKFUSION_API_KEY', 'BOOKFUSION_UPLOAD_API_KEY',
         }
@@ -110,9 +109,9 @@ def settings():
             clean_value = value.strip()
 
             url_keys = [
-                'ABS_SERVER', 'BOOKLORE_SERVER', 'BOOKLORE_2_SERVER',
+                'ABS_SERVER', 'BOOKLORE_SERVER',
                 'STORYTELLER_API_URL', 'CWA_SERVER', 'KOSYNC_SERVER',
-                'ABS_WEB_URL', 'BOOKLORE_WEB_URL', 'BOOKLORE_2_WEB_URL',
+                'ABS_WEB_URL', 'BOOKLORE_WEB_URL',
                 'STORYTELLER_WEB_URL', 'CWA_WEB_URL', 'HARDCOVER_WEB_URL',
             ]
             if key in url_keys and clean_value:
@@ -180,7 +179,6 @@ def test_connection(service):
         'kosync': _test_kosync,
         'storyteller': _test_storyteller,
         'booklore': _test_booklore,
-        'booklore_2': _test_booklore_2,
         'cwa': _test_cwa,
         'hardcover': _test_hardcover,
         'telegram': _test_telegram,
@@ -201,7 +199,7 @@ def test_connection(service):
 def _redact_secrets(msg: str) -> str:
     """Replace any known secret values in a string with a fixed mask."""
     secret_keys = [
-        'ABS_KEY', 'STORYTELLER_PASSWORD', 'BOOKLORE_PASSWORD', 'BOOKLORE_2_PASSWORD',
+        'ABS_KEY', 'STORYTELLER_PASSWORD', 'BOOKLORE_PASSWORD',
         'CWA_PASSWORD', 'KOSYNC_KEY', 'TELEGRAM_BOT_TOKEN', 'HARDCOVER_TOKEN',
         'DEEPGRAM_API_KEY', 'BOOKFUSION_API_KEY', 'BOOKFUSION_UPLOAD_API_KEY',
     ]
@@ -286,10 +284,6 @@ def _test_booklore() -> tuple[bool, str]:
     return _test_booklore_instance('BOOKLORE')
 
 
-def _test_booklore_2() -> tuple[bool, str]:
-    return _test_booklore_instance('BOOKLORE_2')
-
-
 def _test_booklore_instance(prefix: str) -> tuple[bool, str]:
     url = os.environ.get(f'{prefix}_SERVER', '').rstrip('/')
     user = os.environ.get(f'{prefix}_USER', '')
@@ -372,13 +366,12 @@ def _test_telegram() -> tuple[bool, str]:
 
 
 def _get_api_key_override() -> str | None:
-    """Read api_key from POST JSON body (preferred) or GET query param (legacy fallback)."""
+    """Read api_key from POST JSON body only (not query params, to avoid credential leakage)."""
     if request.method == 'POST' and request.is_json:
         key = (request.json or {}).get('api_key', '').strip()
         if key:
             return key
-    key = request.args.get('api_key', '').strip()
-    return key or None
+    return None
 
 
 def _test_bookfusion() -> tuple[bool, str]:

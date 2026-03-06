@@ -1,6 +1,7 @@
 """ABS blueprint — routes specific to Audiobookshelf integration."""
 
 import logging
+import re
 
 import requests
 from flask import Blueprint, Response, jsonify
@@ -28,6 +29,9 @@ def proxy_cover(abs_id):
     abs_service = get_abs_service()
     if not abs_service.is_available():
         return "ABS not configured", 404
+
+    if not re.fullmatch(r'[a-zA-Z0-9_\-]+', abs_id):
+        return "Invalid ID", 400
 
     try:
         container = get_container()

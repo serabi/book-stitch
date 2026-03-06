@@ -7,6 +7,7 @@ Create Date: 2026-03-05
 
 import re
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from sqlalchemy import text
@@ -20,9 +21,11 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def _parse_date(content: str) -> str | None:
+def _parse_date(content: str) -> datetime | None:
     m = re.search(r'\*\*Date Created\*\*:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*UTC', content)
-    return m.group(1) if m else None
+    if not m:
+        return None
+    return datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=UTC)
 
 
 def _parse_quote(content: str) -> str | None:
@@ -61,12 +64,12 @@ def upgrade() -> None:
     rows = conn.execute(text('SELECT id, content FROM bookfusion_highlights')).fetchall()
     for row in rows:
         hl_id, content = row
-        date_str = _parse_date(content or '')
+        highlighted_at = _parse_date(content or '')
         quote = _parse_quote(content or '')
         params = {'id': hl_id, 'quote': quote}
         set_parts = ['quote_text = :quote']
-        if date_str:
-            params['date'] = date_str
+        if highlighted_at:
+            params['date'] = highlighted_at
             set_parts.append('highlighted_at = :date')
         conn.execute(
             text(f"UPDATE bookfusion_highlights SET {', '.join(set_parts)} WHERE id = :id"),

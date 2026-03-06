@@ -1,12 +1,12 @@
 import logging
 import os
-import re
 import secrets
 import sys
 import threading
 import time
 from pathlib import Path
 
+import nh3
 import schedule
 from dependency_injector import providers
 from flask import Flask
@@ -457,23 +457,14 @@ def _log_security_warnings():
         logger.info("Tip: Set KOSYNC_PUBLIC_URL in settings if you expose KOSync through a reverse proxy")
 
 
-_UNSAFE_TAGS = re.compile(
-    r'<(?!/?(p|br|b|i|em|strong|ul|ol|li)\b)[^>]+>',
-    re.IGNORECASE,
-)
-_STRIP_ATTRS = re.compile(
-    r'<(/?(?:p|br|b|i|em|strong|ul|ol|li))\b[^>]*>',
-    re.IGNORECASE,
-)
+_ALLOWED_HTML_TAGS = {'p', 'br', 'b', 'i', 'em', 'strong', 'ul', 'ol', 'li'}
 
 
 def _sanitize_html(value):
-    """Allow only safe formatting tags (without attributes), strip everything else."""
+    """Allow only safe formatting tags and strip all attributes/protocols."""
     if not value:
         return ''
-    cleaned = _UNSAFE_TAGS.sub('', str(value))
-    # Strip attributes from safe tags to prevent onclick/onerror XSS
-    cleaned = _STRIP_ATTRS.sub(r'<\1>', cleaned)
+    cleaned = nh3.clean(str(value), tags=_ALLOWED_HTML_TAGS, attributes={})
     return Markup(cleaned)
 
 

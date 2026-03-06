@@ -101,14 +101,13 @@ def _push_completion_to_clients(book, container, database_service):
 
 
 def _push_booklore_read_status(book, container, status):
-    """Push a read status (READING, READ, etc.) to all configured Booklore instances."""
-    for attr in ('booklore_client', 'booklore_client_2'):
-        try:
-            bl_client = getattr(container, attr)()
-            if bl_client.is_configured():
-                bl_client.update_read_status(book.ebook_filename, status)
-        except Exception as e:
-            logger.debug(f"Could not push Booklore status '{status}' via {attr}: {e}")
+    """Push a read status (READING, READ, etc.) to Booklore."""
+    try:
+        bl_client = container.booklore_client()
+        if bl_client.is_configured():
+            bl_client.update_read_status(book.ebook_filename, status)
+    except Exception as e:
+        logger.debug(f"Could not push Booklore status '{status}': {e}")
 
 
 def _mark_completed(book, dates, database_service, stats, reason, container=None,

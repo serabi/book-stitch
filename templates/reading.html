@@ -21,11 +21,10 @@
 {% macro book_cover(book) %}
 {% if book.cover_url %}
 <img src="{{ book.cover_url }}" alt="" loading="lazy" class="r-cover-img"
-    onerror="{% if book.kosync_doc_id %}this.onerror=null; this.src='/covers/{{ book.kosync_doc_id }}.jpg';{% else %}this.style.display='none'; this.nextElementSibling.classList.remove('hidden');{% endif %}">
+    {% if book.kosync_doc_id %}data-fallback-id="{{ book.kosync_doc_id|e }}"{% endif %}>
 <div class="r-cover-placeholder hidden"></div>
 {% elif book.kosync_doc_id %}
-<img src="/covers/{{ book.kosync_doc_id }}.jpg" alt="" loading="lazy" class="r-cover-img"
-    onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+<img src="/covers/{{ book.kosync_doc_id|urlencode }}.jpg" alt="" loading="lazy" class="r-cover-img">
 <div class="r-cover-placeholder hidden"></div>
 {% else %}
 <div class="r-cover-placeholder"></div>
@@ -214,7 +213,7 @@
         </div>
     </div>
 
-    <script src="/static/js/reading.js?v=2"></script>
+    <script src="/static/js/reading.js?v=3"></script>
     <script>
         initReadingPage({{ current_year }});
     </script>

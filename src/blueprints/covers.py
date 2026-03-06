@@ -1,6 +1,7 @@
 """Covers blueprint — /covers/<filename> and /api/cover-proxy/booklore/."""
 
 import logging
+import re
 
 import requests
 from flask import Blueprint, Response, send_from_directory
@@ -48,6 +49,9 @@ def serve_cover(filename):
 @covers_bp.route('/api/cover-proxy/booklore/<source_tag>/<int:book_id>')
 def proxy_booklore_cover(source_tag, book_id):
     """Proxy cover access to Booklore instances (requires Bearer token auth)."""
+    if not re.fullmatch(r'[a-zA-Z0-9_\-]+', source_tag):
+        return "Invalid source tag", 400
+
     try:
         bl_client = None
         for client in get_booklore_clients():

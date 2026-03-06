@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column('frontmatter', sa.Text(), nullable=True),
         sa.Column('tags', sa.String(500), nullable=True),
         sa.Column('series', sa.String(500), nullable=True),
-        sa.Column('highlight_count', sa.Integer(), server_default='0', nullable=True),
+        sa.Column('highlight_count', sa.Integer(), server_default='0', nullable=False),
         sa.Column('matched_abs_id', sa.String(255), nullable=True),
         sa.Column('fetched_at', sa.DateTime(), nullable=True),
         sa.Column('last_updated', sa.DateTime(), nullable=True),

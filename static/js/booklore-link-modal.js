@@ -108,9 +108,13 @@ function linkBooklore(filename, sourceTag) {
     .then(function(r) {
         if (r.ok) {
             window.location.reload();
-        } else {
+            return;
+        }
+        var contentType = r.headers.get('content-type') || '';
+        if (contentType.indexOf('application/json') !== -1) {
             return r.json().then(function(err) { throw new Error(err.error || 'Failed to link'); });
         }
+        throw new Error('Failed to link (HTTP ' + r.status + ')');
     })
     .catch(function(e) {
         while (resultsDiv.firstChild) resultsDiv.removeChild(resultsDiv.firstChild);

@@ -1,44 +1,36 @@
 """
 Unified SQLAlchemy database service for PageKeeper.
-Direct model-based interface without dictionary conversions.
+Facade that delegates to domain-specific repositories.
 """
 
 import json
 import logging
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from sqlalchemy.exc import IntegrityError
-
+from .book_repository import BookRepository
+from .integration_repository import IntegrationRepository
+from .kosync_repository import KoSyncRepository
 from .models import (
     Base,
-    Book,
-    BookfusionBook,
-    BookfusionHighlight,
-    BookloreBook,
     DatabaseManager,
-    HardcoverDetails,
-    Job,
-    KosyncDocument,
-    PendingSuggestion,
-    ReadingGoal,
-    ReadingJournal,
-    Setting,
-    State,
 )
+from .reading_repository import VALID_JOURNAL_EVENTS, ReadingRepository
+from .settings_repository import SettingsRepository
+from .suggestion_repository import SuggestionRepository
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseService:
     """
-    Unified SQLAlchemy-based database service providing direct model operations.
+    Unified database service providing direct model operations.
 
-    This service works exclusively with SQLAlchemy models, avoiding dictionary
-    conversions for better type safety and cleaner code.
+    Delegates to domain-specific repositories while maintaining a single
+    public interface for backward compatibility.
     """
+
+    VALID_JOURNAL_EVENTS = VALID_JOURNAL_EVENTS
 
     def __init__(self, db_path: str):
         import os
@@ -53,138 +45,123 @@ class DatabaseService:
         Base.metadata.create_all(self.db_manager.engine)
 
         # Safety net: add any model columns missing from existing tables
-        # (handles cases where migration files are unavailable, e.g. Docker dev mounts)
         self._ensure_model_columns()
 
-        # One-time cleanup: strip .md suffix from BookFusion titles
+        # One-time data cleanup
         self._cleanup_bookfusion_md_titles()
 
+        # Initialize domain repositories
+        self._settings = SettingsRepository(self.db_manager)
+        self._books = BookRepository(self.db_manager)
+        self._kosync = KoSyncRepository(self.db_manager)
+        self._reading = ReadingRepository(self.db_manager)
+        self._suggestions = SuggestionRepository(self.db_manager)
+        self._integrations = IntegrationRepository(self.db_manager)
+
     def _run_alembic_migrations(self):
-        """Run Alembic migrations to ensure database schema is up to date."""
-        import io
-        import sys
-        import traceback
-
-        from alembic.config import Config
-        from sqlalchemy import inspect, text
-
-        from alembic import command
-
-        # In Docker, we expect alembic.ini at /app/alembic.ini
-        # Calculate project root relative to this file: src/db/database_service.py -> ../../ -> project_root
-        project_root = Path(__file__).parent.parent.parent
-        alembic_cfg_path = project_root / "alembic.ini"
-
-        if not alembic_cfg_path.exists():
-            logger.critical(f"alembic.ini not found at '{alembic_cfg_path}' — Cannot run migrations — Exiting")
-            sys.exit(1)
-
-        alembic_cfg = Config(str(alembic_cfg_path))
-        alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
-
-        # Log the current revision before upgrading so failures are diagnosable
-        with self.db_manager.engine.connect() as conn:
-            inspector = inspect(self.db_manager.engine)
-            if 'alembic_version' in inspector.get_table_names():
-                try:
-                    result = conn.execute(text("SELECT version_num FROM alembic_version"))
-                    current_rev = result.scalar()
-                    logger.info(f"Current database revision before migration: '{current_rev}'")
-                except Exception as e:
-                    logger.warning(f"Could not read alembic version: {e}")
-            else:
-                table_names = inspector.get_table_names()
-                if 'books' in table_names:
-                    logger.warning("Legacy database detected: 'books' table exists but no 'alembic_version' table found")
-                    logger.info("Stamping legacy database with initial revision '76886bc89d6e' to prevent duplicate table creation")
-                    command.stamp(alembic_cfg, "76886bc89d6e")
-                    logger.info("Legacy database stamped successfully — subsequent migrations will run from this baseline")
-                else:
-                    logger.info("alembic_version table not found — database is new or unversioned")
-
-        # Suppress massive stdout noise from Alembic, but keep errors
-        alembic_cfg.attributes['output_buffer'] = io.StringIO()
-
-        # Suppress Alembic info logging noise, but keep WARNING/ERROR
-        alembic_logger = logging.getLogger('alembic')
-        original_level = alembic_logger.level
-        alembic_logger.setLevel(logging.WARNING)
-
-        logger.info("Running Alembic migrations to head")
-
+        """Run Alembic migrations to bring the database schema up to date."""
         try:
-            command.upgrade(alembic_cfg, "head")
-            logger.info("Database migrations completed successfully")
-        except Exception as e:
-            logger.error(f"FATAL: Alembic migration failed: {e}")
-            logger.error(f"Migration error details: {traceback.format_exc()}")
-            # Re-raise to prevent startup with invalid schema
-            raise
-        finally:
-            alembic_logger.setLevel(original_level)
+            from alembic.config import Config
+            from alembic.runtime.migration import MigrationContext
 
-        # Post-migration verification: Check for critical columns
-        # This confirms that our migrations actually ran and took effect
-        with self.db_manager.engine.connect() as conn:
-            inspector = inspect(self.db_manager.engine)
-            columns = [c['name'] for c in inspector.get_columns('books')]
-            if 'original_ebook_filename' not in columns:
-                logger.warning("WARNING: 'original_ebook_filename' column missing in 'books' table after migration! Schema may be out of sync")
+            from alembic import command
+
+            alembic_dir = Path(__file__).parent.parent.parent / "alembic"
+            alembic_ini = alembic_dir.parent / "alembic.ini"
+
+            if not alembic_ini.exists():
+                logger.debug("alembic.ini not found, skipping migrations")
+                return
+
+            alembic_cfg = Config(str(alembic_ini))
+            alembic_cfg.set_main_option("script_location", str(alembic_dir))
+            alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
+
+            # Check current revision
+            from sqlalchemy import create_engine
+            from sqlalchemy import inspect as sa_inspect
+            engine = create_engine(f"sqlite:///{self.db_path}")
+
+            inspector = sa_inspect(engine)
+            tables = inspector.get_table_names()
+
+            if tables and 'alembic_version' not in tables:
+                # Legacy database without Alembic — stamp it at head
+                logger.info("Legacy database detected — stamping at current Alembic head")
+                command.stamp(alembic_cfg, "head")
             else:
-                logger.debug("Schema verification passed: 'original_ebook_filename' exists")
+                # Normal migration path
+                with engine.connect() as conn:
+                    context = MigrationContext.configure(conn)
+                    current_rev = context.get_current_revision()
+
+                if current_rev is None and not tables:
+                    # Fresh database — will be created by create_all, then stamp
+                    Base.metadata.create_all(engine)
+                    command.stamp(alembic_cfg, "head")
+                else:
+                    command.upgrade(alembic_cfg, "head")
+
+            engine.dispose()
+            logger.debug("Alembic migrations completed successfully")
+
+        except Exception as e:
+            logger.warning(f"Alembic migration failed (non-fatal): {e}")
 
     def _ensure_model_columns(self):
-        """Add any columns declared in models but missing from the database.
-
-        This is a safety net for development environments where migration files
-        may not be available (e.g. Docker with partial volume mounts). In production,
-        Alembic migrations handle schema changes; this only fills gaps.
-        """
-        from sqlalchemy import inspect, text
-
-        with self.db_manager.engine.connect() as conn:
-            inspector = inspect(self.db_manager.engine)
-            for table in Base.metadata.sorted_tables:
-                if table.name not in inspector.get_table_names():
-                    continue
-                existing = {c['name'] for c in inspector.get_columns(table.name)}
-                for col in table.columns:
-                    if col.name not in existing:
-                        col_type = col.type.compile(self.db_manager.engine.dialect)
-                        default = ""
-                        if col.server_default is not None:
-                            default = f" DEFAULT {col.server_default.arg}"
-                        elif hasattr(col.type, 'python_type') and col.type.python_type is bool:
-                            default = " DEFAULT 0"
-                        try:
-                            conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}{default}"))
-                            logger.info(f"Added missing column '{col.name}' to table '{table.name}'")
-                        except Exception as e:
-                            logger.warning(f"Could not auto-add column '{col.name}' to table '{table.name}': {e}")
-            conn.commit()
-
-    def _cleanup_bookfusion_md_titles(self):
-        """One-time cleanup: strip .md suffix from BookFusion titles in existing data."""
+        """Safety net: add any model columns missing from existing tables."""
+        from sqlalchemy import inspect as sa_inspect
         from sqlalchemy import text
         try:
-            with self.db_manager.engine.connect() as conn:
-                from sqlalchemy import inspect
-                tables = inspect(self.db_manager.engine).get_table_names()
-                if 'bookfusion_books' in tables:
-                    r1 = conn.execute(text(
-                        "UPDATE bookfusion_books SET title = SUBSTR(title, 1, LENGTH(title)-3) WHERE title LIKE '%.md'"
-                    ))
-                    if r1.rowcount:
-                        logger.info(f"Cleaned .md suffix from {r1.rowcount} BookFusion book title(s)")
-                if 'bookfusion_highlights' in tables:
-                    r2 = conn.execute(text(
-                        "UPDATE bookfusion_highlights SET book_title = SUBSTR(book_title, 1, LENGTH(book_title)-3) WHERE book_title LIKE '%.md'"
-                    ))
-                    if r2.rowcount:
-                        logger.info(f"Cleaned .md suffix from {r2.rowcount} BookFusion highlight title(s)")
-                conn.commit()
+            inspector = sa_inspect(self.db_manager.engine)
+            for table_name, model in Base.metadata.tables.items():
+                if table_name not in inspector.get_table_names():
+                    continue
+                existing_cols = {c['name'] for c in inspector.get_columns(table_name)}
+                for col in model.columns:
+                    if col.name not in existing_cols:
+                        col_type = col.type.compile(self.db_manager.engine.dialect)
+                        default_clause = ""
+                        if col.default is not None:
+                            default_val = col.default.arg
+                            if callable(default_val):
+                                try:
+                                    default_val = default_val()
+                                except TypeError:
+                                    try:
+                                        default_val = default_val(None)
+                                    except Exception:
+                                        default_val = None
+                            if isinstance(default_val, bool):
+                                default_clause = f" DEFAULT {'TRUE' if default_val else 'FALSE'}"
+                            elif isinstance(default_val, str):
+                                default_clause = f" DEFAULT '{default_val}'"
+                            elif isinstance(default_val, (int, float)):
+                                default_clause = f" DEFAULT {default_val}"
+
+                        alter = f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}{default_clause}"
+                        with self.db_manager.engine.connect() as conn:
+                            conn.execute(text(alter))
+                            conn.commit()
+                        logger.info(f"Added missing column: {table_name}.{col.name}")
         except Exception as e:
-            logger.debug(f"BookFusion .md cleanup skipped: {e}")
+            logger.warning(f"Column check failed (non-fatal): {e}")
+
+    def _cleanup_bookfusion_md_titles(self):
+        """One-time cleanup: strip .md suffix from BookFusion titles."""
+        try:
+            from .models import BookfusionBook
+            with self.get_session() as session:
+                dirty = session.query(BookfusionBook).filter(
+                    BookfusionBook.title.like('%.md')
+                ).all()
+                for b in dirty:
+                    stripped = b.title[:-3].strip()
+                    b.title = stripped if stripped else b.title
+                if dirty:
+                    logger.info(f"Cleaned {len(dirty)} BookFusion .md titles")
+        except Exception as e:
+            logger.debug(f"BookFusion title cleanup skipped: {e}")
 
     @contextmanager
     def get_session(self):
@@ -200,1025 +177,261 @@ class DatabaseService:
         finally:
             session.close()
 
-    # Setting operations
-    def get_setting(self, key: str, default: str = None) -> str | None:
-        """Get a setting value by key."""
-        with self.get_session() as session:
-            setting = session.query(Setting).filter(Setting.key == key).first()
-            if setting:
-                return setting.value
-            return default
-
-    def set_setting(self, key: str, value: str) -> Setting:
-        """Set a setting value."""
-        with self.get_session() as session:
-            existing = session.query(Setting).filter(Setting.key == key).first()
-            if existing:
-                existing.value = str(value) if value is not None else None
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                new_setting = Setting(key=key, value=str(value) if value is not None else None)
-                session.add(new_setting)
-                session.flush()
-                session.refresh(new_setting)
-                session.expunge(new_setting)
-                return new_setting
-
-    def get_all_settings(self) -> dict:
-        """Get all settings as a dictionary."""
-        with self.get_session() as session:
-            settings = session.query(Setting).all()
-            return {s.key: s.value for s in settings}
-
-    def delete_setting(self, key: str) -> bool:
-        """Delete a setting by key."""
-        with self.get_session() as session:
-            setting = session.query(Setting).filter(Setting.key == key).first()
-            if setting:
-                session.delete(setting)
-                return True
-            return False
-
-    # Book operations
-    def get_book(self, abs_id: str) -> Book | None:
-        """Get a book by its ABS ID."""
-        with self.get_session() as session:
-            book = session.query(Book).filter(Book.abs_id == abs_id).first()
-            if book:
-                session.expunge(book)  # Detach from session
-            return book
-
-    def get_book_by_kosync_id(self, kosync_id: str) -> Book | None:
-        """Get a book by its KoSync document ID."""
-        with self.get_session() as session:
-            book = session.query(Book).filter(Book.kosync_doc_id == kosync_id).first()
-            if book:
-                session.expunge(book)
-            return book
-
-    def get_all_books(self) -> list[Book]:
-        """Get all books as model objects."""
-        with self.get_session() as session:
-            books = session.query(Book).all()
-            for book in books:
-                session.expunge(book)
-            return books
-
-    def create_book(self, book: Book) -> Book:
-        """Create a new book from a Book model."""
-        with self.get_session() as session:
-            session.add(book)
-            session.flush()
-            session.refresh(book)
-            session.expunge(book)
-            return book
-
-    def save_book(self, book: Book) -> Book:
-        """Save or update a book model."""
-        with self.get_session() as session:
-            existing = session.query(Book).filter(Book.abs_id == book.abs_id).first()
-
-            if existing:
-                # Update existing book
-                for attr in ['abs_title', 'ebook_filename', 'original_ebook_filename', 'kosync_doc_id',
-                           'transcript_file', 'status', 'duration', 'sync_mode', 'storyteller_uuid',
-                           'abs_ebook_item_id', 'activity_flag']:
-                    if hasattr(book, attr):
-                        setattr(existing, attr, getattr(book, attr))
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                # Create new book
-                session.add(book)
-                session.flush()
-                session.refresh(book)
-                session.expunge(book)
-                return book
-
-    def migrate_book_data(self, old_abs_id: str, new_abs_id: str):
-        """
-        Migrate all associated data (States, Jobs, Links) from one book ID to another.
-        Used when merging an existing ebook-only entry into a new audiobook entry.
-        """
-        with self.get_session() as session:
-            try:
-                # Migrate Foreign Keys
-                # synchronize_session=False is required for updates on collections
-                session.query(State).filter(State.abs_id == old_abs_id).update({State.abs_id: new_abs_id}, synchronize_session=False)
-                session.query(Job).filter(Job.abs_id == old_abs_id).update({Job.abs_id: new_abs_id}, synchronize_session=False)
-                session.query(KosyncDocument).filter(KosyncDocument.linked_abs_id == old_abs_id).update({KosyncDocument.linked_abs_id: new_abs_id}, synchronize_session=False)
-                session.query(ReadingJournal).filter(ReadingJournal.abs_id == old_abs_id).update({ReadingJournal.abs_id: new_abs_id}, synchronize_session=False)
-
-                # Cleanup non-migratable data (Alignment/Hardcover)
-                from .models import BookAlignment  # Import here to avoid circulars if any, though likely safe at top
-                try:
-                    session.query(BookAlignment).filter(BookAlignment.abs_id == old_abs_id).delete(synchronize_session=False)
-                    session.query(HardcoverDetails).filter(HardcoverDetails.abs_id == old_abs_id).delete(synchronize_session=False)
-                except Exception: pass
-
-                logger.info(f"Migrated data from '{old_abs_id}' to '{new_abs_id}'")
-            except Exception as e:
-                logger.error(f"Failed to migrate book data: {e}")
-                raise
-
-    def delete_book(self, abs_id: str) -> bool:
-        """Delete a book and all its related data."""
-        with self.get_session() as session:
-            # First, unlink any kosync documents explicitly
-            session.query(KosyncDocument).filter(
-                KosyncDocument.linked_abs_id == abs_id
-            ).update({KosyncDocument.linked_abs_id: None})
-
-            book = session.query(Book).filter(Book.abs_id == abs_id).first()
-            if book:
-                session.delete(book)  # Cascade will handle states and jobs
-                return True
-            return False
-
-    def get_books_by_status(self, status: str) -> list[Book]:
-        """Get books by status."""
-        with self.get_session() as session:
-            books = session.query(Book).filter(Book.status == status).all()
-            for book in books:
-                session.expunge(book)
-            return books
-
-    # State operations
-    def get_state(self, abs_id: str, client_name: str) -> State | None:
-        """Get a specific state by book and client."""
-        with self.get_session() as session:
-            state = session.query(State).filter(
-                State.abs_id == abs_id,
-                State.client_name == client_name
-            ).first()
-            if state:
-                session.expunge(state)
-            return state
-
-    def get_states_for_book(self, abs_id: str) -> list[State]:
-        """Get all states for a book."""
-        with self.get_session() as session:
-            states = session.query(State).filter(State.abs_id == abs_id).all()
-            for state in states:
-                session.expunge(state)
-            return states
-
-    def get_all_states(self) -> list[State]:
-        """Get all states."""
-        with self.get_session() as session:
-            states = session.query(State).all()
-            for state in states:
-                session.expunge(state)
-            return states
-
-    def save_state(self, state: State) -> State:
-        """Save or update a state model."""
-        with self.get_session() as session:
-            existing = session.query(State).filter(
-                State.abs_id == state.abs_id,
-                State.client_name == state.client_name
-            ).first()
-
-            if existing:
-                # Update existing state
-                for attr in ['last_updated', 'percentage', 'timestamp', 'xpath', 'cfi']:
-                    if hasattr(state, attr):
-                        setattr(existing, attr, getattr(state, attr))
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                # Create new state
-                session.add(state)
-                session.flush()
-                session.refresh(state)
-                session.expunge(state)
-                return state
-
-    def delete_states_for_book(self, abs_id: str) -> int:
-        """Delete all states for a book."""
-        with self.get_session() as session:
-            count = session.query(State).filter(State.abs_id == abs_id).count()
-            session.query(State).filter(State.abs_id == abs_id).delete()
-            return count
-
-    # Job operations
-    def get_latest_job(self, abs_id: str) -> Job | None:
-        """Get the latest job for a book."""
-        with self.get_session() as session:
-            job = session.query(Job).filter(Job.abs_id == abs_id).order_by(Job.last_attempt.desc()).first()
-            if job:
-                session.expunge(job)
-            return job
-
-    def get_jobs_for_book(self, abs_id: str) -> list[Job]:
-        """Get all jobs for a book."""
-        with self.get_session() as session:
-            jobs = session.query(Job).filter(Job.abs_id == abs_id).order_by(Job.last_attempt.desc()).all()
-            for job in jobs:
-                session.expunge(job)
-            return jobs
-
-    def get_all_jobs(self) -> list[Job]:
-        """Get all jobs."""
-        with self.get_session() as session:
-            jobs = session.query(Job).all()
-            for job in jobs:
-                session.expunge(job)
-            return jobs
-
-    def save_job(self, job: Job) -> Job:
-        """Save a new job."""
-        with self.get_session() as session:
-            session.add(job)
-            session.flush()
-            session.refresh(job)
-            session.expunge(job)
-            return job
-
-    def update_latest_job(self, abs_id: str, **kwargs) -> Job | None:
-        """Update the latest job for a book."""
-        with self.get_session() as session:
-            job = session.query(Job).filter(Job.abs_id == abs_id).order_by(Job.last_attempt.desc()).first()
-            if job:
-                for key, value in kwargs.items():
-                    if hasattr(job, key):
-                        setattr(job, key, value)
-                session.flush()
-                session.refresh(job)
-                session.expunge(job)
-                return job
-            return None
-
-    def delete_jobs_for_book(self, abs_id: str) -> int:
-        """Delete all jobs for a book."""
-        with self.get_session() as session:
-            count = session.query(Job).filter(Job.abs_id == abs_id).count()
-            session.query(Job).filter(Job.abs_id == abs_id).delete()
-            return count
-
-    # HardcoverDetails operations
-    def get_hardcover_details(self, abs_id: str) -> HardcoverDetails | None:
-        """Get hardcover details for a book."""
-        with self.get_session() as session:
-            details = session.query(HardcoverDetails).filter(HardcoverDetails.abs_id == abs_id).first()
-            if details:
-                session.expunge(details)
-            return details
-
-    def save_hardcover_details(self, details: HardcoverDetails) -> HardcoverDetails:
-        """Save or update hardcover details."""
-        with self.get_session() as session:
-            existing = session.query(HardcoverDetails).filter(HardcoverDetails.abs_id == details.abs_id).first()
-
-            if existing:
-                # Update existing details
-                for attr in ['hardcover_book_id', 'hardcover_slug', 'hardcover_edition_id', 'hardcover_pages',
-                           'hardcover_audio_seconds', 'isbn', 'asin', 'matched_by']:
-                    if hasattr(details, attr):
-                        setattr(existing, attr, getattr(details, attr))
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                # Create new details
-                session.add(details)
-                session.flush()
-                session.refresh(details)
-                session.expunge(details)
-                return details
-
-    def delete_hardcover_details(self, abs_id: str) -> bool:
-        """Delete hardcover details for a book."""
-        with self.get_session() as session:
-            details = session.query(HardcoverDetails).filter(HardcoverDetails.abs_id == abs_id).first()
-            if details:
-                session.delete(details)
-                return True
-            return False
-
-    def get_all_hardcover_details(self) -> list[HardcoverDetails]:
-        """Get all hardcover details."""
-        with self.get_session() as session:
-            details = session.query(HardcoverDetails).all()
-            for detail in details:
-                session.expunge(detail)
-            return details
-
-    # Advanced queries
-    def get_books_with_recent_activity(self, limit: int = 10) -> list[Book]:
-        """Get books with the most recent state updates."""
-        with self.get_session() as session:
-            books = session.query(Book).join(State).order_by(State.last_updated.desc()).limit(limit).all()
-            for book in books:
-                session.expunge(book)
-            return books
-
-    def get_failed_jobs(self, limit: int = 20) -> list[Job]:
-        """Get recent failed jobs."""
-        with self.get_session() as session:
-            jobs = session.query(Job).filter(Job.last_error.isnot(None)).order_by(Job.last_attempt.desc()).limit(limit).all()
-            for job in jobs:
-                session.expunge(job)
-            return jobs
-
-    def get_statistics(self) -> dict:
-        """Get database statistics."""
-        with self.get_session() as session:
-            from sqlalchemy import func
-
-            stats = {
-                'total_books': session.query(Book).count(),
-                'active_books': session.query(Book).filter(Book.status == 'active').count(),
-                'paused_books': session.query(Book).filter(Book.status == 'paused').count(),
-                'dnf_books': session.query(Book).filter(Book.status == 'dnf').count(),
-                'total_states': session.query(State).count(),
-                'total_jobs': session.query(Job).count(),
-                'failed_jobs': session.query(Job).filter(Job.last_error.isnot(None)).count(),
-            }
-
-            # Get client breakdown
-            client_counts = session.query(
-                State.client_name,
-                func.count(State.id)
-            ).group_by(State.client_name).all()
-            stats['states_by_client'] = {client: count for client, count in client_counts}
-
-            return stats
-
-    def get_kosync_document(self, document_hash: str) -> KosyncDocument | None:
-        """Get a KOSync document by its hash."""
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(
-                KosyncDocument.document_hash == document_hash
-            ).first()
-            if doc:
-                session.expunge(doc)
-            return doc
-
-    def save_kosync_document(self, doc: KosyncDocument) -> KosyncDocument:
-        """Save or update a KOSync document."""
-        with self.get_session() as session:
-            doc.last_updated = datetime.utcnow()
-            merged = session.merge(doc)
-            session.flush()
-            session.refresh(merged)
-            session.expunge(merged)
-            return merged
-
-    def get_all_kosync_documents(self) -> list[KosyncDocument]:
-        """Get all KOSync documents."""
-        with self.get_session() as session:
-            docs = session.query(KosyncDocument).order_by(
-                KosyncDocument.last_updated.desc()
-            ).all()
-            for doc in docs:
-                session.expunge(doc)
-            return docs
-
-    def get_unlinked_kosync_documents(self) -> list[KosyncDocument]:
-        """Get KOSync documents not linked to any ABS book."""
-        with self.get_session() as session:
-            docs = session.query(KosyncDocument).filter(
-                KosyncDocument.linked_abs_id.is_(None)
-            ).order_by(KosyncDocument.last_updated.desc()).all()
-            for doc in docs:
-                session.expunge(doc)
-            return docs
-
-    def get_linked_kosync_documents(self) -> list[KosyncDocument]:
-        """Get KOSync documents that are linked to an ABS book."""
-        with self.get_session() as session:
-            docs = session.query(KosyncDocument).filter(
-                KosyncDocument.linked_abs_id.isnot(None)
-            ).order_by(KosyncDocument.last_updated.desc()).all()
-            for doc in docs:
-                session.expunge(doc)
-            return docs
-
-    def link_kosync_document(self, document_hash: str, abs_id: str) -> bool:
-        """Link a KOSync document to an ABS book."""
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(
-                KosyncDocument.document_hash == document_hash
-            ).first()
-            if doc:
-                doc.linked_abs_id = abs_id
-                doc.last_updated = datetime.utcnow()
-                return True
-            return False
-
-    def unlink_kosync_document(self, document_hash: str) -> bool:
-        """Remove the ABS book link from a KOSync document."""
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(
-                KosyncDocument.document_hash == document_hash
-            ).first()
-            if doc:
-                doc.linked_abs_id = None
-                doc.last_updated = datetime.utcnow()
-                return True
-            return False
-
-    def delete_kosync_document(self, document_hash: str) -> bool:
-        """Delete a KOSync document."""
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(
-                KosyncDocument.document_hash == document_hash
-            ).first()
-            if doc:
-                session.delete(doc)
-                return True
-            return False
-
-    def get_kosync_document_by_linked_book(self, abs_id: str) -> KosyncDocument | None:
-        """Get a KOSync document linked to a specific ABS book."""
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(
-                KosyncDocument.linked_abs_id == abs_id
-            ).first()
-            if doc:
-                session.expunge(doc)
-            return doc
-
-    def get_kosync_documents_for_book(self, abs_id: str) -> list[KosyncDocument]:
-        """Get ALL KOSync documents linked to a specific ABS book."""
-        with self.get_session() as session:
-            docs = session.query(KosyncDocument).filter(
-                KosyncDocument.linked_abs_id == abs_id
-            ).all()
-            for doc in docs:
-                session.expunge(doc)
-            return docs
-
-    def get_book_by_ebook_filename(self, filename: str) -> Optional['Book']:
-        """Find a book by its ebook filename (current or original)."""
-        from sqlalchemy import or_
-        with self.get_session() as session:
-            book = session.query(Book).filter(
-                or_(
-                    Book.ebook_filename == filename,
-                    Book.original_ebook_filename == filename
-                )
-            ).first()
-            if book:
-                session.expunge(book)
-            return book
-
-    def get_kosync_doc_by_filename(self, filename: str) -> KosyncDocument | None:
-        """Find a KOSync document by its associated filename."""
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(
-                KosyncDocument.filename == filename
-            ).first()
-            if doc:
-                session.expunge(doc)
-            return doc
-
-    def get_kosync_doc_by_booklore_id(self, booklore_id: str) -> KosyncDocument | None:
-        """Find a KOSync document by its Booklore ID."""
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(
-                KosyncDocument.booklore_id == str(booklore_id)
-            ).first()
-            if doc:
-                session.expunge(doc)
-            return doc
-
-
-    # PendingSuggestion operations
-    def get_pending_suggestion(self, source_id: str) -> PendingSuggestion | None:
-        """Get a pending suggestion by source ID (e.g. ABS ID). Only returns pending, not dismissed."""
-        with self.get_session() as session:
-            suggestion = session.query(PendingSuggestion).filter(
-                PendingSuggestion.source_id == source_id,
-                PendingSuggestion.status == 'pending'
-            ).first()
-            if suggestion:
-                session.expunge(suggestion)
-            return suggestion
-
-    def suggestion_exists(self, source_id: str) -> bool:
-        """Check if any suggestion exists for source_id (pending or dismissed)."""
-        with self.get_session() as session:
-            return session.query(PendingSuggestion).filter(
-                PendingSuggestion.source_id == source_id
-            ).first() is not None
-
-    def save_pending_suggestion(self, suggestion: PendingSuggestion) -> PendingSuggestion:
-        """Save or update a pending suggestion."""
-        with self.get_session() as session:
-            existing = session.query(PendingSuggestion).filter(
-                PendingSuggestion.source_id == suggestion.source_id
-            ).first()
-
-            if existing:
-                for attr in ['title', 'author', 'cover_url', 'matches_json', 'status']:
-                    if hasattr(suggestion, attr):
-                        setattr(existing, attr, getattr(suggestion, attr))
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                session.add(suggestion)
-                session.flush()
-                session.refresh(suggestion)
-                session.expunge(suggestion)
-                return suggestion
-
-    def is_hash_linked_to_device(self, doc_hash: str) -> bool:
-        """Check if a document hash is actively linked to a device document."""
-        if not doc_hash:
-            return False
-
-        with self.get_session() as session:
-            return session.query(KosyncDocument).filter(
-                KosyncDocument.document_hash == doc_hash
-            ).count() > 0
-
-    def get_all_pending_suggestions(self) -> list[PendingSuggestion]:
-        """Get all pending suggestions."""
-        with self.get_session() as session:
-            suggestions = session.query(PendingSuggestion).filter(
-                PendingSuggestion.status == 'pending'
-            ).order_by(PendingSuggestion.created_at.desc()).all()
-            for s in suggestions:
-                session.expunge(s)
-            return suggestions
-
-    def dismiss_suggestion(self, source_id: str) -> bool:
-        """Mark a suggestion as dismissed."""
-        with self.get_session() as session:
-            suggestion = session.query(PendingSuggestion).filter(
-                PendingSuggestion.source_id == source_id
-            ).first()
-            if suggestion:
-                suggestion.status = 'dismissed'
-                # The context manager does commit on exit.
-                return True
-            return False
-
-    def ignore_suggestion(self, source_id: str) -> bool:
-        """Mark a suggestion as never ask."""
-        with self.get_session() as session:
-            suggestion = session.query(PendingSuggestion).filter(
-                PendingSuggestion.source_id == source_id
-            ).first()
-            if suggestion:
-                suggestion.status = 'ignored'
-                return True
-            return False
-
-    def clear_stale_suggestions(self) -> int:
-        """
-        Delete suggestions that are not for active books in our bridge.
-        A suggestion is 'stale' if its source_id (ABS ID) is not in our books table.
-        """
-        with self.get_session() as session:
-            # Subquery to get all IDs in books table
-            # We preserve ANY suggestion that corresponds to a book we tracking,
-            # regardless of its status. This ensures that if the user matched it
-            # or it's pending transcription, we don't wipe it accidentally.
-            # But junk suggestions for books they haven't touched are wiped.
-
-            # Using raw delete with subquery for efficiency
-            # We delete suggestions where source_id is not in the books table
-            from sqlalchemy import not_
-
-            # Find all suggestions not in the books table
-            stale_query = session.query(PendingSuggestion).filter(
-                not_(PendingSuggestion.source_id.in_(
-                    session.query(Book.abs_id)
-                ))
-            )
-
-            count = stale_query.count()
-            stale_query.delete(synchronize_session=False)
-
-            return count
-
-    # Reading tracker operations
-    def update_book_reading_fields(self, abs_id: str, **kwargs) -> Book | None:
-        """Update reading-specific fields on a book (started_at, finished_at, rating, read_count).
-        Separate from save_book() to prevent sync paths from overwriting reading data."""
-        allowed = {'started_at', 'finished_at', 'rating', 'read_count'}
-        rating = kwargs.get('rating')
-        if rating is not None and not (0.0 <= rating <= 5.0):
-            raise ValueError("rating must be between 0 and 5")
-        read_count = kwargs.get('read_count')
-        if read_count is not None and read_count < 1:
-            raise ValueError("read_count must be >= 1")
-        with self.get_session() as session:
-            book = session.query(Book).filter(Book.abs_id == abs_id).first()
-            if not book:
-                return None
-            for key, value in kwargs.items():
-                if key in allowed:
-                    setattr(book, key, value)
-            session.flush()
-            session.refresh(book)
-            session.expunge(book)
-            return book
-
-    def get_reading_journals(self, abs_id: str) -> list[ReadingJournal]:
-        """Get journal entries for a book, newest first."""
-        with self.get_session() as session:
-            journals = session.query(ReadingJournal).filter(
-                ReadingJournal.abs_id == abs_id
-            ).order_by(ReadingJournal.created_at.desc()).all()
-            for j in journals:
-                session.expunge(j)
-            return journals
-
-    VALID_JOURNAL_EVENTS = {'started', 'progress', 'finished', 'paused', 'dnf', 'resumed', 'note'}
-
-    def add_reading_journal(self, abs_id: str, event: str, entry: str = None,
-                            percentage: float = None) -> ReadingJournal:
-        """Create a new journal entry for a book."""
-        if event not in self.VALID_JOURNAL_EVENTS:
-            raise ValueError(f"event must be one of {self.VALID_JOURNAL_EVENTS}")
-        if percentage is not None and not (0.0 <= percentage <= 1.0):
-            raise ValueError("percentage must be between 0.0 and 1.0")
-        with self.get_session() as session:
-            journal = ReadingJournal(abs_id=abs_id, event=event, entry=entry, percentage=percentage)
-            session.add(journal)
-            session.flush()
-            session.refresh(journal)
-            session.expunge(journal)
-            return journal
-
-    def delete_reading_journal(self, journal_id: int) -> bool:
-        """Delete a journal entry by ID."""
-        with self.get_session() as session:
-            journal = session.query(ReadingJournal).filter(ReadingJournal.id == journal_id).first()
-            if journal:
-                session.delete(journal)
-                return True
-            return False
-
-    def get_reading_goal(self, year: int) -> ReadingGoal | None:
-        """Get the reading goal for a given year."""
-        with self.get_session() as session:
-            goal = session.query(ReadingGoal).filter(ReadingGoal.year == year).first()
-            if goal:
-                session.expunge(goal)
-            return goal
-
-    def save_reading_goal(self, year: int, target_books: int) -> ReadingGoal:
-        """Set or update the reading goal for a year."""
-        if target_books < 0:
-            raise ValueError("target_books must be >= 0")
-        with self.get_session() as session:
-            existing = session.query(ReadingGoal).filter(ReadingGoal.year == year).first()
-            if existing:
-                existing.target_books = target_books
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                goal = ReadingGoal(year=year, target_books=target_books)
-                session.add(goal)
-                session.flush()
-                session.refresh(goal)
-                session.expunge(goal)
-                return goal
-
-    def get_reading_stats(self, year: int) -> dict:
-        """Get reading statistics for a given year."""
-        with self.get_session() as session:
-            books_finished = session.query(Book).filter(
-                Book.finished_at.like(f"{year}-%")
-            ).count()
-            currently_reading = session.query(Book).filter(Book.status == 'active').count()
-            total_tracked = session.query(Book).filter(
-                Book.status.in_(['active', 'completed', 'paused', 'dnf', 'not_started'])
-            ).count()
-            goal = session.query(ReadingGoal).filter(ReadingGoal.year == year).first()
-
-            return {
-                'books_finished': books_finished,
-                'currently_reading': currently_reading,
-                'total_tracked': total_tracked,
-                'goal_target': goal.target_books if goal else None,
-            }
-
-    # BookloreBook operations
-    def get_booklore_book(self, filename: str) -> BookloreBook | None:
-        """Get a cached Booklore book by filename."""
-        with self.get_session() as session:
-            book = session.query(BookloreBook).filter(BookloreBook.filename == filename).first()
-            if book:
-                session.expunge(book)
-            return book
-
-    def get_all_booklore_books(self, source: str = None) -> list[BookloreBook]:
-        """Get all cached Booklore books, optionally filtered by source."""
-        with self.get_session() as session:
-            query = session.query(BookloreBook)
-            if source:
-                query = query.filter(BookloreBook.source == source)
-            books = query.all()
-            for book in books:
-                session.expunge(book)
-            return books
-
-    def save_booklore_book(self, booklore_book: BookloreBook) -> BookloreBook:
-        """Save or update a Booklore book."""
-        with self.get_session() as session:
-            existing = session.query(BookloreBook).filter(
-                BookloreBook.filename == booklore_book.filename,
-                BookloreBook.source == booklore_book.source
-            ).first()
-
-            if existing:
-                for attr in ['title', 'authors', 'raw_metadata']:
-                    if hasattr(booklore_book, attr):
-                        setattr(existing, attr, getattr(booklore_book, attr))
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                try:
-                    session.add(booklore_book)
-                    session.flush()
-                except IntegrityError:
-                    # Stale single-column unique constraint on filename may
-                    # block the insert when another source owns this filename.
-                    # Fall back to updating the existing row by filename alone.
-                    session.rollback()
-                    existing = session.query(BookloreBook).filter(
-                        BookloreBook.filename == booklore_book.filename
-                    ).first()
-                    if existing:
-                        for attr in ['title', 'authors', 'raw_metadata', 'source']:
-                            if hasattr(booklore_book, attr):
-                                setattr(existing, attr, getattr(booklore_book, attr))
-                        session.flush()
-                        session.refresh(existing)
-                        session.expunge(existing)
-                        return existing
-                    raise
-                session.refresh(booklore_book)
-                session.expunge(booklore_book)
-                return booklore_book
-
-    def delete_booklore_book(self, filename: str, source: str = None) -> bool:
-        """Delete a Booklore book from the cache table."""
-        if not source:
-            logger.warning(f"delete_booklore_book called without source for '{filename}', skipping to avoid cross-instance deletion")
-            return False
-        try:
-            with self.get_session() as session:
-                query = session.query(BookloreBook).filter(
-                    BookloreBook.filename == filename,
-                    BookloreBook.source == source
-                )
-                deleted = query.delete(synchronize_session=False)
-                return deleted > 0
-        except Exception as e:
-            logger.error(f"Failed to delete Booklore book '{filename}': {e}")
-            return False
-
-    # ── BookFusion Highlights ──
-
-    def save_bookfusion_highlights(self, highlights: list[dict]) -> int:
-        """Bulk upsert BookFusion highlights. Returns count of new highlights saved."""
-        saved = 0
-        with self.get_session() as session:
-            all_ids = [h['highlight_id'] for h in highlights if h.get('highlight_id')]
-            existing_rows = session.query(BookfusionHighlight).filter(
-                BookfusionHighlight.highlight_id.in_(all_ids)
-            ).all() if all_ids else []
-            lookup = {row.highlight_id: row for row in existing_rows}
-
-            seen_in_batch = set()
-            for h in highlights:
-                highlight_id = h.get('highlight_id')
-                if not highlight_id or highlight_id in seen_in_batch:
-                    continue
-                seen_in_batch.add(highlight_id)
-                existing = lookup.get(highlight_id)
-                if existing:
-                    existing.content = h['content']
-                    existing.chapter_heading = h.get('chapter_heading')
-                    existing.book_title = h.get('book_title')
-                    existing.highlighted_at = h.get('highlighted_at')
-                    existing.quote_text = h.get('quote_text')
-                else:
-                    session.add(BookfusionHighlight(
-                        bookfusion_book_id=h['bookfusion_book_id'],
-                        highlight_id=h['highlight_id'],
-                        content=h['content'],
-                        book_title=h.get('book_title'),
-                        chapter_heading=h.get('chapter_heading'),
-                        highlighted_at=h.get('highlighted_at'),
-                        quote_text=h.get('quote_text'),
-                    ))
-                    saved += 1
-        return saved
-
-    def get_bookfusion_highlights(self) -> list[BookfusionHighlight]:
-        """Return all BookFusion highlights ordered by book title."""
-        with self.get_session() as session:
-            highlights = session.query(BookfusionHighlight).order_by(
-                BookfusionHighlight.book_title, BookfusionHighlight.id
-            ).all()
-            session.expunge_all()
-            return highlights
-
-    def get_unmatched_bookfusion_highlights(self) -> list[BookfusionHighlight]:
-        """Return highlights with no matched_abs_id, grouped by book title."""
-        with self.get_session() as session:
-            highlights = session.query(BookfusionHighlight).filter(
-                BookfusionHighlight.matched_abs_id.is_(None)
-            ).order_by(BookfusionHighlight.book_title, BookfusionHighlight.id).all()
-            session.expunge_all()
-            return highlights
-
-    def link_bookfusion_highlight(self, highlight_id: int, abs_id: str | None):
-        """Link or unlink a BookFusion highlight to a PageKeeper book."""
-        with self.get_session() as session:
-            hl = session.query(BookfusionHighlight).filter(
-                BookfusionHighlight.id == highlight_id
-            ).first()
-            if hl:
-                hl.matched_abs_id = abs_id
-
-    def link_bookfusion_book(self, bookfusion_book_id: str, abs_id: str | None):
-        """Link or unlink all BookFusion highlights for a specific BookFusion book."""
-        with self.get_session() as session:
-            session.query(BookfusionHighlight).filter(
-                BookfusionHighlight.bookfusion_book_id == bookfusion_book_id
-            ).update({BookfusionHighlight.matched_abs_id: abs_id},
-                     synchronize_session=False)
-
-
-    def link_bookfusion_highlights_by_book_id(self, bookfusion_book_id: str, abs_id: str):
-        """Link all highlights for a BookFusion book_id to a dashboard abs_id."""
-        self.link_bookfusion_book(bookfusion_book_id, abs_id)
-
-    def get_bookfusion_highlights_for_book(self, abs_id: str) -> list[BookfusionHighlight]:
-        """Return BookFusion highlights matched to a specific PageKeeper book."""
-        with self.get_session() as session:
-            highlights = session.query(BookfusionHighlight).filter(
-                BookfusionHighlight.matched_abs_id == abs_id
-            ).order_by(BookfusionHighlight.highlighted_at.desc().nullslast(),
-                       BookfusionHighlight.id).all()
-            session.expunge_all()
-            return highlights
-
-    def get_bookfusion_sync_cursor(self) -> str | None:
-        return self.get_setting('BOOKFUSION_SYNC_CURSOR')
-
-    def set_bookfusion_sync_cursor(self, cursor: str):
-        self.set_setting('BOOKFUSION_SYNC_CURSOR', cursor)
-
-    # ── BookFusion Books (Library Catalog) ──
-
-    def save_bookfusion_books(self, books: list[dict]) -> int:
-        """Bulk upsert BookFusion books by bookfusion_id. Returns count of new books saved."""
-        saved = 0
-        with self.get_session() as session:
-            for b in books:
-                existing = session.query(BookfusionBook).filter(
-                    BookfusionBook.bookfusion_id == b['bookfusion_id']
-                ).first()
-                title = b.get('title') or ''
-                if title.endswith('.md'):
-                    title = title[:-3].strip()
-
-                if existing:
-                    existing.title = title or existing.title
-                    existing.authors = b.get('authors') or existing.authors
-                    existing.filename = b.get('filename') or existing.filename
-                    existing.frontmatter = b.get('frontmatter') or existing.frontmatter
-                    existing.tags = b.get('tags') or existing.tags
-                    existing.series = b.get('series') or existing.series
-                    existing.highlight_count = b.get('highlight_count', existing.highlight_count)
-                    existing.last_updated = datetime.utcnow()
-                else:
-                    session.add(BookfusionBook(
-                        bookfusion_id=b['bookfusion_id'],
-                        title=title or b.get('title'),
-                        authors=b.get('authors'),
-                        filename=b.get('filename'),
-                        frontmatter=b.get('frontmatter'),
-                        tags=b.get('tags'),
-                        series=b.get('series'),
-                        highlight_count=b.get('highlight_count', 0),
-                    ))
-                    saved += 1
-        return saved
-
-    def get_bookfusion_books(self) -> list[BookfusionBook]:
-        """Return all BookFusion catalog books ordered by title."""
-        with self.get_session() as session:
-            books = session.query(BookfusionBook).order_by(
-                BookfusionBook.title
-            ).all()
-            session.expunge_all()
-            return books
-
-    def is_bookfusion_linked(self, abs_id: str) -> bool:
-        """Check if a dashboard book has any BookFusion catalog link."""
-        with self.get_session() as session:
-            return session.query(BookfusionBook).filter(
-                BookfusionBook.matched_abs_id == abs_id
-            ).first() is not None
-
-    def set_bookfusion_book_match(self, bookfusion_id: str, abs_id: str | None):
-        """Set or clear the matched_abs_id on a BookFusion catalog book."""
-        with self.get_session() as session:
-            book = session.query(BookfusionBook).filter(
-                BookfusionBook.bookfusion_id == bookfusion_id
-            ).first()
-            if book:
-                book.matched_abs_id = abs_id
-
-    def get_bookfusion_book(self, bookfusion_id: str) -> BookfusionBook | None:
-        """Look up a single BookFusion book by its bookfusion_id."""
-        with self.get_session() as session:
-            book = session.query(BookfusionBook).filter(
-                BookfusionBook.bookfusion_id == bookfusion_id
-            ).first()
-            if book:
-                session.expunge(book)
-            return book
-
-    def get_bookfusion_book_by_abs_id(self, abs_id: str) -> BookfusionBook | None:
-        """Look up a BookFusion book by its matched_abs_id."""
-        with self.get_session() as session:
-            book = session.query(BookfusionBook).filter(
-                BookfusionBook.matched_abs_id == abs_id
-            ).first()
-            if book:
-                session.expunge(book)
-            return book
-
-    def unlink_bookfusion_by_abs_id(self, abs_id: str):
-        """Clear BookFusion catalog and highlight links for a dashboard book."""
-        with self.get_session() as session:
-            session.query(BookfusionBook).filter(
-                BookfusionBook.matched_abs_id == abs_id
-            ).update({BookfusionBook.matched_abs_id: None},
-                     synchronize_session=False)
-            session.query(BookfusionHighlight).filter(
-                BookfusionHighlight.matched_abs_id == abs_id
-            ).update({BookfusionHighlight.matched_abs_id: None},
-                     synchronize_session=False)
-
-    def get_bookfusion_highlight_date_range(self, bookfusion_book_ids: list[str]) -> tuple | None:
-        """Return (earliest_highlighted_at, latest_highlighted_at, count) for given book IDs."""
-        from sqlalchemy import func
-        with self.get_session() as session:
-            result = session.query(
-                func.min(BookfusionHighlight.highlighted_at),
-                func.max(BookfusionHighlight.highlighted_at),
-                func.count(BookfusionHighlight.id),
-            ).filter(
-                BookfusionHighlight.bookfusion_book_id.in_(bookfusion_book_ids),
-                BookfusionHighlight.highlighted_at.isnot(None),
-            ).first()
-            if result and result[2] > 0:
-                return result
-            return None
-
-    def get_bookfusion_linked_abs_ids(self) -> set[str]:
-        """Return all abs_ids that have a BookFusion catalog or highlight link."""
-        with self.get_session() as session:
-            book_ids = {
-                r[0] for r in session.query(BookfusionBook.matched_abs_id).filter(
-                    BookfusionBook.matched_abs_id.isnot(None)
-                ).all()
-            }
-            highlight_ids = {
-                r[0] for r in session.query(BookfusionHighlight.matched_abs_id).filter(
-                    BookfusionHighlight.matched_abs_id.isnot(None)
-                ).distinct().all()
-            }
-            return book_ids | highlight_ids
-
-    def get_bookfusion_highlight_counts(self) -> dict[str, int]:
-        """Return highlight count per matched_abs_id."""
-        from sqlalchemy import func
-        with self.get_session() as session:
-            rows = session.query(
-                BookfusionHighlight.matched_abs_id,
-                func.count(BookfusionHighlight.id)
-            ).filter(
-                BookfusionHighlight.matched_abs_id.isnot(None)
-            ).group_by(BookfusionHighlight.matched_abs_id).all()
-            return {abs_id: count for abs_id, count in rows}
+    # ── Settings (delegates to SettingsRepository) ──
+
+    def get_setting(self, key, default=None):
+        return self._settings.get_setting(key, default)
+
+    def set_setting(self, key, value):
+        return self._settings.set_setting(key, value)
+
+    def get_all_settings(self):
+        return self._settings.get_all_settings()
+
+    def delete_setting(self, key):
+        return self._settings.delete_setting(key)
+
+    # ── Books, States, Jobs (delegates to BookRepository) ──
+
+    def get_book(self, abs_id):
+        return self._books.get_book(abs_id)
+
+    def get_book_by_kosync_id(self, kosync_id):
+        return self._books.get_book_by_kosync_id(kosync_id)
+
+    def get_all_books(self):
+        return self._books.get_all_books()
+
+    def get_books_by_status(self, status):
+        return self._books.get_books_by_status(status)
+
+    def get_book_by_ebook_filename(self, filename):
+        return self._books.get_book_by_ebook_filename(filename)
+
+    def create_book(self, book):
+        return self._books.create_book(book)
+
+    def save_book(self, book):
+        return self._books.save_book(book)
+
+    def delete_book(self, abs_id):
+        return self._books.delete_book(abs_id)
+
+    def migrate_book_data(self, old_abs_id, new_abs_id):
+        return self._books.migrate_book_data(old_abs_id, new_abs_id)
+
+    def get_state(self, abs_id, client_name):
+        return self._books.get_state(abs_id, client_name)
+
+    def get_states_for_book(self, abs_id):
+        return self._books.get_states_for_book(abs_id)
+
+    def get_all_states(self):
+        return self._books.get_all_states()
+
+    def save_state(self, state):
+        return self._books.save_state(state)
+
+    def delete_states_for_book(self, abs_id):
+        return self._books.delete_states_for_book(abs_id)
+
+    def get_latest_job(self, abs_id):
+        return self._books.get_latest_job(abs_id)
+
+    def get_jobs_for_book(self, abs_id):
+        return self._books.get_jobs_for_book(abs_id)
+
+    def get_all_jobs(self):
+        return self._books.get_all_jobs()
+
+    def save_job(self, job):
+        return self._books.save_job(job)
+
+    def update_latest_job(self, abs_id, **kwargs):
+        return self._books.update_latest_job(abs_id, **kwargs)
+
+    def delete_jobs_for_book(self, abs_id):
+        return self._books.delete_jobs_for_book(abs_id)
+
+    def get_books_with_recent_activity(self, limit=10):
+        return self._books.get_books_with_recent_activity(limit)
+
+    def get_failed_jobs(self, limit=20):
+        return self._books.get_failed_jobs(limit)
+
+    def get_statistics(self):
+        return self._books.get_statistics()
+
+    # ── KoSync (delegates to KoSyncRepository) ──
+
+    def get_kosync_document(self, document_hash):
+        return self._kosync.get_kosync_document(document_hash)
+
+    def save_kosync_document(self, doc):
+        return self._kosync.save_kosync_document(doc)
+
+    def get_all_kosync_documents(self):
+        return self._kosync.get_all_kosync_documents()
+
+    def get_unlinked_kosync_documents(self):
+        return self._kosync.get_unlinked_kosync_documents()
+
+    def get_linked_kosync_documents(self):
+        return self._kosync.get_linked_kosync_documents()
+
+    def link_kosync_document(self, document_hash, abs_id):
+        return self._kosync.link_kosync_document(document_hash, abs_id)
+
+    def unlink_kosync_document(self, document_hash):
+        return self._kosync.unlink_kosync_document(document_hash)
+
+    def delete_kosync_document(self, document_hash):
+        return self._kosync.delete_kosync_document(document_hash)
+
+    def get_kosync_document_by_linked_book(self, abs_id):
+        return self._kosync.get_kosync_document_by_linked_book(abs_id)
+
+    def get_kosync_documents_for_book(self, abs_id):
+        return self._kosync.get_kosync_documents_for_book(abs_id)
+
+    def get_kosync_doc_by_filename(self, filename):
+        return self._kosync.get_kosync_doc_by_filename(filename)
+
+    def get_kosync_doc_by_booklore_id(self, booklore_id):
+        return self._kosync.get_kosync_doc_by_booklore_id(booklore_id)
+
+    # ── Suggestions (delegates to SuggestionRepository) ──
+
+    def get_pending_suggestion(self, source_id):
+        return self._suggestions.get_pending_suggestion(source_id)
+
+    def suggestion_exists(self, source_id):
+        return self._suggestions.suggestion_exists(source_id)
+
+    def save_pending_suggestion(self, suggestion):
+        return self._suggestions.save_pending_suggestion(suggestion)
+
+    def is_hash_linked_to_device(self, doc_hash):
+        return self._suggestions.is_hash_linked_to_device(doc_hash)
+
+    def get_all_pending_suggestions(self):
+        return self._suggestions.get_all_pending_suggestions()
+
+    def dismiss_suggestion(self, source_id):
+        return self._suggestions.dismiss_suggestion(source_id)
+
+    def ignore_suggestion(self, source_id):
+        return self._suggestions.ignore_suggestion(source_id)
+
+    def clear_stale_suggestions(self):
+        return self._suggestions.clear_stale_suggestions()
+
+    # ── Reading Tracker (delegates to ReadingRepository) ──
+
+    def update_book_reading_fields(self, abs_id, **kwargs):
+        return self._reading.update_book_reading_fields(abs_id, **kwargs)
+
+    def get_reading_journals(self, abs_id):
+        return self._reading.get_reading_journals(abs_id)
+
+    def add_reading_journal(self, abs_id, event, entry=None, percentage=None):
+        return self._reading.add_reading_journal(abs_id, event, entry, percentage)
+
+    def delete_reading_journal(self, journal_id):
+        return self._reading.delete_reading_journal(journal_id)
+
+    def get_reading_goal(self, year):
+        return self._reading.get_reading_goal(year)
+
+    def save_reading_goal(self, year, target_books):
+        return self._reading.save_reading_goal(year, target_books)
+
+    def get_reading_stats(self, year):
+        return self._reading.get_reading_stats(year)
+
+    # ── Integrations: Hardcover (delegates to IntegrationRepository) ──
+
+    def get_hardcover_details(self, abs_id):
+        return self._integrations.get_hardcover_details(abs_id)
+
+    def save_hardcover_details(self, details):
+        return self._integrations.save_hardcover_details(details)
+
+    def delete_hardcover_details(self, abs_id):
+        return self._integrations.delete_hardcover_details(abs_id)
+
+    def get_all_hardcover_details(self):
+        return self._integrations.get_all_hardcover_details()
+
+    # ── Integrations: Booklore (delegates to IntegrationRepository) ──
+
+    def get_booklore_book(self, filename):
+        return self._integrations.get_booklore_book(filename)
+
+    def get_all_booklore_books(self, source=None):
+        return self._integrations.get_all_booklore_books(source)
+
+    def save_booklore_book(self, booklore_book):
+        return self._integrations.save_booklore_book(booklore_book)
+
+    def delete_booklore_book(self, filename, source=None):
+        return self._integrations.delete_booklore_book(filename, source)
+
+    # ── Integrations: BookFusion (delegates to IntegrationRepository) ──
+
+    def save_bookfusion_highlights(self, highlights):
+        return self._integrations.save_bookfusion_highlights(highlights)
+
+    def get_bookfusion_highlights(self):
+        return self._integrations.get_bookfusion_highlights()
+
+    def get_unmatched_bookfusion_highlights(self):
+        return self._integrations.get_unmatched_bookfusion_highlights()
+
+    def link_bookfusion_highlight(self, highlight_id, abs_id):
+        return self._integrations.link_bookfusion_highlight(highlight_id, abs_id)
+
+    def link_bookfusion_book(self, bookfusion_book_id, abs_id):
+        return self._integrations.link_bookfusion_book(bookfusion_book_id, abs_id)
+
+    def get_bookfusion_highlights_for_book(self, abs_id):
+        return self._integrations.get_bookfusion_highlights_for_book(abs_id)
+
+    def get_bookfusion_sync_cursor(self):
+        return self._settings.get_setting('BOOKFUSION_SYNC_CURSOR')
+
+    def set_bookfusion_sync_cursor(self, cursor):
+        return self._settings.set_setting('BOOKFUSION_SYNC_CURSOR', cursor)
+
+    def save_bookfusion_books(self, books):
+        return self._integrations.save_bookfusion_books(books)
+
+    def get_bookfusion_books(self):
+        return self._integrations.get_bookfusion_books()
+
+    def is_bookfusion_linked(self, abs_id):
+        return self._integrations.is_bookfusion_linked(abs_id)
+
+    def set_bookfusion_book_match(self, bookfusion_id, abs_id):
+        return self._integrations.set_bookfusion_book_match(bookfusion_id, abs_id)
+
+    def get_bookfusion_book(self, bookfusion_id):
+        return self._integrations.get_bookfusion_book(bookfusion_id)
+
+    def get_bookfusion_book_by_abs_id(self, abs_id):
+        return self._integrations.get_bookfusion_book_by_abs_id(abs_id)
+
+    def unlink_bookfusion_by_abs_id(self, abs_id):
+        return self._integrations.unlink_bookfusion_by_abs_id(abs_id)
+
+    def get_bookfusion_highlight_date_range(self, bookfusion_book_ids):
+        return self._integrations.get_bookfusion_highlight_date_range(bookfusion_book_ids)
+
+    def get_bookfusion_linked_abs_ids(self):
+        return self._integrations.get_bookfusion_linked_abs_ids()
+
+    def get_bookfusion_highlight_counts(self):
+        return self._integrations.get_bookfusion_highlight_counts()
 
 
 class DatabaseMigrator:
@@ -1235,149 +448,123 @@ class DatabaseMigrator:
 
         # Migrate mappings/books
         if self.json_db_path.exists():
-            try:
-                with open(self.json_db_path) as f:
-                    mapping_data = json.load(f)
+            with open(self.json_db_path, encoding='utf-8') as f:
+                data = json.load(f)
 
-                if 'mappings' in mapping_data:
-                    self._migrate_books(mapping_data['mappings'])
-                    logger.info(f"Migrated {len(mapping_data['mappings'])} book mappings")
+            mappings = data.get('mappings', [])
+            if isinstance(mappings, dict):
+                mappings = list(mappings.values())
 
-            except Exception as e:
-                logger.error(f"Failed to migrate mapping data: {e}")
+            self._migrate_books(mappings)
 
-        # Migrate state
+        # Migrate states
         if self.json_state_path.exists():
-            try:
-                with open(self.json_state_path) as f:
-                    state_data = json.load(f)
+            with open(self.json_state_path, encoding='utf-8') as f:
+                state_data = json.load(f)
+            self._migrate_states(state_data)
 
-                self._migrate_states(state_data)
-                logger.info(f"Migrated state for {len(state_data)} books")
+        # Rename old files
+        for path in [self.json_db_path, self.json_state_path]:
+            if path.exists():
+                backup = path.with_suffix(path.suffix + '.migrated')
+                path.rename(backup)
+                logger.info(f"Renamed {path} to {backup}")
 
-            except Exception as e:
-                logger.error(f"Failed to migrate state data: {e}")
+        logger.info("Migration completed successfully")
 
-        logger.info("Migration completed")
+    def _migrate_books(self, mappings_list):
+        """Convert JSON mappings to Book + Job + HardcoverDetails records."""
+        from .models import Book, HardcoverDetails, Job
+        for m in mappings_list:
+            abs_id = m.get('abs_id')
+            if not abs_id:
+                continue
 
-    def _migrate_books(self, mappings_list: list[dict]):
-        """Migrate book mappings to Book models."""
-        for mapping in mappings_list:
             book = Book(
-                abs_id=mapping['abs_id'],
-                abs_title=mapping.get('abs_title'),
-                ebook_filename=mapping.get('ebook_filename'),
-                kosync_doc_id=mapping.get('kosync_doc_id'),
-                transcript_file=mapping.get('transcript_file'),
-                status=mapping.get('status', 'active'),
-                duration=mapping.get('duration')  # Migrate duration if present
+                abs_id=abs_id,
+                abs_title=m.get('abs_title'),
+                ebook_filename=m.get('ebook_filename'),
+                original_ebook_filename=m.get('original_ebook_filename'),
+                kosync_doc_id=m.get('kosync_doc_id'),
+                transcript_file=m.get('transcript_file'),
+                status=m.get('status', 'active'),
+                duration=m.get('duration'),
+                sync_mode=m.get('sync_mode', 'audiobook'),
+                storyteller_uuid=m.get('storyteller_uuid'),
+                abs_ebook_item_id=m.get('abs_ebook_item_id'),
             )
             self.db_service.save_book(book)
 
-            # Also migrate job data if present
-            if any(key in mapping for key in ['last_attempt', 'retry_count', 'last_error']):
+            # Migrate job data if present
+            if m.get('last_sync_attempt') or m.get('retry_count'):
                 job = Job(
-                    abs_id=mapping['abs_id'],
-                    last_attempt=mapping.get('last_attempt'),
-                    retry_count=mapping.get('retry_count', 0),
-                    last_error=mapping.get('last_error')
+                    abs_id=abs_id,
+                    last_attempt=m.get('last_sync_attempt'),
+                    retry_count=m.get('retry_count', 0),
+                    last_error=m.get('last_error'),
                 )
                 self.db_service.save_job(job)
 
-            # Also migrate hardcover details if present
-            if any(key in mapping for key in ['hardcover_book_id', 'hardcover_edition_id', 'hardcover_pages']):
-                hardcover_details = HardcoverDetails(
-                    abs_id=mapping['abs_id'],
-                    hardcover_book_id=mapping.get('hardcover_book_id'),
-                    hardcover_slug=mapping.get('hardcover_slug'),
-                    hardcover_edition_id=mapping.get('hardcover_edition_id'),
-                    hardcover_pages=mapping.get('hardcover_pages'),
-                    isbn=mapping.get('isbn'),
-                    asin=mapping.get('asin'),
-                    matched_by=mapping.get('matched_by', 'unknown')
-                )
-                self.db_service.save_hardcover_details(hardcover_details)
+            # Migrate hardcover details if present
+            hc = {}
+            for key in ['hardcover_book_id', 'hardcover_slug', 'hardcover_edition_id',
+                       'hardcover_pages', 'hardcover_audio_seconds', 'isbn', 'asin', 'matched_by']:
+                if m.get(key):
+                    hc[key] = m[key]
 
-    def _migrate_states(self, state_dict: dict):
+            if hc:
+                details = HardcoverDetails(abs_id=abs_id, **hc)
+                self.db_service.save_hardcover_details(details)
+
+            logger.debug(f"Migrated book: {abs_id}")
+
+    def _migrate_states(self, state_dict):
         """Migrate state data to State models."""
+        from .models import State
         for abs_id, data in state_dict.items():
             last_updated = data.get('last_updated')
 
-            # Handle kosync data
             if 'kosync_pct' in data:
-                state = State(
-                    abs_id=abs_id,
-                    client_name='kosync',
-                    last_updated=last_updated,
-                    percentage=data['kosync_pct'],
-                    xpath=data.get('kosync_xpath')
-                )
-                self.db_service.save_state(state)
+                self.db_service.save_state(State(
+                    abs_id=abs_id, client_name='kosync', last_updated=last_updated,
+                    percentage=data['kosync_pct'], xpath=data.get('kosync_xpath'),
+                ))
 
-            # Handle ABS data
             if 'abs_pct' in data:
-                state = State(
-                    abs_id=abs_id,
-                    client_name='abs',
-                    last_updated=last_updated,
-                    percentage=data['abs_pct'],
-                    timestamp=data.get('abs_ts')
-                )
-                self.db_service.save_state(state)
+                self.db_service.save_state(State(
+                    abs_id=abs_id, client_name='abs', last_updated=last_updated,
+                    percentage=data['abs_pct'], timestamp=data.get('abs_ts'),
+                ))
 
-            # Handle ABS ebook data
             if 'absebook_pct' in data:
-                state = State(
-                    abs_id=abs_id,
-                    client_name='absebook',
-                    last_updated=last_updated,
-                    percentage=data['absebook_pct'],
-                    cfi=data.get('absebook_cfi')
-                )
-                self.db_service.save_state(state)
+                self.db_service.save_state(State(
+                    abs_id=abs_id, client_name='absebook', last_updated=last_updated,
+                    percentage=data['absebook_pct'], cfi=data.get('absebook_cfi'),
+                ))
 
-            # Handle Storyteller data
             if 'storyteller_pct' in data:
-                state = State(
-                    abs_id=abs_id,
-                    client_name='storyteller',
-                    last_updated=last_updated,
-                    percentage=data['storyteller_pct'],
-                    xpath=data.get('storyteller_xpath'),
-                    cfi=data.get('storyteller_cfi')
-                )
-                self.db_service.save_state(state)
+                self.db_service.save_state(State(
+                    abs_id=abs_id, client_name='storyteller', last_updated=last_updated,
+                    percentage=data['storyteller_pct'], xpath=data.get('storyteller_xpath'),
+                    cfi=data.get('storyteller_cfi'),
+                ))
 
-            # Handle Booklore data
             if 'booklore_pct' in data:
-                state = State(
-                    abs_id=abs_id,
-                    client_name='booklore',
-                    last_updated=last_updated,
-                    percentage=data['booklore_pct'],
-                    xpath=data.get('booklore_xpath'),
-                    cfi=data.get('booklore_cfi')
-                )
-                self.db_service.save_state(state)
+                self.db_service.save_state(State(
+                    abs_id=abs_id, client_name='booklore', last_updated=last_updated,
+                    percentage=data['booklore_pct'], xpath=data.get('booklore_xpath'),
+                    cfi=data.get('booklore_cfi'),
+                ))
 
     def should_migrate(self) -> bool:
         """Check if migration is needed (JSON files exist but no data in SQLAlchemy)."""
-        # Check if we have any books in database using raw SQL to avoid model mismatch crashes
         try:
             with self.db_service.get_session() as session:
                 from sqlalchemy import text
                 count = session.execute(text("SELECT count(*) FROM books")).scalar()
                 if count > 0:
-                    return False  # Already have data, no migration needed
+                    return False
         except Exception as e:
-            # If table doesn't exist or other DB error, we might need migration
             logger.debug(f"Could not check books table: {e}")
-            pass
 
-        # Check if JSON files exist
-        if self.json_db_path.exists() or self.json_state_path.exists():
-            return True
-
-        return False
-
-
+        return self.json_db_path.exists() or self.json_state_path.exists()

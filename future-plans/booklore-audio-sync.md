@@ -91,10 +91,6 @@ booklore_sync_client = providers.Singleton(
     BookloreSyncClient, booklore_client, ebook_parser,
     client_name="BookLore", alignment_service=alignment_service  # ADD
 )
-booklore_sync_client_2 = providers.Singleton(
-    BookloreSyncClient, booklore_client_2, ebook_parser,
-    client_name="BookLore2", alignment_service=alignment_service  # ADD
-)
 ```
 
 #### 4. `src/sync_manager.py:1158` — Include Booklore in audio-only clients
@@ -106,7 +102,7 @@ audio_only_clients = {'ABS', 'Hardcover'}
 
 Updated:
 ```python
-audio_only_clients = {'ABS', 'Hardcover', 'BookLore', 'BookLore2'}
+audio_only_clients = {'ABS', 'Hardcover', 'BookLore'}
 ```
 
 Without this, Booklore is excluded from sync for books without a `kosync_doc_id` (audio-only mode).

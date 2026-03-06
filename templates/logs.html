@@ -155,12 +155,18 @@
                 return data;
             } catch (error) {
                 console.error('Error fetching logs:', error);
-                logContent.innerHTML = `
-                    <div class="log-line">
-                        <span class="log-level ERROR">ERROR</span>
-                        <span class="log-message">Failed to fetch logs: ${error.message}</span>
-                    </div>
-                `;
+                logContent.textContent = '';
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                const level = document.createElement('span');
+                level.className = 'log-level ERROR';
+                level.textContent = 'ERROR';
+                const msg = document.createElement('span');
+                msg.className = 'log-message';
+                msg.textContent = `Failed to fetch logs: ${error.message}`;
+                line.appendChild(level);
+                line.appendChild(msg);
+                logContent.appendChild(line);
             }
         }
 

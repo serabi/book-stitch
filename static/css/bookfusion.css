@@ -43,6 +43,12 @@
     transition: var(--transition);
 }
 .bf-tab:hover { color: var(--color-text); }
+.bf-tab:focus-visible {
+    color: var(--color-text);
+    outline: 2px solid var(--color-bookfusion);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
+}
 .bf-tab.active {
     color: var(--color-bookfusion);
     border-bottom-color: var(--color-bookfusion);
@@ -119,7 +125,12 @@
     transition: var(--transition);
 }
 .bf-upload-btn:hover { opacity: 0.85; }
+.bf-upload-btn:focus-visible {
+    outline: 2px solid var(--color-bookfusion);
+    outline-offset: 2px;
+}
 .bf-upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.bf-upload-btn:disabled:focus-visible { outline: none; }
 .bf-upload-btn.done { background: var(--color-success); }
 .bf-upload-btn.error { background: var(--color-error); }
 
@@ -146,6 +157,11 @@
     font-weight: 600;
     font-family: var(--font-heading);
     user-select: none;
+    border-radius: var(--radius-sm);
+}
+.bf-group-header:focus-visible {
+    outline: 2px solid var(--color-bookfusion);
+    outline-offset: 2px;
 }
 .bf-group-header .chevron {
     transition: transform 0.2s;

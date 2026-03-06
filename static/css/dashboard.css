@@ -604,6 +604,14 @@
   color: inherit;
   cursor: pointer;
 }
+.book-cover-link:focus-visible .book-cover-inner {
+  outline: 2px solid var(--color-primary-hover);
+  outline-offset: 2px;
+}
+.book-cover-link:active .book-cover-inner {
+  opacity: 0.85;
+}
+}
 .book-cover-link:active .book-cover-inner {
   opacity: 0.85;
 }
