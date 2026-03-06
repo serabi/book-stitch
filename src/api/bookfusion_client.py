@@ -11,7 +11,9 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import uuid
+from datetime import datetime
 
 import requests
 
@@ -99,6 +101,30 @@ def _parse_frontmatter_title(frontmatter: str | None) -> str:
         if line.startswith('title:'):
             return line[len('title:'):].strip().strip('"').strip("'")
     return ''
+
+
+def _parse_highlight_date(content: str) -> datetime | None:
+    """Parse the Date Created timestamp from a BookFusion highlight markdown string."""
+    m = re.search(r'\*\*Date Created\*\*:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*UTC', content)
+    if m:
+        try:
+            return datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_highlight_quote(content: str) -> str | None:
+    """Extract blockquoted text from a BookFusion highlight markdown string."""
+    lines = content.split('\n')
+    quote_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('>'):
+            txt = stripped.lstrip('>').strip()
+            if txt:
+                quote_lines.append(txt)
+    return ' '.join(quote_lines) if quote_lines else None
 
 
 class BookFusionClient:
@@ -305,12 +331,15 @@ class BookFusionClient:
                 for hl in page.get('highlights', []):
                     if not isinstance(hl, dict):
                         continue
+                    content = hl.get('content', '')
                     highlights_batch.append({
                         'bookfusion_book_id': book_id,
                         'highlight_id': hl.get('id', ''),
-                        'content': hl.get('content', ''),
+                        'content': content,
                         'chapter_heading': hl.get('chapter_heading'),
                         'book_title': book_title,
+                        'highlighted_at': _parse_highlight_date(content),
+                        'quote_text': _parse_highlight_quote(content),
                     })
 
             if highlights_batch:

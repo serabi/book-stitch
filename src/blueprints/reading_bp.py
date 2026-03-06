@@ -234,10 +234,14 @@ def reading_detail(abs_id):
         journals = list(journals) + synthetic
         journals.sort(key=lambda j: j.created_at or datetime.min, reverse=True)
 
+    # BookFusion highlights matched to this book
+    bf_highlights = database_service.get_bookfusion_highlights_for_book(abs_id)
+
     return render_template(
         'reading_detail.html',
         book=book_data,
         journals=journals,
+        bf_highlights=bf_highlights,
     )
 
 

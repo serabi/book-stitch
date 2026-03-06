@@ -976,6 +976,8 @@ class DatabaseService:
                     existing.content = h['content']
                     existing.chapter_heading = h.get('chapter_heading')
                     existing.book_title = h.get('book_title')
+                    existing.highlighted_at = h.get('highlighted_at')
+                    existing.quote_text = h.get('quote_text')
                 else:
                     session.add(BookfusionHighlight(
                         bookfusion_book_id=h['bookfusion_book_id'],
@@ -983,6 +985,8 @@ class DatabaseService:
                         content=h['content'],
                         book_title=h.get('book_title'),
                         chapter_heading=h.get('chapter_heading'),
+                        highlighted_at=h.get('highlighted_at'),
+                        quote_text=h.get('quote_text'),
                     ))
                     saved += 1
         return saved
@@ -993,6 +997,42 @@ class DatabaseService:
             highlights = session.query(BookfusionHighlight).order_by(
                 BookfusionHighlight.book_title, BookfusionHighlight.id
             ).all()
+            session.expunge_all()
+            return highlights
+
+    def get_unmatched_bookfusion_highlights(self) -> list[BookfusionHighlight]:
+        """Return highlights with no matched_abs_id, grouped by book title."""
+        with self.get_session() as session:
+            highlights = session.query(BookfusionHighlight).filter(
+                BookfusionHighlight.matched_abs_id.is_(None)
+            ).order_by(BookfusionHighlight.book_title, BookfusionHighlight.id).all()
+            session.expunge_all()
+            return highlights
+
+    def link_bookfusion_highlight(self, highlight_id: int, abs_id: str | None):
+        """Link or unlink a BookFusion highlight to a PageKeeper book."""
+        with self.get_session() as session:
+            hl = session.query(BookfusionHighlight).filter(
+                BookfusionHighlight.id == highlight_id
+            ).first()
+            if hl:
+                hl.matched_abs_id = abs_id
+
+    def link_bookfusion_book(self, book_title: str, abs_id: str | None):
+        """Link or unlink all BookFusion highlights for a book title."""
+        with self.get_session() as session:
+            session.query(BookfusionHighlight).filter(
+                BookfusionHighlight.book_title == book_title
+            ).update({BookfusionHighlight.matched_abs_id: abs_id},
+                     synchronize_session=False)
+
+    def get_bookfusion_highlights_for_book(self, abs_id: str) -> list[BookfusionHighlight]:
+        """Return BookFusion highlights matched to a specific PageKeeper book."""
+        with self.get_session() as session:
+            highlights = session.query(BookfusionHighlight).filter(
+                BookfusionHighlight.matched_abs_id == abs_id
+            ).order_by(BookfusionHighlight.highlighted_at.desc().nullslast(),
+                       BookfusionHighlight.id).all()
             session.expunge_all()
             return highlights
 

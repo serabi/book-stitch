@@ -352,15 +352,23 @@ class BookfusionHighlight(Base):
     content = Column(Text, nullable=False)
     chapter_heading = Column(String(500))
     fetched_at = Column(DateTime, default=datetime.utcnow)
+    highlighted_at = Column(DateTime, nullable=True)
+    quote_text = Column(Text, nullable=True)
+    matched_abs_id = Column(String(500), nullable=True)
 
     def __init__(self, bookfusion_book_id: str, highlight_id: str, content: str,
-                 book_title: str = None, chapter_heading: str = None):
+                 book_title: str = None, chapter_heading: str = None,
+                 highlighted_at=None, quote_text: str = None,
+                 matched_abs_id: str = None):
         self.bookfusion_book_id = bookfusion_book_id
         self.highlight_id = highlight_id
         self.content = content
         self.book_title = book_title
         self.chapter_heading = chapter_heading
         self.fetched_at = datetime.utcnow()
+        self.highlighted_at = highlighted_at
+        self.quote_text = quote_text
+        self.matched_abs_id = matched_abs_id
 
     def __repr__(self):
         return f"<BookfusionHighlight(id={self.id}, book='{self.book_title}')>"

@@ -1,5 +1,6 @@
 """BookFusion blueprint — upload books and sync highlights."""
 
+import difflib
 import logging
 import os
 import re
@@ -111,29 +112,71 @@ def sync_highlights():
 
     try:
         new_count = bf_client.sync_all_highlights(db_service)
-        return jsonify({'success': True, 'new_highlights': new_count})
+        matched = _auto_match_highlights(db_service)
+        return jsonify({'success': True, 'new_highlights': new_count, 'auto_matched': matched})
     except Exception as e:
         logger.error(f"BookFusion highlight sync failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-def _parse_highlight(content: str) -> dict:
-    """Extract date, quote text, and color from a BookFusion highlight content string."""
-    date_match = re.search(r'\*\*Date Created\*\*:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*UTC', content)
-    date_str = date_match.group(1) if date_match else None
+STRIP_EXTENSIONS = re.compile(r'\.(epub|mobi|azw3?|pdf|fb2|cbz|cbr|md)$', re.IGNORECASE)
 
-    # Extract blockquoted text (the actual highlight)
-    lines = content.split('\n')
-    quote_lines = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('>'):
-            text = stripped.lstrip('>').strip()
-            if text:
-                quote_lines.append(text)
-    quote = ' '.join(quote_lines) if quote_lines else content
 
-    return {'date': date_str, 'quote': quote}
+def _normalize_title(title: str) -> str:
+    """Normalize a title for matching: strip extensions, lowercase, collapse whitespace."""
+    t = STRIP_EXTENSIONS.sub('', title)
+    return ' '.join(t.lower().split())
+
+
+def _auto_match_highlights(db_service) -> int:
+    """Auto-match unlinked BookFusion highlights to PageKeeper books by title similarity."""
+    unmatched = db_service.get_unmatched_bookfusion_highlights()
+    if not unmatched:
+        return 0
+
+    books = db_service.get_all_books()
+    if not books:
+        return 0
+
+    # Build normalized title → abs_id map
+    book_map = {}
+    for b in books:
+        if b.abs_title:
+            norm = _normalize_title(b.abs_title)
+            book_map[norm] = b.abs_id
+
+    # Group unmatched by book_title
+    title_groups: dict[str, list] = {}
+    for hl in unmatched:
+        title = _clean_book_title(hl.book_title or '')
+        title_groups.setdefault(title, []).append(hl)
+
+    matched_count = 0
+    norm_keys = list(book_map.keys())
+
+    for bf_title, highlights in title_groups.items():
+        norm_bf = _normalize_title(bf_title)
+        abs_id = None
+
+        # Exact match
+        if norm_bf in book_map:
+            abs_id = book_map[norm_bf]
+        else:
+            # Fuzzy match
+            best_ratio = 0.0
+            for norm_pk in norm_keys:
+                ratio = difflib.SequenceMatcher(None, norm_bf, norm_pk).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    if ratio > 0.85:
+                        abs_id = book_map[norm_pk]
+
+        if abs_id:
+            raw_title = highlights[0].book_title
+            db_service.link_bookfusion_book(raw_title, abs_id)
+            matched_count += len(highlights)
+
+    return matched_count
 
 
 def _clean_book_title(title: str) -> str:
@@ -153,20 +196,19 @@ def get_highlights():
     for hl in highlights:
         book = _clean_book_title(hl.book_title or 'Unknown Book')
         if book not in grouped:
-            grouped[book] = []
-        parsed = _parse_highlight(hl.content)
-        grouped[book].append({
+            grouped[book] = {'highlights': [], 'matched_abs_id': hl.matched_abs_id}
+        date_str = hl.highlighted_at.strftime('%Y-%m-%d %H:%M:%S') if hl.highlighted_at else None
+        grouped[book]['highlights'].append({
             'id': hl.id,
-            'content': hl.content,
-            'quote': parsed['quote'],
-            'date': parsed['date'],
+            'quote': hl.quote_text or hl.content,
+            'date': date_str,
             'chapter_heading': hl.chapter_heading,
-            'fetched_at': hl.fetched_at.isoformat() if hl.fetched_at else None,
+            'matched_abs_id': hl.matched_abs_id,
         })
 
     # Sort highlights within each book by date
     for book in grouped:
-        grouped[book].sort(key=lambda h: h['date'] or '', reverse=True)
+        grouped[book]['highlights'].sort(key=lambda h: h['date'] or '', reverse=True)
 
     cursor = db_service.get_bookfusion_sync_cursor()
 
@@ -175,6 +217,24 @@ def get_highlights():
     book_list = [{'abs_id': b.abs_id, 'title': b.abs_title} for b in books if b.abs_title]
 
     return jsonify({'highlights': grouped, 'has_synced': cursor is not None, 'books': book_list})
+
+
+@bookfusion_bp.route('/api/bookfusion/link-highlight', methods=['POST'])
+def link_highlight():
+    """Manually link or unlink a BookFusion book's highlights to a PageKeeper book."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    book_title = data.get('book_title')
+    abs_id = data.get('abs_id')  # None or empty to unlink
+
+    if not book_title:
+        return jsonify({'error': 'book_title required'}), 400
+
+    db_service = get_database_service()
+    db_service.link_bookfusion_book(book_title, abs_id or None)
+    return jsonify({'success': True})
 
 
 @bookfusion_bp.route('/api/bookfusion/save-journal', methods=['POST'])

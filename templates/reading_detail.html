@@ -130,11 +130,45 @@
                 {% endif %}
             </div>
         </div>
+
+        {# ── Highlights ── #}
+        {% if bf_highlights %}
+        <div class="r-highlights">
+            <div class="r-highlights-head" id="highlights-toggle">
+                <h2>Highlights <span class="r-highlights-count">({{ bf_highlights|length }})</span></h2>
+                <span class="r-highlights-chevron">&#9660;</span>
+            </div>
+            <div class="r-highlights-body" id="highlights-body">
+                {% for hl in bf_highlights %}
+                <div class="r-highlight-card">
+                    <blockquote class="r-highlight-quote">{{ hl.quote_text or hl.content }}</blockquote>
+                    <div class="r-highlight-meta">
+                        {% if hl.chapter_heading %}
+                        <span class="r-highlight-chapter">{{ hl.chapter_heading | replace('# ', '') }}</span>
+                        {% endif %}
+                        {% if hl.highlighted_at %}
+                        <span class="r-highlight-date">{{ hl.highlighted_at.strftime('%b %d, %Y') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <script src="/static/js/reading.js"></script>
     <script>
         initReadingDetail();
+        (function() {
+            var toggle = document.getElementById('highlights-toggle');
+            if (!toggle) return;
+            toggle.addEventListener('click', function() {
+                var body = document.getElementById('highlights-body');
+                body.classList.toggle('hidden');
+                toggle.querySelector('.r-highlights-chevron').classList.toggle('collapsed');
+            });
+        })();
     </script>
 </body>
 </html>
