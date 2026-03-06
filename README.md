@@ -17,7 +17,7 @@
 
 ## What is PageKeeper?
 
-PageKeeper is a self-hosted reading companion that tracks what you read and keeps your place across platforms. Whether you listen to an audiobook during your commute on [Audiobookshelf](https://www.audiobookshelf.org/) and pick up the same book on your e-reader before bed, or just want a single place to see your reading progress across services — PageKeeper handles it.
+PageKeeper is a self-hosted reading companion that tracks what you read and keeps your place across platforms, and also acts as a reading journal. Whether you listen to an audiobook during your commute on [Audiobookshelf](https://www.audiobookshelf.org/) and pick up the same book on your e-reader before bed, or just want a single place to see your reading progress across services — PageKeeper handles it.
 
 At its core, PageKeeper is a **reading tracker**: it knows which books you're reading, how far along you are, when you started and finished, and keeps a journal of your progress. On top of that, it can **sync your position** between audiobook and ebook platforms by building an alignment map between the audio and the text. Once that map is built, jumping between formats is seamless.
 
@@ -27,9 +27,9 @@ At its core, PageKeeper is a **reading tracker**: it knows which books you're re
 
 ### Origin story
 
-This project started as a fork of [abs-kosync-bridge](https://github.com/cporcellijr/abs-kosync-bridge), a clever tool that synced Audiobookshelf positions to KOReader via the KoSync protocol. Major kudos to [cporcellijr](https://github.com/cporcellijr) for the original idea and implementation.
+This project started as a fork of [abs-kosync-bridge](https://github.com/cporcellijr/abs-kosync-bridge), a neat project that syncs Audiobookshelf positions to KOReader via the KoSync protocol. Major kudos to [cporcellijr](https://github.com/cporcellijr) for the original idea and implementation.
 
-Over time, the scope grew well beyond that bridge: multi-platform sync, reading tracking, auto-completion, suggestion discovery, alignment from multiple sources, and a full web dashboard. At this point it's essentially a new application, but the spirit of open source that made it possible is the same. If you find PageKeeper useful, contributions and suggestions are always welcome.
+Over time, the scope grew well beyond that bridge to include reading tracking, a full journal system, BookFusion integration, auto-completion, and a completely different UI. At this point it's essentially a new application, but the spirit of open source that made it possible is the same. If you find PageKeeper useful, contributions and suggestions are always welcome - and if you're only looking to sync your audio and ebooks across platforms, and don't care about tracking your reading, you might find abs-kosync-bridge a better fit for you! 
 
 ### Supported platforms
 
@@ -37,9 +37,10 @@ Over time, the scope grew well beyond that bridge: multi-platform sync, reading 
 |---|---|
 | [Audiobookshelf](https://www.audiobookshelf.org/) | Main audiobook server |
 | [KOReader](https://koreader.rocks/) (via KoSync) | E-ink reader progress (Boox, Kobo, jailbroken Kindle, etc.) |
-| [Storyteller](https://storyteller-platform.gitlab.io/storyteller/) | Audiobook companion app with synced EPUB |
+| [Storyteller](https://storyteller-platform.gitlab.io/storyteller/) | Audiobook companion app with synced EPUB3 support |
 | [Booklore](https://github.com/booklore) | Ebook library and shelf manager |
 | [Hardcover](https://hardcover.app/) | Book tracking service (write-only) |
+| [BookFusion](https://bookfusion.com/) | eBook reader, includes excellent EPUB3 support (limited integration currently) |
 
 You can use as few or as many of the above services as you want. None are required to use the app.
 
