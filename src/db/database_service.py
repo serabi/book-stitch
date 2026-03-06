@@ -8,7 +8,6 @@ import logging
 from contextlib import contextmanager
 from pathlib import Path
 
-from .base_repository import BaseRepository
 from .book_repository import BookRepository
 from .integration_repository import IntegrationRepository
 from .kosync_repository import KoSyncRepository
@@ -16,7 +15,7 @@ from .models import (
     Base,
     DatabaseManager,
 )
-from .reading_repository import ReadingRepository, VALID_JOURNAL_EVENTS
+from .reading_repository import VALID_JOURNAL_EVENTS, ReadingRepository
 from .settings_repository import SettingsRepository
 from .suggestion_repository import SuggestionRepository
 
@@ -63,8 +62,9 @@ class DatabaseService:
         """Run Alembic migrations to bring the database schema up to date."""
         try:
             from alembic.config import Config
-            from alembic import command
             from alembic.runtime.migration import MigrationContext
+
+            from alembic import command
 
             alembic_dir = Path(__file__).parent.parent.parent / "alembic"
             alembic_ini = alembic_dir.parent / "alembic.ini"
@@ -78,7 +78,8 @@ class DatabaseService:
             alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
 
             # Check current revision
-            from sqlalchemy import create_engine, inspect as sa_inspect
+            from sqlalchemy import create_engine
+            from sqlalchemy import inspect as sa_inspect
             engine = create_engine(f"sqlite:///{self.db_path}")
 
             inspector = sa_inspect(engine)
@@ -109,7 +110,8 @@ class DatabaseService:
 
     def _ensure_model_columns(self):
         """Safety net: add any model columns missing from existing tables."""
-        from sqlalchemy import inspect as sa_inspect, text
+        from sqlalchemy import inspect as sa_inspect
+        from sqlalchemy import text
         try:
             inspector = sa_inspect(self.db_manager.engine)
             for table_name, model in Base.metadata.tables.items():
@@ -442,12 +444,11 @@ class DatabaseMigrator:
 
     def migrate(self):
         """Perform migration from JSON to SQLAlchemy database."""
-        from .models import Book, HardcoverDetails, Job, State
         logger.info("Starting migration from JSON to SQLAlchemy database")
 
         # Migrate mappings/books
         if self.json_db_path.exists():
-            with open(self.json_db_path, 'r', encoding='utf-8') as f:
+            with open(self.json_db_path, encoding='utf-8') as f:
                 data = json.load(f)
 
             mappings = data.get('mappings', [])
@@ -458,7 +459,7 @@ class DatabaseMigrator:
 
         # Migrate states
         if self.json_state_path.exists():
-            with open(self.json_state_path, 'r', encoding='utf-8') as f:
+            with open(self.json_state_path, encoding='utf-8') as f:
                 state_data = json.load(f)
             self._migrate_states(state_data)
 

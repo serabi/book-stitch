@@ -1,6 +1,6 @@
 """Repository for KoSync document operations."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .base_repository import BaseRepository
 from .models import KosyncDocument
@@ -13,7 +13,7 @@ class KoSyncRepository(BaseRepository):
 
     def save_kosync_document(self, doc):
         with self.get_session() as session:
-            doc.last_updated = datetime.now(timezone.utc)
+            doc.last_updated = datetime.now(UTC)
             merged = session.merge(doc)
             session.flush()
             session.refresh(merged)
@@ -44,7 +44,7 @@ class KoSyncRepository(BaseRepository):
             ).first()
             if doc:
                 doc.linked_abs_id = abs_id
-                doc.last_updated = datetime.now(timezone.utc)
+                doc.last_updated = datetime.now(UTC)
                 return True
             return False
 
@@ -55,7 +55,7 @@ class KoSyncRepository(BaseRepository):
             ).first()
             if doc:
                 doc.linked_abs_id = None
-                doc.last_updated = datetime.now(timezone.utc)
+                doc.last_updated = datetime.now(UTC)
                 return True
             return False
 

@@ -13,7 +13,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
@@ -129,7 +129,7 @@ def _parse_highlight_date(content: str) -> datetime | None:
     m = re.search(r'\*\*Date Created\*\*:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*UTC', content)
     if m:
         try:
-            return datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+            return datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=UTC)
         except ValueError:
             return None
     return None
