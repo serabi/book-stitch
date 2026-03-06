@@ -1,21 +1,23 @@
 /* PageKeeper — Reading Tab */
 
-function handleCoverError(img) {
-  if (!img) return;
+// Attach cover-fallback logic via event delegation (no inline onerror needed)
+document.addEventListener('error', function (e) {
+  const img = e.target;
+  if (!img || !img.classList.contains('r-cover-img')) return;
 
   const fallbackId = (img.dataset.fallbackId || '').trim();
   if (fallbackId && !img.dataset.fallbackAttempted) {
     img.dataset.fallbackAttempted = '1';
-    img.src = `/covers/${encodeURIComponent(fallbackId)}.jpg`;
+    img.src = '/covers/' + encodeURIComponent(fallbackId) + '.jpg';
     return;
   }
 
   img.style.display = 'none';
-  const placeholder = img.nextElementSibling;
+  var placeholder = img.nextElementSibling;
   if (placeholder) {
     placeholder.classList.remove('hidden');
   }
-}
+}, true);
 
 function initReadingPage(currentYear) {
   const grid = document.getElementById('book-grid');

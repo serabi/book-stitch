@@ -114,33 +114,7 @@ class ProgressResetService:
                     'note': 'Local DB cleared; external client reset deferred (sync cycle running)',
                 }
             try:
-                from src.services.write_tracker import record_write
-
-                reset_results = {}
-                locator = LocatorResult(percentage=0.0)
-                request = UpdateProgressRequest(locator_result=locator, txt="", previous_location=None)
-
-                for client_name, client in self.sync_clients.items():
-                    if client_name == 'ABS' and book.sync_mode == 'ebook_only':
-                        logger.debug(f"'{book.abs_title}' Ebook-only mode - skipping ABS progress reset")
-                        continue
-                    try:
-                        result = client.update_progress(book, request)
-                        reset_results[client_name] = {
-                            'success': result.success,
-                            'message': 'Reset to 0%' if result.success else 'Failed to reset'
-                        }
-                        if result.success:
-                            record_write(client_name, book.abs_id)
-                            logger.info(f"Reset '{client_name}' to 0%")
-                        else:
-                            logger.warning(f"Failed to reset '{client_name}'")
-                    except Exception as e:
-                        reset_results[client_name] = {
-                            'success': False,
-                            'message': str(e)
-                        }
-                        logger.warning(f"Error resetting '{client_name}': {e}")
+                reset_results = self._reset_external_clients(abs_id)
 
                 summary = {
                     'book_id': abs_id,
@@ -190,23 +164,39 @@ class ProgressResetService:
                 logger.info(f"   Book '{sanitize_log_data(abs_id)}' marked 'pending' for alignment check")
 
     def _reset_external_clients(self, abs_id):
-        """Push 0% progress to all external sync clients for a book."""
+        """Push 0% progress to all external sync clients for a book.
+
+        Returns:
+            dict: Mapping of client_name -> {'success': bool, 'message': str}.
+                  Empty dict if book not found.
+        """
         from src.services.write_tracker import record_write
 
         book = self.database_service.get_book(abs_id)
         if not book:
-            return
+            return {}
+        reset_results = {}
         locator = LocatorResult(percentage=0.0)
         request = UpdateProgressRequest(locator_result=locator, txt="", previous_location=None)
         for client_name, client in self.sync_clients.items():
             if client_name == 'ABS' and book.sync_mode == 'ebook_only':
+                logger.debug(f"'{book.abs_title}' Ebook-only mode - skipping ABS progress reset")
                 continue
             try:
                 result = client.update_progress(book, request)
+                reset_results[client_name] = {
+                    'success': result.success,
+                    'message': 'Reset to 0%' if result.success else 'Failed to reset'
+                }
                 if result.success:
                     record_write(client_name, book.abs_id)
-                    logger.info(f"Deferred reset: '{client_name}' -> 0% for '{sanitize_log_data(book.abs_title)}'")
+                    logger.info(f"Reset '{client_name}' to 0%")
                 else:
-                    logger.warning(f"Deferred reset failed for '{client_name}'")
+                    logger.warning(f"Failed to reset '{client_name}'")
             except Exception as e:
-                logger.warning(f"Deferred reset error for '{client_name}': {e}")
+                reset_results[client_name] = {
+                    'success': False,
+                    'message': str(e)
+                }
+                logger.warning(f"Error resetting '{client_name}': {e}")
+        return reset_results

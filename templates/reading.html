@@ -21,12 +21,10 @@
 {% macro book_cover(book) %}
 {% if book.cover_url %}
 <img src="{{ book.cover_url }}" alt="" loading="lazy" class="r-cover-img"
-    {% if book.kosync_doc_id %}data-fallback-id="{{ book.kosync_doc_id }}"{% endif %}
-    onerror="handleCoverError(this)">
+    {% if book.kosync_doc_id %}data-fallback-id="{{ book.kosync_doc_id|e }}"{% endif %}>
 <div class="r-cover-placeholder hidden"></div>
 {% elif book.kosync_doc_id %}
-<img src="/covers/{{ book.kosync_doc_id|urlencode }}.jpg" alt="" loading="lazy" class="r-cover-img"
-    onerror="handleCoverError(this)">
+<img src="/covers/{{ book.kosync_doc_id|urlencode }}.jpg" alt="" loading="lazy" class="r-cover-img">
 <div class="r-cover-placeholder hidden"></div>
 {% else %}
 <div class="r-cover-placeholder"></div>

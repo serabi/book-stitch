@@ -42,24 +42,30 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, booklore_clients=N
 
     # Try to download from Booklore API (check all instances)
     for bl_client in booklore_clients:
-                book_id = book.get('id')
-                if not book_id:
-                    logger.warning("Booklore returned book without ID")
-                    continue
-                content = bl_client.download_book(book_id)
+        if not (hasattr(bl_client, 'is_configured') and bl_client.is_configured()):
             continue
         book = bl_client.find_book_by_filename(ebook_filename)
-        if book:
-            logger.info(f"Downloading EPUB from Booklore: {sanitize_log_data(ebook_filename)}")
-            if hasattr(bl_client, 'download_book'):
-                content = bl_client.download_book(book['id'])
-                if content:
-                    with open(cached_path, 'wb') as f:
-                        f.write(content)
-                    logger.info(f"Downloaded EPUB to cache: '{cached_path}'")
-                    return cached_path
-                else:
-                    logger.error("Failed to download EPUB content from Booklore")
+        if not book:
+            continue
+
+        logger.info(f"Downloading EPUB from Booklore: {sanitize_log_data(ebook_filename)}")
+        if not hasattr(bl_client, 'download_book'):
+            logger.error("Booklore client missing download_book method")
+            continue
+
+        book_id = book.get('id')
+        if not book_id:
+            logger.warning("Booklore returned book without ID")
+            continue
+
+        content = bl_client.download_book(book_id)
+        if content:
+            with open(cached_path, 'wb') as f:
+                f.write(content)
+            logger.info(f"Downloaded EPUB to cache: '{cached_path}'")
+            return cached_path
+
+        logger.error("Failed to download EPUB content from Booklore")
 
     if not filesystem_matches and not any(c.is_configured() for c in booklore_clients if hasattr(c, 'is_configured')):
         logger.error("EPUB not found on filesystem and Booklore not configured")

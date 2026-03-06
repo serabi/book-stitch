@@ -256,7 +256,7 @@ class SuggestionService:
                 # Remove (Unabridged), [Dramatized Adaptation], etc.
                 search_title = re.sub(r'\s*[\(\[].*?[\)\]]', '', title).strip()
                 if search_title != title:
-                     logger.debug(f"cleaned title for search: '{title}' -> '{search_title}'")
+                    logger.debug(f"cleaned title for search: '{title}' -> '{search_title}'")
 
             logger.debug(f"Checking suggestions for '{title}' (Search: '{search_title}', Author: {author})")
 

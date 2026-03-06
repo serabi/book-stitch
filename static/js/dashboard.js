@@ -283,7 +283,13 @@ function initDashboard() {
 
     setTimeout(refreshDashboard, 30000);
 
-    let emptyReloadAttempts = 0;
+    const _RELOAD_KEY = 'pk_emptyReloadAttempts';
+    function _getReloadAttempts() {
+        return parseInt(sessionStorage.getItem(_RELOAD_KEY) || '0', 10);
+    }
+    function _setReloadAttempts(n) {
+        sessionStorage.setItem(_RELOAD_KEY, String(n));
+    }
     function pollProcessingStatus() {
         const processingSection = document.getElementById('processing-section');
         if (!processingSection) return;
@@ -296,20 +302,21 @@ function initDashboard() {
                 if (ids.length === 0) {
                     const hasProcessingCards = processingSection.querySelector('.book-card') !== null;
                     if (!hasProcessingCards) {
-                        emptyReloadAttempts = 0;
+                        _setReloadAttempts(0);
                         setTimeout(pollProcessingStatus, 5000);
                         return;
                     }
 
-                    if (emptyReloadAttempts < 3) {
-                        emptyReloadAttempts += 1;
-                        setTimeout(() => location.reload(), 1000);
+                    const attempts = _getReloadAttempts();
+                    if (attempts < 3) {
+                        _setReloadAttempts(attempts + 1);
+                        setTimeout(() => location.reload(), 2000);
                     } else {
                         setTimeout(pollProcessingStatus, 5000);
                     }
                     return;
                 }
-                emptyReloadAttempts = 0;
+                _setReloadAttempts(0);
 
                 let anyStillProcessing = false;
                 let shouldReload = false;
