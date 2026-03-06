@@ -660,6 +660,34 @@ function closeAllMenus() {
     closeActionPanel();
 }
 
+// Focus trapping for modals
+document.addEventListener('keydown', function(e) {
+    const isTabPressed = (e.key === 'Tab' || e.keyCode === 9);
+    if (!isTabPressed) return;
+
+    // Find the currently open modal
+    const openModal = document.querySelector('.hc-modal[style*="display: flex"], .confirm-modal[style*="display: flex"], #st-modal:not(.hidden)');
+    if (!openModal) return;
+
+    const focusableEls = openModal.querySelectorAll('a[href]:not([disabled]), button:not([disabled]), textarea:not([disabled]), input[type="text"]:not([disabled]), input[type="radio"]:not([disabled]), input[type="checkbox"]:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    if (focusableEls.length === 0) return;
+    
+    const firstFocusableEl = focusableEls[0];
+    const lastFocusableEl = focusableEls[focusableEls.length - 1];
+
+    if (e.shiftKey) { /* shift + tab */
+        if (document.activeElement === firstFocusableEl || !openModal.contains(document.activeElement)) {
+            lastFocusableEl.focus();
+            e.preventDefault();
+        }
+    } else { /* tab */
+        if (document.activeElement === lastFocusableEl || !openModal.contains(document.activeElement)) {
+            firstFocusableEl.focus();
+            e.preventDefault();
+        }
+    }
+});
+
 function showConfirmModal(title, message, formAction, accentType) {
     closeAllMenus();
     const modal = document.getElementById('confirm-modal');

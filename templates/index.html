@@ -37,31 +37,23 @@
                 </div>
             </div>
             <div class="suggestions-content" id="suggestions-content">
-                <div class="suggestions-container" style="padding: 0; border: none; background: transparent;">
-                    <div class="suggestions-grid"
-                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
+                <div class="suggestions-container">
+                    <div class="suggestions-grid">
                         {% for suggestion in suggestions %}
-                        <div class="suggestion-card" id="suggestion-{{ suggestion.source_id }}"
-                            style="background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 12px; transition: transform 0.2s; border: 1px solid rgba(255,255,255,0.05);">
+                        <div class="suggestion-card" id="suggestion-{{ suggestion.source_id }}">
                             <div class="suggestion-details">
-                                <h3 style="font-size: 0.95rem; margin: 0 0 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
-                                    title="{{ suggestion.title }}">{{ suggestion.title }}</h3>
-                                <div
-                                    style="font-size: 0.8rem; color: #888; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                    {{ suggestion.author }}</div>
+                                <h3 class="suggestion-card-title" title="{{ suggestion.title }}">{{ suggestion.title }}</h3>
+                                <div class="suggestion-author">{{ suggestion.author }}</div>
 
-                                <div
-                                    style="font-size: 0.75rem; color: #0D9488; margin-bottom: 8px; display: flex; align-items: center; gap: 4px;">
+                                <div class="suggestion-match-count">
                                     <span>Found {{ suggestion.audiobook_count }} potential match(es)</span>
                                 </div>
 
-                                <div class="suggestion-actions" style="display: flex; gap: 8px;">
+                                <div class="suggestion-actions">
                                     <a href="/match?search={{ suggestion.title|urlencode }}"
-                                        class="btn btn-sm btn-primary"
-                                        style="padding: 4px 10px; font-size: 0.8rem; text-decoration: none;">Review</a>
+                                        class="btn btn-sm btn-primary btn-review">Review</a>
                                     <button onclick='dismissSuggestion(event, {{ suggestion.source_id|tojson }})'
-                                        class="btn btn-sm"
-                                        style="padding: 4px 10px; font-size: 0.8rem; background: rgba(255,255,255,0.1); border: none; cursor: pointer; color: #fff;">Dismiss</button>
+                                        class="btn-dismiss">Dismiss</button>
                                 </div>
                             </div>
                         </div>
@@ -176,7 +168,7 @@
                     <option value="status">Status</option>
                     <option value="last_sync">Last Synced</option>
                 </select>
-                <span class="sort-direction" id="sort-direction" title="Click to Reverse Order">↓</span>
+                <button class="sort-direction" id="sort-direction" title="Click to Reverse Order" style="border: none;">↓</button>
             </div>
         </div>
 
@@ -262,6 +254,21 @@
                     <a href="/match" class="btn btn-primary">Add Your First Book</a>
                 </div>
                 {% endif %}
+
+        <div class="version-indicator">
+            <span class="version-text">
+                {% if app_version.startswith('dev') %}
+                Build {{ app_version }}
+                {% else %}
+                v{{ app_version.lstrip('v') }}
+                {% endif %}
+            </span>
+            {% if update_available %}
+            <a href="https://github.com/serabi/pagekeeper/releases/latest" target="_blank" class="update-link">
+                ↑ v{{ latest_version }} Available
+            </a>
+            {% endif %}
+        </div>
         </div>
 
         <!-- Hardcover Edition Picker Modal -->
@@ -326,8 +333,7 @@
                 </div>
                 <div class="hc-modal-body">
                     <div class="st-search-bar">
-                        <input type="text" id="bl-search-input" placeholder="Search Booklore..." class="hc-input"
-                            style="flex:1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white;">
+                        <input type="text" id="bl-search-input" placeholder="Search Booklore..." class="modal-search-input">
                         <button onclick="searchBooklore()" class="btn btn-primary">Search</button>
                     </div>
                     <div id="bl-results" class="st-results"></div>
@@ -340,13 +346,11 @@
             <div class="st-modal-content">
                 <div class="st-modal-header">
                     <h3 id="st-modal-title">Link Storyteller</h3>
-                    <button class="action-btn" onclick="closeStorytellerModal()"
-                        style="background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">✕</button>
+                    <button class="modal-close" onclick="closeStorytellerModal()" aria-label="Close">✕</button>
                 </div>
                 <div class="st-modal-body">
                     <div class="st-search-bar">
-                        <input type="text" id="st-search-input" placeholder="Search Storyteller..." class="hc-input"
-                            style="flex:1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white;">
+                        <input type="text" id="st-search-input" placeholder="Search Storyteller..." class="modal-search-input">
                         <button onclick="searchStoryteller()" class="btn btn-primary">Search</button>
                     </div>
                     <div id="st-results" class="st-results"></div>
@@ -354,25 +358,6 @@
             </div>
         </div>
         <script src="/static/js/storyteller-modal.js" defer></script>
-        <div
-            style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; background: rgba(20, 20, 20, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);">
-            <span
-                style="font-size: 11px; color: rgba(255,255,255,0.4); font-weight: 600; letter-spacing: 0.5px; font-family: monospace;">
-                {% if app_version.startswith('dev') %}
-                Build {{ app_version }}
-                {% else %}
-                v{{ app_version.lstrip('v') }}
-                {% endif %}
-            </span>
-            {% if update_available %}
-            <a href="https://github.com/serabi/pagekeeper/releases/latest" target="_blank"
-                style="font-size: 11px; color: #7C3AED; text-decoration: none; background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.3); border-radius: 4px; padding: 3px 8px; white-space: nowrap; transition: all 0.2s; font-weight: 600;"
-                onmouseover="this.style.background='rgba(124,58,237,0.25)'"
-                onmouseout="this.style.background='rgba(124,58,237,0.15)'">
-                ↑ v{{ latest_version }} Available
-            </a>
-            {% endif %}
-        </div>
 
         <!-- Shared Action Panel (card menu) -->
         <div id="action-panel" style="display:none;">
@@ -413,16 +398,14 @@
                     </button>
                 </div>
                 <div class="hc-modal-body">
-                    <p style="color:rgba(255,255,255,0.75); margin:0; line-height:1.6;">
+                    <p class="confirm-modal-message">
                         Do you also want to delete the mapping and all cached files for this book?
                     </p>
                 </div>
                 <div class="hc-modal-footer">
                     <button class="hc-btn-cancel" onclick="closeDeleteMappingModal()">Cancel</button>
                     <button class="hc-btn-link" onclick="_dmNoKeepMapping()">No, Keep Mapping</button>
-                    <button onclick="_dmYesDelete()"
-                        style="padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:0.9rem; background:linear-gradient(135deg,#e53e3e,#c53030); color:#fff;">Yes,
-                        Delete</button>
+                    <button onclick="_dmYesDelete()" class="btn btn-danger">Yes, Delete</button>
                 </div>
             </div>
         </div>

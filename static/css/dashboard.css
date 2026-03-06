@@ -597,6 +597,118 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.suggestions-container {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.suggestions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.suggestion-card {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  transition: transform 0.2s;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.suggestion-card:hover {
+  transform: translateY(-2px);
+}
+
+.suggestion-card-title {
+  font-size: 0.95rem;
+  margin: 0 0 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-author {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-match-count {
+  font-size: 0.75rem;
+  color: #0D9488;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.suggestion-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-review {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.btn-dismiss {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  border-radius: var(--radius);
+  transition: background 0.2s;
+}
+
+.btn-dismiss:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Version Indicator */
+.version-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px;
+  margin-top: 40px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.version-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  font-family: monospace;
+}
+
+.update-link {
+  font-size: 11px;
+  color: #7C3AED;
+  text-decoration: none;
+  background: rgba(124, 58, 237, 0.15);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 4px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  transition: all 0.2s;
+  font-weight: 600;
+}
+
+.update-link:hover {
+  background: rgba(124, 58, 237, 0.25);
+}
+
 /* Clickable cover link */
 .book-cover-link {
   display: block;

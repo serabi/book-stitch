@@ -67,15 +67,69 @@
 
     <script>
     /* ── Helpers ── */
-    function el(tag, cls, text) {
-        const e = document.createElement(tag);
-        if (cls) e.className = cls;
-        if (text) e.textContent = text;
-        return e;
+    function escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        return (unsafe + '').replace(/[&<"'>]/g, function (m) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[m];
+        });
     }
 
-    function clearChildren(node) {
-        while (node.firstChild) node.removeChild(node.firstChild);
+    function getSpinnerHtml() {
+        return `<svg class="btn-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; animation: spin 1s linear infinite; margin-right: 6px; display: inline-block; vertical-align: middle;"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>`;
+    }
+
+    function createComboboxHtml(options, placeholder, onChangeFnName, extraAttrs = '') {
+        let optionsHtml = options.map(opt => 
+            `<div class="bf-combobox-option" data-value="${escapeHtml(opt.value)}" onclick="handleComboboxSelect(this)">${escapeHtml(opt.label)}</div>`
+        ).join('');
+        
+        let selectedOpt = options.find(o => o.selected);
+        let initialValue = selectedOpt ? escapeHtml(selectedOpt.label) : '';
+        let initialDataValue = selectedOpt ? escapeHtml(selectedOpt.value) : '';
+
+        return `
+            <div class="bf-combobox" data-on-change="${onChangeFnName}" ${extraAttrs}>
+                <input type="text" class="bf-combobox-input" placeholder="${escapeHtml(placeholder)}" 
+                    value="${initialValue}" data-selected-value="${initialDataValue}"
+                    onfocus="this.parentElement.classList.add('open')" 
+                    onblur="setTimeout(() => this.parentElement.classList.remove('open'), 200)"
+                    oninput="handleComboboxFilter(this)">
+                <div class="bf-combobox-dropdown">
+                    ${optionsHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    function handleComboboxFilter(input) {
+        const filter = input.value.toLowerCase();
+        const options = input.nextElementSibling.querySelectorAll('.bf-combobox-option');
+        options.forEach(opt => {
+            if (opt.textContent.toLowerCase().includes(filter)) {
+                opt.classList.remove('hidden');
+            } else {
+                opt.classList.add('hidden');
+            }
+        });
+        input.dataset.selectedValue = '';
+    }
+
+    function handleComboboxSelect(optionEl) {
+        const combobox = optionEl.closest('.bf-combobox');
+        const input = combobox.querySelector('.bf-combobox-input');
+        input.value = optionEl.textContent;
+        input.dataset.selectedValue = optionEl.dataset.value;
+        combobox.classList.remove('open');
+        
+        if (combobox.dataset.onChange) {
+            window[combobox.dataset.onChange](combobox);
+        }
     }
 
     /* ── Tab switching ── */
@@ -83,7 +137,6 @@
         document.querySelectorAll('.bf-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.bf-panel').forEach(p => p.classList.remove('active'));
         document.getElementById('bf-panel-' + tab).classList.add('active');
-        // Mark the matching tab button active (works both from onclick and programmatic calls)
         document.querySelectorAll('.bf-tab').forEach(t => {
             if (t.dataset.tab === tab) t.classList.add('active');
         });
@@ -94,6 +147,8 @@
 
     /* ── Upload Tab ── */
     let searchTimer;
+    let _currentSearchBooks = [];
+
     function debounceSearch() {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(searchBooks, 300);
@@ -103,8 +158,7 @@
         const q = document.getElementById('bf-search-input').value.trim();
         const list = document.getElementById('bf-book-list');
         if (!q) {
-            clearChildren(list);
-            list.appendChild(el('div', 'bf-empty', 'Type to search your Booklore library'));
+            list.innerHTML = '<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">🔍</div>Type to search your Booklore library</div>';
             return;
         }
         fetch('/api/bookfusion/booklore-books?q=' + encodeURIComponent(q))
@@ -113,42 +167,38 @@
                 return r.json();
             })
             .then(function(books) {
-                clearChildren(list);
                 if (!books.length) {
-                    list.appendChild(el('div', 'bf-empty', 'No books found'));
+                    list.innerHTML = '<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">📚</div>No books found</div>';
                     return;
                 }
-                books.forEach(function(b) {
-                    var item = el('div', 'bf-book-item');
-
-                    var info = el('div', 'bf-book-info');
-                    info.appendChild(el('div', 'bf-book-title', b.title || b.fileName));
-
-                    var meta = el('div', 'bf-book-meta');
-                    if (b.authors) {
-                        meta.appendChild(document.createTextNode(b.authors + ' \u00B7 '));
-                    }
-                    meta.appendChild(document.createTextNode(b.fileName + ' '));
-                    meta.appendChild(el('span', 'bf-source-tag', b.source));
-                    info.appendChild(meta);
-                    item.appendChild(info);
-
-                    var btn = el('button', 'bf-upload-btn', 'Upload');
-                    btn.addEventListener('click', function() { uploadBook(btn, b); });
-                    item.appendChild(btn);
-
-                    list.appendChild(item);
-                });
+                _currentSearchBooks = books;
+                list.innerHTML = books.map((b, i) => `
+                    <div class="bf-book-item">
+                        <div class="bf-book-info">
+                            <div class="bf-book-title">${escapeHtml(b.title || b.fileName)}</div>
+                            <div class="bf-book-meta">
+                                ${b.authors ? escapeHtml(b.authors) + ' &middot; ' : ''}
+                                ${escapeHtml(b.fileName)} <span class="bf-source-tag">${escapeHtml(b.source)}</span>
+                            </div>
+                        </div>
+                        <button class="bf-upload-btn" data-index="${i}" onclick="handleUploadClick(this)">Upload</button>
+                    </div>
+                `).join('');
             })
             .catch(function() {
-                clearChildren(list);
-                list.appendChild(el('div', 'bf-empty', 'Search failed'));
+                list.innerHTML = '<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">⚠️</div>Search failed</div>';
             });
+    }
+
+    function handleUploadClick(btn) {
+        const index = btn.dataset.index;
+        const book = _currentSearchBooks[index];
+        uploadBook(btn, book);
     }
 
     function uploadBook(btn, book) {
         btn.disabled = true;
-        btn.textContent = 'Uploading...';
+        btn.innerHTML = getSpinnerHtml() + 'Uploading...';
 
         fetch('/api/bookfusion/upload', {
             method: 'POST',
@@ -164,73 +214,18 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
-                btn.textContent = 'Done';
+                btn.innerHTML = 'Done';
                 btn.classList.add('done');
             } else {
-                btn.textContent = data.error || 'Error';
+                btn.innerHTML = escapeHtml(data.error || 'Error');
                 btn.classList.add('error');
                 btn.disabled = false;
             }
         })
         .catch(function() {
-            btn.textContent = 'Error';
+            btn.innerHTML = 'Error';
             btn.classList.add('error');
             btn.disabled = false;
-        });
-    }
-
-    /* ── Render highlight markdown as safe DOM nodes ── */
-    function renderHighlight(container, text) {
-        // Strip block-level markdown and render as readable paragraphs
-        var lines = text.split('\n');
-        var currentP = null;
-
-        lines.forEach(function(line) {
-            // Strip blockquote prefixes
-            line = line.replace(/^>\s*/g, '');
-            // Strip heading markers
-            line = line.replace(/^#{1,6}\s+/, '');
-            // Strip horizontal rules
-            if (/^[-*_]{3,}\s*$/.test(line)) return;
-            // Strip image syntax ![alt](url)
-            line = line.replace(/!\[([^\]]*)\]\([^)]*\)/g, '');
-
-            // Convert inline markdown to text
-            // Bold+italic
-            line = line.replace(/\*\*\*(.+?)\*\*\*/g, '$1');
-            line = line.replace(/___(.+?)___/g, '$1');
-            // Bold
-            line = line.replace(/\*\*(.+?)\*\*/g, '$1');
-            line = line.replace(/__(.+?)__/g, '$1');
-            // Italic
-            line = line.replace(/\*(.+?)\*/g, '$1');
-            line = line.replace(/_(.+?)_/g, '$1');
-            // Inline code
-            line = line.replace(/`(.+?)`/g, '$1');
-            // Links [text](url) → just text
-            line = line.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-            // Obsidian wiki-links [[target|display]] or [[target]]
-            line = line.replace(/\[\[([^|\]]*)\|([^\]]*)\]\]/g, '$2');
-            line = line.replace(/\[\[([^\]]*)\]\]/g, '$1');
-            // Strip Obsidian block IDs ^block-id
-            line = line.replace(/\s*\^[\w-]+\s*$/, '');
-
-            line = line.trim();
-
-            if (!line) {
-                // Empty line = paragraph break
-                currentP = null;
-                return;
-            }
-
-            if (!currentP) {
-                currentP = document.createElement('p');
-                currentP.style.margin = '0 0 0.5em 0';
-                container.appendChild(currentP);
-            } else {
-                currentP.appendChild(document.createElement('br'));
-            }
-            currentP.appendChild(document.createTextNode(line));
         });
     }
 
@@ -239,9 +234,13 @@
         var btn = document.getElementById('bf-sync-btn');
         var resyncBtn = document.getElementById('bf-resync-btn');
         var info = document.getElementById('bf-sync-info');
+        
+        var activeBtn = fullResync ? resyncBtn : btn;
+        var originalText = activeBtn.textContent;
+        
         btn.disabled = true;
         resyncBtn.disabled = true;
-        btn.textContent = fullResync ? 'Re-syncing...' : 'Syncing...';
+        activeBtn.innerHTML = getSpinnerHtml() + (fullResync ? 'Re-syncing...' : 'Syncing...');
         info.textContent = '';
 
         fetch('/api/bookfusion/sync-highlights', {
@@ -253,7 +252,7 @@
             .then(function(data) {
                 btn.disabled = false;
                 resyncBtn.disabled = false;
-                btn.textContent = 'Sync Highlights';
+                activeBtn.innerHTML = originalText;
                 if (data.success) {
                     var parts = [];
                     if (data.new_highlights) parts.push(data.new_highlights + ' new highlight' + (data.new_highlights !== 1 ? 's' : ''));
@@ -267,12 +266,13 @@
             .catch(function() {
                 btn.disabled = false;
                 resyncBtn.disabled = false;
-                btn.textContent = 'Sync Highlights';
+                activeBtn.innerHTML = originalText;
                 info.textContent = 'Sync failed';
             });
     }
 
-    var _pkBooks = []; // PageKeeper books for journal matching
+    var _pkBooks = [];
+    var _currentHighlightGroups = {};
 
     function loadHighlights() {
         fetch('/api/bookfusion/highlights')
@@ -282,120 +282,104 @@
             })
             .then(function(data) {
                 var container = document.getElementById('bf-highlights-container');
-                clearChildren(container);
-
+                
                 _pkBooks = data.books || [];
                 var groups = data.highlights;
+                _currentHighlightGroups = groups;
                 var bookNames = Object.keys(groups);
 
                 if (!bookNames.length) {
                     var msg = data.has_synced ? 'No highlights found' : 'Click "Sync Highlights" to fetch highlights from BookFusion';
-                    container.appendChild(el('div', 'bf-empty', msg));
+                    container.innerHTML = `<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">📝</div>${msg}</div>`;
                     return;
                 }
 
-                bookNames.forEach(function(book) {
+                container.innerHTML = bookNames.map(book => {
                     var groupData = groups[book];
                     var hls = groupData.highlights;
                     var matchedAbsId = groupData.matched_abs_id;
-                    var group = el('div', 'bf-highlight-group');
+                    
+                    let options = _pkBooks.map(b => ({
+                        value: b.abs_id,
+                        label: b.title,
+                        selected: (matchedAbsId && b.abs_id === matchedAbsId)
+                    }));
 
-                    var header = el('div', 'bf-group-header');
-                    header.setAttribute('tabindex', '0');
-                    header.setAttribute('role', 'button');
-                    header.appendChild(el('span', 'chevron', '\u25BC'));
-                    header.appendChild(document.createTextNode(' ' + book + ' '));
-                    header.appendChild(el('span', 'bf-count', '(' + hls.length + ')'));
-                    if (matchedAbsId) {
-                        header.appendChild(el('span', 'bf-match-badge', '\u2714 Linked'));
-                    }
-                    function toggleGroup(e) {
-                        if (e.target.closest('.bf-journal-controls')) return;
-                        header.classList.toggle('collapsed');
-                        hlBody.classList.toggle('hidden');
-                    }
-                    header.addEventListener('click', toggleGroup);
-                    header.addEventListener('keydown', function(e) {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            toggleGroup(e);
-                        }
-                    });
+                    let comboboxHtml = createComboboxHtml(options, 'Match to book…', 'handleHighlightLinkChange', `data-book-title="${escapeHtml(book)}" data-bf-id="${escapeHtml(groupData.bookfusion_book_id)}"`);
 
-                    // Journal save controls
-                    var controls = el('span', 'bf-journal-controls');
-                    var select = document.createElement('select');
-                    select.className = 'bf-book-select';
-                    select.dataset.bookTitle = book;
-                    var defaultOpt = document.createElement('option');
-                    defaultOpt.value = '';
-                    defaultOpt.textContent = 'Match to book\u2026';
-                    select.appendChild(defaultOpt);
-                    _pkBooks.forEach(function(b) {
-                        var opt = document.createElement('option');
-                        opt.value = b.abs_id;
-                        opt.textContent = b.title;
-                        if (matchedAbsId && b.abs_id === matchedAbsId) {
-                            opt.selected = true;
-                        }
-                        select.appendChild(opt);
-                    });
-                    select.addEventListener('change', function() {
-                        linkHighlight(groupData.bookfusion_book_id, select.value, select);
-                    });
-                    controls.appendChild(select);
+                    let hlsHtml = hls.map(h => {
+                        let metaParts = [];
+                        if (h.chapter_heading) metaParts.push(h.chapter_heading.replace(/^#{1,6}\s*/, ''));
+                        if (h.date) metaParts.push(h.date);
+                        let metaText = metaParts.map(escapeHtml).join(' &middot; ');
+                        
+                        return `
+                            <div class="bf-highlight">
+                                <div class="bf-highlight-content">${escapeHtml(h.quote || '')}</div>
+                                <div class="bf-highlight-chapter">${metaText}</div>
+                            </div>
+                        `;
+                    }).join('');
 
-                    var saveBtn = el('button', 'bf-upload-btn', 'Save to Journal');
-                    saveBtn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        saveToJournal(saveBtn, select.value, hls);
-                    });
-                    controls.appendChild(saveBtn);
-                    header.appendChild(controls);
-                    group.appendChild(header);
-
-                    var hlBody = el('div', 'bf-group-body');
-                    hls.forEach(function(h) {
-                        var hlDiv = el('div', 'bf-highlight');
-
-                        // Show parsed quote instead of raw markdown
-                        var contentDiv = el('div', 'bf-highlight-content');
-                        contentDiv.appendChild(document.createTextNode(h.quote || ''));
-                        hlDiv.appendChild(contentDiv);
-
-                        var metaDiv = el('div', 'bf-highlight-chapter');
-                        var parts = [];
-                        if (h.chapter_heading) parts.push(h.chapter_heading.replace(/^#{1,6}\s*/, ''));
-                        if (h.date) parts.push(h.date);
-                        if (parts.length) metaDiv.textContent = parts.join(' \u00B7 ');
-                        hlDiv.appendChild(metaDiv);
-
-                        hlBody.appendChild(hlDiv);
-                    });
-                    group.appendChild(hlBody);
-
-                    container.appendChild(group);
-                });
+                    return `
+                        <div class="bf-highlight-group">
+                            <div class="bf-group-header" tabindex="0" role="button" onclick="toggleGroup(event, this)" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); toggleGroup(event, this); }">
+                                <span class="chevron">▼</span>
+                                 ${escapeHtml(book)} 
+                                <span class="bf-count">(${hls.length})</span>
+                                ${matchedAbsId ? `<span class="bf-match-badge">✔ Linked</span>` : ''}
+                                
+                                <span class="bf-journal-controls" onclick="event.stopPropagation()">
+                                    ${comboboxHtml}
+                                    <button class="bf-upload-btn" data-book-title="${escapeHtml(book)}" onclick="handleSaveJournalClick(this)">Save to Journal</button>
+                                </span>
+                            </div>
+                            <div class="bf-group-body">
+                                ${hlsHtml}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
             })
             .catch(function() {
                 var container = document.getElementById('bf-highlights-container');
-                clearChildren(container);
-                container.appendChild(el('div', 'bf-empty', 'Failed to load highlights'));
+                container.innerHTML = '<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">⚠️</div>Failed to load highlights</div>';
             });
+    }
+
+    function toggleGroup(e, headerEl) {
+        if (e.target.closest('.bf-journal-controls')) return;
+        headerEl.classList.toggle('collapsed');
+        headerEl.nextElementSibling.classList.toggle('hidden');
+    }
+
+    function handleHighlightLinkChange(comboboxEl) {
+        const input = comboboxEl.querySelector('.bf-combobox-input');
+        const absId = input.dataset.selectedValue;
+        const bookfusionBookId = comboboxEl.dataset.bfId;
+        linkHighlight(bookfusionBookId, absId);
+    }
+
+    function handleSaveJournalClick(btn, bookTitle) {
+        const groupData = _currentHighlightGroups[bookTitle];
+        if (!groupData) return;
+        const comboboxEl = btn.previousElementSibling;
+        const input = comboboxEl.querySelector('.bf-combobox-input');
+        saveToJournal(btn, input.dataset.selectedValue, groupData.highlights);
     }
 
     function saveToJournal(btn, absId, highlights) {
         if (!absId) {
-            btn.textContent = 'Select a book first';
+            btn.innerHTML = 'Select a book first';
             btn.classList.add('error');
             setTimeout(function() {
-                btn.textContent = 'Save to Journal';
+                btn.innerHTML = 'Save to Journal';
                 btn.classList.remove('error');
             }, 2000);
             return;
         }
         btn.disabled = true;
-        btn.textContent = 'Saving...';
+        btn.innerHTML = getSpinnerHtml() + 'Saving...';
 
         var payload = highlights.map(function(h) {
             return {
@@ -412,24 +396,24 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
-                btn.textContent = '\u2713 Saved ' + data.saved;
+                btn.innerHTML = '✔ Saved ' + data.saved;
                 btn.classList.add('done');
             } else {
-                btn.textContent = data.error || 'Error';
+                btn.innerHTML = escapeHtml(data.error || 'Error');
                 btn.classList.add('error');
                 btn.disabled = false;
             }
         })
         .catch(function() {
-            btn.textContent = 'Error';
+            btn.innerHTML = 'Error';
             btn.classList.add('error');
             btn.disabled = false;
         });
     }
+
     function linkHighlight(bookfusionBookId, absId) {
-        // Find and disable the select that triggered this
-        var selects = document.querySelectorAll('.bf-book-select[data-book-title]');
-        selects.forEach(function(s) { s.disabled = true; });
+        var inputs = document.querySelectorAll('.bf-combobox[data-book-title] .bf-combobox-input');
+        inputs.forEach(function(s) { s.disabled = true; });
         fetch('/api/bookfusion/link-highlight', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -437,7 +421,7 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            selects.forEach(function(s) { s.disabled = false; });
+            inputs.forEach(function(s) { s.disabled = false; });
             if (data.success) {
                 loadHighlights();
             } else {
@@ -446,13 +430,7 @@
             }
         })
         .catch(function() {
-            selects.forEach(function(s) { s.disabled = false; });
-            console.error('Link request failed');
-            loadHighlights();
-        });
-    }
-        .catch(function() {
-            selects.forEach(function(s) { s.disabled = false; });
+            inputs.forEach(function(s) { s.disabled = false; });
             console.error('Link request failed');
             loadHighlights();
         });
@@ -461,18 +439,17 @@
     /* ── Library Tab ── */
     var _libraryData = [];
     var _dashboardBooks = [];
+    var _currentRenderedBooks = [];
 
     function loadLibrary() {
         var list = document.getElementById('bf-library-list');
-        clearChildren(list);
-        list.appendChild(el('div', 'bf-empty', 'Loading...'));
+        list.innerHTML = '<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">⏳</div>Loading...</div>';
 
         fetch('/api/bookfusion/library')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 _libraryData = data.books || [];
                 _dashboardBooks = data.dashboard_books || [];
-                // Pre-fill search from URL ?q= parameter
                 var urlQ = new URLSearchParams(window.location.search).get('q');
                 if (urlQ) {
                     document.getElementById('bf-library-search').value = urlQ;
@@ -482,8 +459,7 @@
                 }
             })
             .catch(function() {
-                clearChildren(list);
-                list.appendChild(el('div', 'bf-empty', 'Failed to load library'));
+                list.innerHTML = '<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">⚠️</div>Failed to load library</div>';
             });
     }
 
@@ -514,157 +490,134 @@
         if (!parts.length) return null;
         var range = parts.join(' to ');
         if (data.dates_source === 'hardcover') {
-            return 'Reading dates set from Hardcover \u2014 ' + range;
+            return 'Reading dates set from Hardcover — ' + range;
         }
-        return 'Dates estimated from highlights \u2014 ' + range;
+        return 'Dates estimated from highlights — ' + range;
     }
 
     function renderLibrary(books) {
         var list = document.getElementById('bf-library-list');
-        clearChildren(list);
+        _currentRenderedBooks = books;
 
         if (!books.length) {
-            list.appendChild(el('div', 'bf-empty', _libraryData.length ? 'No matches' : 'No books in catalog. Run a Full Re-sync to populate.'));
+            list.innerHTML = `<div class="bf-empty"><div style="font-size: 2rem; margin-bottom: 8px; opacity: 0.5;">📚</div>${_libraryData.length ? 'No matches' : 'No books in catalog. Run a Full Re-sync to populate.'}</div>`;
             return;
         }
 
-        books.forEach(function(b) {
-            var item = el('div', 'bf-book-item');
-
-            var info = el('div', 'bf-book-info');
-            info.appendChild(el('div', 'bf-book-title', b.title || b.filename));
-
-            var meta = el('div', 'bf-book-meta');
-            if (b.authors) meta.appendChild(document.createTextNode(b.authors));
+        list.innerHTML = books.map((b, i) => {
+            let metaHtml = '';
+            if (b.authors) metaHtml += escapeHtml(b.authors);
             if (b.series) {
-                if (b.authors) meta.appendChild(document.createTextNode(' \u00B7 '));
-                meta.appendChild(document.createTextNode(b.series));
+                if (b.authors) metaHtml += ' &middot; ';
+                metaHtml += escapeHtml(b.series);
             }
             if (b.highlight_count > 0) {
-                meta.appendChild(document.createTextNode(' '));
-                meta.appendChild(el('span', 'bf-hl-count', b.highlight_count + ' highlight' + (b.highlight_count !== 1 ? 's' : '')));
+                metaHtml += ` <span class="bf-hl-count">${b.highlight_count} highlight${b.highlight_count !== 1 ? 's' : ''}</span>`;
             }
-            // Show format tags from filenames
+            
             var filenames = b.filenames || (b.filename ? [b.filename] : []);
             if (filenames.length) {
-                meta.appendChild(document.createTextNode(' '));
+                metaHtml += ' ';
                 var exts = [];
                 filenames.forEach(function(fn) {
                     var ext = _extractExt(fn);
                     if (ext && ext !== 'MD' && exts.indexOf(ext) === -1) exts.push(ext);
                 });
                 exts.forEach(function(ext) {
-                    var tag = el('span', 'bf-format-tag', ext);
-                    meta.appendChild(tag);
+                    metaHtml += `<span class="bf-format-tag">${escapeHtml(ext)}</span>`;
                 });
             }
-            info.appendChild(meta);
-            item.appendChild(info);
 
-            var actions = el('div', 'bf-library-actions');
+            let actionsHtml = '';
             if (b.on_dashboard) {
-                _renderMatchedActions(actions, b);
+                actionsHtml = `
+                    <a class="bf-dashboard-badge" href="/reading/book/${encodeURIComponent(b.abs_id)}">✔ Matched</a>
+                    <button class="bf-upload-btn bf-unlink-btn" onclick="handleUnlinkClick(this, ${i})">Unlink</button>
+                `;
             } else {
-                _renderMatchControls(actions, b);
+                let options = _dashboardBooks.map(db => ({
+                    value: db.abs_id,
+                    label: db.title,
+                    selected: false
+                }));
+                let comboboxHtml = createComboboxHtml(options, 'Match to book…', '');
+                actionsHtml = `
+                    ${comboboxHtml}
+                    <button class="bf-upload-btn bf-link-btn" onclick="handleLinkClick(this, ${i})">Link</button>
+                    <button class="bf-upload-btn" onclick="handleAddClick(this, ${i})">Add New</button>
+                `;
             }
-            item.appendChild(actions);
 
-            list.appendChild(item);
-        });
+            return `
+                <div class="bf-book-item">
+                    <div class="bf-book-info">
+                        <div class="bf-book-title">${escapeHtml(b.title || b.filename)}</div>
+                        <div class="bf-book-meta">${metaHtml}</div>
+                    </div>
+                    <div class="bf-library-actions" data-index="${i}">
+                        ${actionsHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
 
-    function _renderMatchedActions(actions, book) {
-        var badge = document.createElement('a');
-        badge.className = 'bf-dashboard-badge';
-        badge.textContent = '\u2714 Matched';
-        badge.href = '/reading/book/' + encodeURIComponent(book.abs_id);
-        actions.appendChild(badge);
-
-        var unlinkBtn = el('button', 'bf-upload-btn bf-unlink-btn', 'Unlink');
-        unlinkBtn.addEventListener('click', function() {
-            unlinkBtn.disabled = true;
-            unlinkBtn.textContent = 'Unlinking...';
-            fetch('/api/bookfusion/unlink', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ abs_id: book.abs_id })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) {
-                    book.on_dashboard = false;
-                    book.abs_id = null;
-                    clearChildren(actions);
-                    _renderMatchControls(actions, book);
-                } else {
-                    unlinkBtn.textContent = 'Unlink';
-                    unlinkBtn.disabled = false;
-                }
-            })
-            .catch(function() {
-                unlinkBtn.textContent = 'Unlink';
-                unlinkBtn.disabled = false;
-            });
-        });
-        actions.appendChild(unlinkBtn);
-    }
-
-    function _renderMatchControls(actions, book) {
-        var select = document.createElement('select');
-        select.className = 'bf-book-select';
-        var defaultOpt = document.createElement('option');
-        defaultOpt.value = '';
-        defaultOpt.textContent = 'Match to book\u2026';
-        select.appendChild(defaultOpt);
-        _dashboardBooks.forEach(function(db) {
-            var opt = document.createElement('option');
-            opt.value = db.abs_id;
-            opt.textContent = db.title;
-            select.appendChild(opt);
-        });
-        actions.appendChild(select);
-
-        var linkBtn = el('button', 'bf-upload-btn bf-link-btn', 'Link');
-        linkBtn.addEventListener('click', function() {
-            if (select.value) {
-                matchToBook(linkBtn, select, book);
+    function handleUnlinkClick(btn, index) {
+        const book = _currentRenderedBooks[index];
+        btn.disabled = true;
+        btn.innerHTML = getSpinnerHtml() + 'Unlinking...';
+        fetch('/api/bookfusion/unlink', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ abs_id: book.abs_id })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                book.on_dashboard = false;
+                book.abs_id = null;
+                renderLibrary(_currentRenderedBooks);
+            } else {
+                btn.innerHTML = 'Unlink';
+                btn.disabled = false;
             }
+        })
+        .catch(function() {
+            btn.innerHTML = 'Unlink';
+            btn.disabled = false;
         });
-        actions.appendChild(linkBtn);
-
-        var addBtn = el('button', 'bf-upload-btn', 'Add New');
-        addBtn.addEventListener('click', function() { addToDashboard(addBtn, book); });
-        actions.appendChild(addBtn);
     }
 
-    function _showDateNote(parentEl, data) {
+    function handleLinkClick(btn, index) {
+        const book = _currentRenderedBooks[index];
+        const comboboxEl = btn.previousElementSibling;
+        const input = comboboxEl.querySelector('.bf-combobox-input');
+        if (input.dataset.selectedValue) {
+            matchToBook(btn, input, book, index);
+        }
+    }
+
+    function handleAddClick(btn, index) {
+        const book = _currentRenderedBooks[index];
+        addToDashboard(btn, book, index);
+    }
+
+    function _showDateNote(actionsEl, data) {
         var note = _formatDateNote(data);
         if (!note) return;
-        var noteEl = el('div', 'bf-date-note', note);
-        noteEl.style.cssText = 'font-size: 0.75rem; color: var(--color-text-muted); margin-top: 4px; opacity: 0; transition: opacity 0.4s;';
-        parentEl.appendChild(noteEl);
+        var noteEl = document.createElement('div');
+        noteEl.className = 'bf-date-note';
+        noteEl.textContent = note;
+        noteEl.style.cssText = 'font-size: 0.75rem; color: var(--color-text-muted); margin-top: 4px; opacity: 0; transition: opacity 0.4s; width: 100%;';
+        actionsEl.appendChild(noteEl);
         requestAnimationFrame(function() { noteEl.style.opacity = '1'; });
     }
 
-    function _replaceWithMatchedBadge(actionsEl, absId, data, book) {
-        clearChildren(actionsEl);
-        if (book) {
-            _renderMatchedActions(actionsEl, book);
-        } else {
-            var badge = document.createElement('a');
-            badge.className = 'bf-dashboard-badge';
-            badge.textContent = '\u2714 Matched';
-            badge.href = '/reading/book/' + encodeURIComponent(absId);
-            actionsEl.appendChild(badge);
-        }
-        _showDateNote(actionsEl, data);
-    }
-
-    function matchToBook(btn, select, book) {
-        var absId = select.value;
+    function matchToBook(btn, input, book, index) {
+        var absId = input.dataset.selectedValue;
         btn.disabled = true;
-        select.disabled = true;
-        btn.textContent = 'Linking...';
+        input.disabled = true;
+        btn.innerHTML = getSpinnerHtml() + 'Linking...';
 
         fetch('/api/bookfusion/match-to-book', {
             method: 'POST',
@@ -676,23 +629,29 @@
             if (data.success) {
                 book.on_dashboard = true;
                 book.abs_id = absId;
-                _replaceWithMatchedBadge(btn.closest('.bf-library-actions'), absId, data, book);
+                renderLibrary(_currentRenderedBooks);
+                // We need to find the newly rendered actionsEl to append the date note
+                setTimeout(() => {
+                    const actionsEls = document.querySelectorAll('.bf-library-actions');
+                    const actionsEl = Array.from(actionsEls).find(el => el.dataset.index == index);
+                    if (actionsEl) _showDateNote(actionsEl, data);
+                }, 50);
             } else {
-                btn.textContent = 'Link';
+                btn.innerHTML = 'Link';
                 btn.disabled = false;
-                select.disabled = false;
+                input.disabled = false;
             }
         })
         .catch(function() {
-            btn.textContent = 'Link';
+            btn.innerHTML = 'Link';
             btn.disabled = false;
-            select.disabled = false;
+            input.disabled = false;
         });
     }
 
-    function addToDashboard(btn, book) {
+    function addToDashboard(btn, book, index) {
         btn.disabled = true;
-        btn.textContent = 'Adding...';
+        btn.innerHTML = getSpinnerHtml() + 'Adding...';
 
         fetch('/api/bookfusion/add-to-dashboard', {
             method: 'POST',
@@ -704,15 +663,20 @@
             if (data.success) {
                 book.on_dashboard = true;
                 book.abs_id = data.abs_id;
-                _replaceWithMatchedBadge(btn.closest('.bf-library-actions'), data.abs_id, data, book);
+                renderLibrary(_currentRenderedBooks);
+                setTimeout(() => {
+                    const actionsEls = document.querySelectorAll('.bf-library-actions');
+                    const actionsEl = Array.from(actionsEls).find(el => el.dataset.index == index);
+                    if (actionsEl) _showDateNote(actionsEl, data);
+                }, 50);
             } else {
-                btn.textContent = data.error || 'Error';
+                btn.innerHTML = escapeHtml(data.error || 'Error');
                 btn.classList.add('error');
                 btn.disabled = false;
             }
         })
         .catch(function() {
-            btn.textContent = 'Error';
+            btn.innerHTML = 'Error';
             btn.classList.add('error');
             btn.disabled = false;
         });
