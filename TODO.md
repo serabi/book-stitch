@@ -67,11 +67,6 @@
 - [ ] Update `PendingSuggestion` to support non-ABS source IDs
 - [ ] Update sync logic to handle books without ABS associations
 
-## Refactor: Extract Matching Routes ([#23](https://github.com/serabi/pagekeeper/issues/23))
-- [ ] Extract `suggestions()`, `match()`, `batch_match()` into `src/blueprints/matching.py`
-- [ ] Register new `matching_bp` blueprint in app factory
-- [ ] Inline or move `_pull_started_at()` into `reading_date_service.py`
-
 ## Create PWA ([#22](https://github.com/serabi/pagekeeper/issues/22))
 - [ ] Look into making the frontend a PWA for better mobile compatibility
 
