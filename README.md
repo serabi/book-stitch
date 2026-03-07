@@ -37,7 +37,7 @@ The goal of PageKeeper is to be a full fledged reading tracking and journaling s
 
 This app is built with Python 3.13 and Flask, using SQLAlchemy with SQLite for persistence and Alembic for database migrations. It runs in a Docker container based on `python:3.13-slim`, with ffmpeg for audio processing and faster-whisper installed in-container for speech-to-text transcription. The frontend uses vanilla JavaScript, HTML, and CSS. Dependency injection is handled by dependency-injector, and real-time communication with Audiobookshelf uses python-socketio.
 
-This app does rely heavily on AI coding tools. I don't consider it "vibe coded" as the tools are directed by a human and I do read the code generated, but I do want to be up front that I am not writing the code directly. I run Snyk security to help catch security issues, and CodeRabbit.io's free plan on every PR to help catch bugs in the code. I have made every effort to make this app secure and stable, but there may be issues. Please report any issues that you find! 
+This app does rely heavily on AI coding tools. The tools are directed by a human and I do read the code generated, but I do want to be up front that I am not writing most of the code directly. I run Snyk security to help catch security issues, and CodeRabbit.io's free plan on every PR to help catch bugs in the code. I have made every effort to make this app secure and stable, but there may be issues. Please report any issues that you find! 
 
 
 ### Supported platforms
