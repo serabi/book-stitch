@@ -15,11 +15,9 @@ from src.db.models import Book
 logger = logging.getLogger(__name__)
 
 class LibraryService:
-    def __init__(self, database_service: DatabaseService, booklore_client, cwa_client: CWAClient, abs_client: ABSClient, epub_cache_dir: str, booklore_client_2=None):
+    def __init__(self, database_service: DatabaseService, booklore_client, cwa_client: CWAClient, abs_client: ABSClient, epub_cache_dir: str):
         self.database_service = database_service
         self.booklore = booklore_client
-        self.booklore_2 = booklore_client_2
-        self._booklore_clients = [c for c in [booklore_client, booklore_client_2] if c]
         self.cwa_client = cwa_client
         self.abs_client = abs_client
         self.epub_cache_dir = epub_cache_dir
@@ -27,8 +25,8 @@ class LibraryService:
         if not os.path.exists(self.epub_cache_dir):
             try:
                 os.makedirs(self.epub_cache_dir)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to create EPUB cache directory '%s': %s", self.epub_cache_dir, e)
 
     def get_syncable_books(self) -> list[Book]:
         """
@@ -144,17 +142,13 @@ class LibraryService:
         books = self.get_syncable_books()
         logger.info(f"LibraryService: Syncing metadata for {len(books)} books...")
 
-        any_configured = False
-        for bl_client in self._booklore_clients:
-            if not bl_client or not bl_client.is_configured():
-                continue
-            any_configured = True
-            try:
-                all_books = bl_client.get_all_books()
-                logger.info(f"   Booklore ({bl_client.source_tag}) cache is active with {len(all_books)} books.")
-            except Exception as e:
-                logger.error(f"   Library sync failed for Booklore ({bl_client.source_tag}): {e}")
+        if not self.booklore or not self.booklore.is_configured():
+            logger.info("   Booklore not configured, skipping library sync.")
+            return
 
-        if not any_configured:
-            logger.info("   No Booklore instances configured, skipping library sync.")
+        try:
+            all_books = self.booklore.get_all_books()
+            logger.info(f"   Booklore cache is active with {len(all_books)} books.")
+        except Exception as e:
+            logger.error(f"   Library sync failed for Booklore: {e}")
 

@@ -61,7 +61,7 @@ class HardcoverSyncClient(SyncClient):
 
         return match, None  # Return valid match, no rejected match
 
-    def _automatch_hardcover(self, book):
+    def automatch_hardcover(self, book):
         """
         Match a book with Hardcover using various search strategies.
         Tries page-based editions first, falls back to audiobook editions.
@@ -233,7 +233,7 @@ class HardcoverSyncClient(SyncClient):
             return SyncResult(None, False)
 
         # Ensure we have hardcover details (auto-match if needed)
-        self._automatch_hardcover(book)
+        self.automatch_hardcover(book)
 
         percentage = request.locator_result.percentage
 
@@ -286,8 +286,14 @@ class HardcoverSyncClient(SyncClient):
                 self.database_service.save_hardcover_details(hardcover_details)
                 return SyncResult(None, False)
 
-        page_num = int(total_pages * percentage)
-        is_finished = percentage > 0.99
+        if total_pages <= 0:
+            page_num = 0
+        elif percentage <= 0:
+            page_num = 0
+        else:
+            page_num = max(1, min(int(total_pages * percentage), total_pages))
+
+        is_finished = percentage > 0.99 or (total_pages > 0 and page_num == total_pages)
         current_status = ub.get('status_id')
 
         # Handle status transitions
@@ -312,6 +318,12 @@ class HardcoverSyncClient(SyncClient):
                 'total_pages': total_pages,
                 'status': current_status
             }
+
+            try:
+                from src.services.write_tracker import record_write
+                record_write('Hardcover', book.abs_id, updated_state)
+            except ImportError:
+                pass
 
             return SyncResult(actual_pct, True, updated_state)
 
@@ -344,6 +356,12 @@ class HardcoverSyncClient(SyncClient):
                 'total_seconds': audio_seconds,
                 'status': current_status
             }
+
+            try:
+                from src.services.write_tracker import record_write
+                record_write('Hardcover', book.abs_id, updated_state)
+            except ImportError:
+                pass
 
             return SyncResult(percentage, True, updated_state)
 

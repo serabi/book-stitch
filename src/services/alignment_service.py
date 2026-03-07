@@ -20,6 +20,9 @@ class AlignmentService:
         self.database_service = database_service
         self.polisher = polisher
 
+    def has_alignment(self, abs_id: str) -> bool:
+        return bool(abs_id and self._get_alignment(abs_id))
+
     @time_execution
     def align_and_store(self, abs_id: str, raw_segments: list[dict], ebook_text: str, spine_chapters: list[dict] = None):
         """

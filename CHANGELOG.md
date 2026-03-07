@@ -4,7 +4,36 @@
 
 All notable changes to PageKeeper will be documented in this file.
 
-## [1.0.6] - 2026-03-05
+## [0.1.8] - 2026-03-07
+
+### Added
+
+- **Reading detail and journal UI expansion** — Added a dedicated reading detail experience with richer journal workflows, manual progress entry improvements, and new reading-focused templates, styles, and client-side interactions.
+- **Batch matching and suggestion improvements** — Expanded the pairing workflow with queue-based batch matching, suggestion page UX refinements, stronger validation, and better prefilled linking flows.
+- **Cover management and metadata polish** — Added cover picker support, cover image management routes, and improved metadata enrichment across dashboard and reading views.
+
+### Changed
+
+- **Navigation, layout, and settings UX** — Refined navbar structure, responsive layouts, settings service URL configuration, and shared component styling for better consistency across desktop and mobile views.
+- **Backend service decomposition** — Continued breaking large sync and database responsibilities into focused repositories, blueprints, and services to reduce coupling and improve maintainability.
+- **BookFusion and reading workflows** — Improved BookFusion linking, hidden-status handling, highlight flows, and reading-page interactions across the app.
+
+### Fixed
+
+- **Lint and safety cleanup** — Resolved Ruff issues, strengthened template/context escaping, eliminated remaining unsafe DOM insertion patterns, and tightened input validation around proxy and matching flows.
+- **Progress and date handling reliability** — Improved reading date sync, progress reset behavior, background job recovery, and error handling around external client updates.
+
+## [0.1.7] - 2026-03-05
+
+### Added
+
+- **BookFusion integration** — New BookFusion page (`/bookfusion`) for uploading books and syncing highlights. Upload books from Booklore to BookFusion via the Calibre plugin API (3-step init → S3 → finalize flow). Sync highlights from BookFusion via the Obsidian plugin API with incremental cursor-based pagination.
+- **Dual API key support** — BookFusion uses separate API keys for uploads (Calibre API) and highlights (Obsidian API). Each key has its own settings field and independent test button. The highlights field auto-extracts the token when pasting an `obsidian://` connect link.
+- **Test before save** — BookFusion test buttons send the unsaved key value directly, so you can verify credentials before saving settings.
+- **Highlight viewer** — Highlights are displayed grouped by book, sorted by date, with parsed quote text (stripped of markdown, wiki-links, and Obsidian block IDs). Chapter and date shown beneath each highlight.
+- **Save highlights to journal** — Each book group in the highlights view has a "Save to Journal" button with a book matcher dropdown (auto-selects matching PageKeeper books by title). Saves all highlights as reading journal `note` entries.
+
+## [0.1.6] - 2026-03-05
 
 ### Added
 
@@ -42,7 +71,7 @@ All notable changes to PageKeeper will be documented in this file.
 
 ---
 
-## [1.0.5] - 2026-03-04
+## [0.1.5] - 2026-03-04
 
 ### Added
 
@@ -55,7 +84,7 @@ All notable changes to PageKeeper will be documented in this file.
 
 ---
 
-## [1.0.4] - 2026-03-03
+## [0.1.4] - 2026-03-03
 
 ### Added
 
@@ -63,7 +92,7 @@ All notable changes to PageKeeper will be documented in this file.
 
 ---
 
-## [1.0.3] - 2026-03-02
+## [0.1.3] - 2026-03-02
 
 ### Security
 
@@ -73,7 +102,7 @@ All notable changes to PageKeeper will be documented in this file.
 
 ---
 
-## [1.0.2] - 2026-03-02
+## [0.1.2] - 2026-03-02
 
 ### Changed
 
@@ -92,7 +121,7 @@ All notable changes to PageKeeper will be documented in this file.
 
 ---
 
-## [1.0.1] - 2026-03-02
+## [0.1.1] - 2026-03-02
 
 ### Fixed
 
@@ -105,7 +134,7 @@ All notable changes to PageKeeper will be documented in this file.
 
 ---
 
-## [1.0.0] - 2026-03-01
+## [0.1.0] - 2026-03-01
 
 ### Initial Release
 

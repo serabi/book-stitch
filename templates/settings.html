@@ -55,6 +55,11 @@
                     KOSync
                 </button>
 
+                <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('bookfusion')" data-tab="bookfusion">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 10l2 2 4-4"/></svg>
+                    BookFusion
+                </button>
+
                 <button type="button" class="sidebar-tab" role="tab" onclick="switchTab('notifications')" data-tab="notifications">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                     Notifications
@@ -69,6 +74,21 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                     Advanced
                 </button>
+
+                <div class="sidebar-version">
+                    <span class="sidebar-version-text">
+                        {% if app_version.startswith('dev') %}
+                        Build {{ app_version }}
+                        {% else %}
+                        v{{ app_version.lstrip('v') }}
+                        {% endif %}
+                    </span>
+                    {% if update_available %}
+                    <a href="https://github.com/serabi/pagekeeper/releases/latest" target="_blank" class="sidebar-update-link">
+                        ↑ v{{ latest_version }} Available
+                    </a>
+                    {% endif %}
+                </div>
             </nav>
 
             <!-- ═══ Content ═══ -->
@@ -127,10 +147,27 @@
                                     <input type="text" name="ABS_SERVER" value="{{ get_val('ABS_SERVER') }}">
                                 </div>
                                 <div class="form-group full-width">
-                                    <label>Web URL (Navbar Link)</label>
-                                    <input type="text" name="ABS_WEB_URL" value="{{ get_val('ABS_WEB_URL') }}"
-                                        placeholder="https://abs.example.com">
-                                    <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                                    <label>Service URLs</label>
+                                    <div class="field-grid">
+                                        <div class="form-group">
+                                            <label>Internal URL</label>
+                                            <input type="text" name="ABS_WEB_URL_INTERNAL" value="{{ get_val('ABS_WEB_URL_INTERNAL') }}"
+                                                placeholder="{{ get_val('ABS_SERVER') or 'http://10.0.0.97:13378' }}">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>External URL</label>
+                                            <input type="text" name="ABS_WEB_URL_EXTERNAL" value="{{ get_val('ABS_WEB_URL_EXTERNAL') or get_val('ABS_WEB_URL') }}"
+                                                placeholder="https://abs.example.com">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Preferred URL</label>
+                                            <select name="ABS_HEADER_URL_MODE">
+                                                <option value="internal" {% if get_val('ABS_HEADER_URL_MODE', 'external') == 'internal' %}selected{% endif %}>Use Internal</option>
+                                                <option value="external" {% if get_val('ABS_HEADER_URL_MODE', 'external') != 'internal' %}selected{% endif %}>Use External</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="help-text">Choose which URL is used for navbar shortcuts and book deep links. Legacy Web URL values are preserved as the external fallback.</div>
                                 </div>
                                 <div class="form-group full-width">
                                     <label>API Token</label>
@@ -218,10 +255,27 @@
                                 <input type="text" name="STORYTELLER_API_URL" value="{{ get_val('STORYTELLER_API_URL') }}">
                             </div>
                             <div class="form-group full-width">
-                                <label>Web URL (Navbar Link)</label>
-                                <input type="text" name="STORYTELLER_WEB_URL" value="{{ get_val('STORYTELLER_WEB_URL') }}"
-                                    placeholder="https://storyteller.example.com">
-                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                                <label>Service URLs</label>
+                                <div class="field-grid">
+                                    <div class="form-group">
+                                        <label>Internal URL</label>
+                                        <input type="text" name="STORYTELLER_WEB_URL_INTERNAL" value="{{ get_val('STORYTELLER_WEB_URL_INTERNAL') }}"
+                                            placeholder="{{ get_val('STORYTELLER_API_URL') or 'http://10.0.0.97:8000' }}">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>External URL</label>
+                                        <input type="text" name="STORYTELLER_WEB_URL_EXTERNAL" value="{{ get_val('STORYTELLER_WEB_URL_EXTERNAL') or get_val('STORYTELLER_WEB_URL') }}"
+                                            placeholder="https://storyteller.example.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Preferred URL</label>
+                                        <select name="STORYTELLER_HEADER_URL_MODE">
+                                            <option value="internal" {% if get_val('STORYTELLER_HEADER_URL_MODE', 'external') == 'internal' %}selected{% endif %}>Use Internal</option>
+                                            <option value="external" {% if get_val('STORYTELLER_HEADER_URL_MODE', 'external') != 'internal' %}selected{% endif %}>Use External</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="help-text">Choose which URL is used for navbar shortcuts and book deep links. Legacy Web URL values are preserved as the external fallback.</div>
                             </div>
                             <div class="form-group">
                                 <label>Username</label>
@@ -276,10 +330,27 @@
                                 <input type="text" name="BOOKLORE_SERVER" value="{{ get_val('BOOKLORE_SERVER') }}">
                             </div>
                             <div class="form-group full-width">
-                                <label>Web URL (Navbar Link)</label>
-                                <input type="text" name="BOOKLORE_WEB_URL" value="{{ get_val('BOOKLORE_WEB_URL') }}"
-                                    placeholder="https://booklore.example.com">
-                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                                <label>Service URLs</label>
+                                <div class="field-grid">
+                                    <div class="form-group">
+                                        <label>Internal URL</label>
+                                        <input type="text" name="BOOKLORE_WEB_URL_INTERNAL" value="{{ get_val('BOOKLORE_WEB_URL_INTERNAL') }}"
+                                            placeholder="{{ get_val('BOOKLORE_SERVER') or 'http://10.0.0.97:6060' }}">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>External URL</label>
+                                        <input type="text" name="BOOKLORE_WEB_URL_EXTERNAL" value="{{ get_val('BOOKLORE_WEB_URL_EXTERNAL') or get_val('BOOKLORE_WEB_URL') }}"
+                                            placeholder="https://booklore.example.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Preferred URL</label>
+                                        <select name="BOOKLORE_HEADER_URL_MODE">
+                                            <option value="internal" {% if get_val('BOOKLORE_HEADER_URL_MODE', 'external') == 'internal' %}selected{% endif %}>Use Internal</option>
+                                            <option value="external" {% if get_val('BOOKLORE_HEADER_URL_MODE', 'external') != 'internal' %}selected{% endif %}>Use External</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="help-text">Choose which URL is used for navbar shortcuts and book deep links. Legacy Web URL values are preserved as the external fallback.</div>
                             </div>
                             <div class="form-group">
                                 <label>Username</label>
@@ -299,63 +370,6 @@
                                     <input type="text" name="BOOKLORE_LIBRARY_ID" value="{{ get_val('BOOKLORE_LIBRARY_ID') }}"
                                         placeholder="e.g. 1" style="flex: 1;">
                                     <button class="btn" type="button" onclick="checkBookloreLibs(event)">Find IDs</button>
-                                </div>
-                                <div class="help-text">Restricts sync to a specific library (e.g., 1). Leave empty to sync all.</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Booklore 2 -->
-                    {% set booklore2_configured = get_val('BOOKLORE_2_SERVER') != '' %}
-                    {% set booklore2_enabled = get_bool('BOOKLORE_2_ENABLED') or (booklore2_configured and get_val('BOOKLORE_2_ENABLED') == '') %}
-                    <div class="sub-section">
-                        <div class="sub-section-header">
-                            <h3><span class="accent-dot" style="background: var(--color-booklore);"></span> Booklore — Secondary</h3>
-                            <div class="toggle-switch-wrapper">
-                                <button type="button" class="btn btn-sm" onclick="testConnection('booklore_2', this)">Test</button>
-                                <span class="toggle-label">Enable</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="toggle_booklore2" name="BOOKLORE_2_ENABLED"
-                                        onchange="toggleSection('booklore2_body', this.checked)" {% if booklore2_enabled %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                        <div id="booklore2_body" class="sub-section-body {% if not booklore2_enabled %}collapsed{% endif %}">
-                            <div class="form-group full-width">
-                                <label>Display Label</label>
-                                <input type="text" name="BOOKLORE_2_LABEL" value="{{ get_val('BOOKLORE_2_LABEL') }}"
-                                    placeholder="Booklore 2">
-                                <div class="help-text">Custom name shown on dashboard (e.g., "DiscordReads").</div>
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Server URL</label>
-                                <input type="text" name="BOOKLORE_2_SERVER" value="{{ get_val('BOOKLORE_2_SERVER') }}">
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Web URL (Navbar Link)</label>
-                                <input type="text" name="BOOKLORE_2_WEB_URL" value="{{ get_val('BOOKLORE_2_WEB_URL') }}"
-                                    placeholder="https://booklore2.example.com">
-                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
-                            </div>
-                            <div class="form-group">
-                                <label>Username</label>
-                                <input type="text" name="BOOKLORE_2_USER" value="{{ get_val('BOOKLORE_2_USER') }}">
-                            </div>
-                            <div class="form-group">
-                                <label>Password</label>
-                                <input type="password" name="BOOKLORE_2_PASSWORD" placeholder="{{ '(unchanged)' if get_val('BOOKLORE_2_PASSWORD') else '' }}">
-                            </div>
-                            <div class="form-group">
-                                <label>Shelf Name</label>
-                                <input type="text" name="BOOKLORE_2_SHELF_NAME" value="{{ get_val('BOOKLORE_2_SHELF_NAME') }}">
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Booklore — Secondary Library ID (Optional)</label>
-                                <div style="display: flex; gap: 10px;">
-                                    <input type="text" name="BOOKLORE_2_LIBRARY_ID" value="{{ get_val('BOOKLORE_2_LIBRARY_ID') }}"
-                                        placeholder="e.g. 1" style="flex: 1;">
-                                    <button class="btn" type="button" onclick="checkBookloreLibs2(event)">Find IDs</button>
                                 </div>
                                 <div class="help-text">Restricts sync to a specific library (e.g., 1). Leave empty to sync all.</div>
                             </div>
@@ -385,10 +399,27 @@
                                 <div class="help-text">URL to your Calibre-Web Automated instance (e.g. http://192.168.1.100:8083)</div>
                             </div>
                             <div class="form-group full-width">
-                                <label>Web URL (Navbar Link)</label>
-                                <input type="text" name="CWA_WEB_URL" value="{{ get_val('CWA_WEB_URL') }}"
-                                    placeholder="https://cwa.example.com">
-                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                                <label>Service URLs</label>
+                                <div class="field-grid">
+                                    <div class="form-group">
+                                        <label>Internal URL</label>
+                                        <input type="text" name="CWA_WEB_URL_INTERNAL" value="{{ get_val('CWA_WEB_URL_INTERNAL') }}"
+                                            placeholder="{{ get_val('CWA_SERVER') or 'http://10.0.0.97:8083' }}">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>External URL</label>
+                                        <input type="text" name="CWA_WEB_URL_EXTERNAL" value="{{ get_val('CWA_WEB_URL_EXTERNAL') or get_val('CWA_WEB_URL') }}"
+                                            placeholder="https://cwa.example.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Preferred URL</label>
+                                        <select name="CWA_HEADER_URL_MODE">
+                                            <option value="internal" {% if get_val('CWA_HEADER_URL_MODE', 'external') == 'internal' %}selected{% endif %}>Use Internal</option>
+                                            <option value="external" {% if get_val('CWA_HEADER_URL_MODE', 'external') != 'internal' %}selected{% endif %}>Use External</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="help-text">Choose which URL is used for navbar shortcuts and book deep links. Legacy Web URL values are preserved as the external fallback.</div>
                             </div>
                             <div class="form-group">
                                 <label>Username</label>
@@ -521,7 +552,7 @@
                                         <input type="text" id="kosync_external_url"
                                             value="{{ get_val('KOSYNC_SERVER') }}"
                                             placeholder="http://kosync-server:5000">
-                                        <button type="button" class="btn" id="kosync_test_btn" onclick="testKosyncConnection()">Test Connection</button>
+                                        <button type="button" class="btn" id="kosync_test_btn" onclick="testKosyncConnection(this)">Test Connection</button>
                                     </div>
                                     <span id="kosync_test_result"></span>
                                 </div>
@@ -546,6 +577,54 @@
                                 <input type="checkbox" id="kosync_pct" name="KOSYNC_USE_PERCENTAGE_FROM_SERVER" {% if
                                     get_bool('KOSYNC_USE_PERCENTAGE_FROM_SERVER') %}checked{% endif %}>
                                 <label for="kosync_pct">Use Percentage from Server (Ignore Text Matching)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── BookFusion ─── -->
+                <div class="tab-panel" id="panel-bookfusion">
+                    <div class="panel-header">
+                        <h2>BookFusion</h2>
+                        <p>Push books from Booklore to BookFusion and sync highlights back.</p>
+                    </div>
+
+                    {% set bookfusion_configured = get_val('BOOKFUSION_API_KEY') != '' %}
+                    {% set bookfusion_enabled = get_bool('BOOKFUSION_ENABLED') or (bookfusion_configured and get_val('BOOKFUSION_ENABLED') == '') %}
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot" style="background: var(--color-bookfusion);"></span> BookFusion</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_bookfusion" name="BOOKFUSION_ENABLED"
+                                        onchange="toggleSection('bookfusion_body', this.checked)" {% if bookfusion_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="bookfusion_body" class="sub-section-body {% if not bookfusion_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>Highlights API Key</label>
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <input type="password" id="bf_highlights_key" name="BOOKFUSION_API_KEY" placeholder="{{ '(unchanged)' if get_val('BOOKFUSION_API_KEY') else 'Paste obsidian:// link or token' }}" style="flex: 1;"
+                                        oninput="extractBfToken(this)">
+                                    <button type="button" class="btn btn-sm" onclick="testConnection('bookfusion', this)">Test Highlights</button>
+                                </div>
+                                <div class="help-text">BookFusion &rarr; Settings &rarr; <strong>Obsidian</strong> &rarr; copy the connect link. The token is extracted automatically.</div>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Upload API Key</label>
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <input type="password" id="bf_upload_key" name="BOOKFUSION_UPLOAD_API_KEY" placeholder="{{ '(unchanged)' if get_val('BOOKFUSION_UPLOAD_API_KEY') else '' }}" style="flex: 1;">
+                                    <button type="button" class="btn btn-sm" onclick="testConnection('bookfusion_upload', this)">Test Upload</button>
+                                </div>
+                                <div class="help-text">BookFusion &rarr; Settings &rarr; <strong>Calibre</strong> section. Used for book uploads.</div>
+                            </div>
+                            <div class="help-text" style="margin-top: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 0.75rem;">
+                                When linking BookFusion books, PageKeeper sets reading dates automatically
+                                (from Hardcover if configured, otherwise from highlight timestamps)
+                                and fetches cover images from Hardcover.
                             </div>
                         </div>
                     </div>
@@ -687,10 +766,14 @@
                                 <input type="password" name="HARDCOVER_TOKEN" placeholder="{{ '(unchanged)' if get_val('HARDCOVER_TOKEN') else '' }}">
                             </div>
                             <div class="form-group full-width">
-                                <label>Web URL (Navbar Link)</label>
-                                <input type="text" name="HARDCOVER_WEB_URL" value="{{ get_val('HARDCOVER_WEB_URL') }}"
+                                <label>Service URL</label>
+                                <input type="text" name="HARDCOVER_WEB_URL_EXTERNAL" value="{{ get_val('HARDCOVER_WEB_URL_EXTERNAL') or get_val('HARDCOVER_WEB_URL') }}"
                                     placeholder="https://hardcover.app">
-                                <div class="help-text">Browser-reachable URL shown as a shortcut in the top navbar.</div>
+                                <div class="help-text">URL for the navbar shortcut and book deep links. Defaults to hardcover.app if left blank.</div>
+                            </div>
+                            <div class="help-text" style="margin-top: 0.5rem;">
+                                When enabled, Hardcover is used to populate reading dates and provide cover
+                                images for ebook-only books without other cover sources.
                             </div>
                         </div>
                     </div>
@@ -827,23 +910,6 @@
                             </div>
                             {% endif %}
 
-                            {% if get_bool('BOOKLORE_2_ENABLED') %}
-                            <div class="form-group">
-                                <label>{{ get_val('BOOKLORE_2_LABEL', 'Booklore 2') or 'Booklore 2' }} Poll Mode</label>
-                                <select name="BOOKLORE_2_POLL_MODE" id="booklore2_poll_mode"
-                                        onchange="togglePollSeconds('booklore2_poll_seconds_row', this.value)">
-                                    <option value="global" {% if get_val('BOOKLORE_2_POLL_MODE', 'global') == 'global' %}selected{% endif %}>Global</option>
-                                    <option value="custom" {% if get_val('BOOKLORE_2_POLL_MODE') == 'custom' %}selected{% endif %}>Custom</option>
-                                </select>
-                            </div>
-                            <div class="form-group" id="booklore2_poll_seconds_row"
-                                 {% if get_val('BOOKLORE_2_POLL_MODE') != 'custom' %}style="opacity: 0.45; pointer-events: none;"{% endif %}>
-                                <label>{{ get_val('BOOKLORE_2_LABEL', 'Booklore 2') or 'Booklore 2' }} Poll Interval (seconds)</label>
-                                <input type="number" name="BOOKLORE_2_POLL_SECONDS" min="10"
-                                       value="{{ get_val('BOOKLORE_2_POLL_SECONDS', '300') }}">
-                                <div class="help-text">Recommended: 300s for Booklore.</div>
-                            </div>
-                            {% endif %}
                         </div>
                     </div>
 
@@ -979,36 +1045,113 @@
             }
         }
 
+        function getInputValue(name) {
+            var input = document.querySelector('[name="' + name + '"]') || document.getElementById(name);
+            return input ? input.value.trim() : '';
+        }
+
+        function getServiceTestPayload(service) {
+            if (service === 'abs') {
+                return {
+                    server: getInputValue('ABS_SERVER'),
+                    token: getInputValue('ABS_KEY')
+                };
+            }
+            if (service === 'storyteller') {
+                return {
+                    api_url: getInputValue('STORYTELLER_API_URL'),
+                    user: getInputValue('STORYTELLER_USER'),
+                    password: getInputValue('STORYTELLER_PASSWORD')
+                };
+            }
+            if (service === 'booklore') {
+                return {
+                    server: getInputValue('BOOKLORE_SERVER'),
+                    user: getInputValue('BOOKLORE_USER'),
+                    password: getInputValue('BOOKLORE_PASSWORD')
+                };
+            }
+            if (service === 'cwa') {
+                return {
+                    server: getInputValue('CWA_SERVER'),
+                    user: getInputValue('CWA_USERNAME'),
+                    password: getInputValue('CWA_PASSWORD')
+                };
+            }
+            if (service === 'hardcover') {
+                return {
+                    token: getInputValue('HARDCOVER_TOKEN')
+                };
+            }
+            if (service === 'telegram') {
+                return {
+                    bot_token: getInputValue('TELEGRAM_BOT_TOKEN')
+                };
+            }
+            if (service === 'bookfusion') {
+                return {
+                    api_key: getInputValue('BOOKFUSION_API_KEY')
+                };
+            }
+            if (service === 'bookfusion_upload') {
+                return {
+                    api_key: getInputValue('BOOKFUSION_UPLOAD_API_KEY')
+                };
+            }
+            if (service === 'kosync') {
+                return {
+                    server: getInputValue('kosync_external_url'),
+                    user: getInputValue('KOSYNC_USER'),
+                    key: getInputValue('KOSYNC_KEY')
+                };
+            }
+            return {};
+        }
+
+        function setTestButtonState(btn, success, detail, originalText) {
+            if (success) {
+                btn.textContent = '\u2713 ' + (detail || 'Connected');
+                btn.classList.add('btn-success');
+            } else {
+                btn.textContent = '\u2717 ' + (detail || 'Failed');
+                btn.classList.add('btn-error');
+            }
+            setTimeout(function() {
+                btn.textContent = originalText;
+                btn.disabled = false;
+                btn.classList.remove('btn-success', 'btn-error');
+            }, 3000);
+        }
+
         /* ─── Test Connection ─── */
         function testConnection(service, btn) {
             var originalText = btn.textContent;
             btn.textContent = 'Testing...';
             btn.disabled = true;
-            fetch('/api/test-connection/' + service)
+            fetch('/api/test-connection/' + service, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(getServiceTestPayload(service))
+            })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    if (data.success) {
-                        btn.textContent = '\u2713 ' + (data.detail || 'Connected');
-                        btn.classList.add('btn-success');
-                    } else {
-                        btn.textContent = '\u2717 ' + (data.detail || 'Failed');
-                        btn.classList.add('btn-error');
-                    }
-                    setTimeout(function() {
-                        btn.textContent = originalText;
-                        btn.disabled = false;
-                        btn.classList.remove('btn-success', 'btn-error');
-                    }, 3000);
+                    setTestButtonState(btn, data.success, data.detail, originalText);
                 })
-                .catch(function(err) {
-                    btn.textContent = '\u2717 Error';
-                    btn.classList.add('btn-error');
-                    setTimeout(function() {
-                        btn.textContent = originalText;
-                        btn.disabled = false;
-                        btn.classList.remove('btn-error');
-                    }, 3000);
+                .catch(function() {
+                    setTestButtonState(btn, false, 'Error', originalText);
                 });
+        }
+
+        /* ─── BookFusion: extract token from obsidian:// URI ─── */
+        function extractBfToken(input) {
+            var val = input.value;
+            if (val.indexOf('obsidian://') === 0) {
+                try {
+                    var params = new URLSearchParams(val.split('?')[1] || '');
+                    var token = params.get('token');
+                    if (token) input.value = token;
+                } catch(e) {}
+            }
         }
 
         /* ─── Preserved Functions ─── */
@@ -1017,9 +1160,6 @@
             _fetchBookloreLibs('/api/booklore/libraries', event);
         }
 
-        function checkBookloreLibs2(event) {
-            _fetchBookloreLibs('/api/booklore/2/libraries', event);
-        }
 
         function _fetchBookloreLibs(url, event) {
             var btn = event.target;
@@ -1093,16 +1233,19 @@
             }
         }
 
-        async function testKosyncConnection() {
-            var btn = document.getElementById('kosync_test_btn');
+        async function testKosyncConnection(btn) {
             var result = document.getElementById('kosync_test_result');
             btn.disabled = true;
             btn.textContent = 'Testing...';
             result.textContent = '';
             try {
-                var r = await fetch('/api/kosync/test', { method: 'POST' });
+                var r = await fetch('/api/kosync/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(getServiceTestPayload('kosync'))
+                });
                 var data = await r.json();
-                result.textContent = data.success ? '\u2713 Connected' : '\u2717 Failed';
+                result.textContent = data.success ? '\u2713 ' + (data.detail || 'Connected') : '\u2717 ' + (data.detail || 'Failed');
                 result.className = 'test-result ' + (data.success ? 'success' : 'error');
             } catch (e) {
                 result.textContent = '\u2717 Error';

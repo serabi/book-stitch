@@ -48,7 +48,7 @@ class TestSuggestionLogic(unittest.TestCase):
         # Mocks
         self.mock_db.get_all_books.return_value = [] # Not mapped
         self.mock_db.get_pending_suggestion.return_value = None # No pending suggestion
-        self.mock_db.suggestion_exists.return_value = False # No dismissed suggestion (simulating clean state)
+        self.mock_db.suggestion_exists.return_value = False # No hidden suggestion (simulating clean state)
 
         # Action
         self.manager.check_for_suggestions({abs_id: progress_data}, [])
@@ -84,8 +84,8 @@ class TestSuggestionLogic(unittest.TestCase):
         # Assert
         self.mock_db.save_pending_suggestion.assert_called_once()
 
-    def test_suggestion_ignored_when_dismissed(self):
-        """Test that suggestions are NOT created if they were previously dismissed."""
+    def test_suggestion_ignored_when_hidden(self):
+        """Test that suggestions are NOT created if they were previously hidden."""
         # Setup
         abs_id = "book-789"
         progress_data = {
@@ -96,7 +96,7 @@ class TestSuggestionLogic(unittest.TestCase):
         # Mocks
         self.mock_db.get_all_books.return_value = []
         self.mock_db.get_pending_suggestion.return_value = None # No *active* pending suggestion
-        self.mock_db.suggestion_exists.return_value = True # BUT it exists (likely dismissed)
+        self.mock_db.suggestion_exists.return_value = True # BUT it exists (likely hidden)
 
         # Action
         self.manager.check_for_suggestions({abs_id: progress_data}, [])

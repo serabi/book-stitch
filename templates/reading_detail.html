@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{{ book.abs_title }} - PageKeeper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/reading.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+
+<body>
+    {% include 'partials/navbar.html' %}
+
+    <div class="container r-detail-container">
+        {% if request.args.get('from') == 'dashboard' %}
+        <a href="/" class="r-back-link">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Dashboard
+        </a>
+        {% else %}
+        <a href="/reading" class="r-back-link">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Reading Log
+        </a>
+        {% endif %}
+
+        {# ── Compact Hero ── #}
+        <div class="r-detail-hero">
+            {% if book.cover_url %}
+            <div class="r-hero-bg" style="background-image: url('{{ book.cover_url }}')"></div>
+            {% endif %}
+            <div class="r-hero-content">
+                <div class="r-hero-cover">
+                    {% if book.cover_url %}
+                    <img src="{{ book.cover_url }}" alt=""
+                        onerror="{% if book.fallback_cover_url and book.fallback_cover_url != book.cover_url %}this.onerror={% if book.kosync_doc_id %}function(){this.onerror=null; this.src='/covers/{{ book.kosync_doc_id }}.jpg';}{% else %}null{% endif %}; this.src='{{ book.fallback_cover_url|e }}';{% elif book.kosync_doc_id %}this.onerror=null; this.src='/covers/{{ book.kosync_doc_id }}.jpg';{% else %}this.style.display='none'; this.nextElementSibling.classList.remove('hidden');{% endif %}">
+                    <div class="r-cover-placeholder hidden"></div>
+                    {% elif book.kosync_doc_id %}
+                    <img src="/covers/{{ book.kosync_doc_id }}.jpg" alt=""
+                        onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                    <div class="r-cover-placeholder hidden"></div>
+                    {% else %}
+                    <div class="r-cover-placeholder"></div>
+                    {% endif %}
+                    <button type="button" class="r-change-cover-btn" id="change-cover-btn" title="Change cover">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        Change Cover
+                    </button>
+                    {# Rating stars under cover #}
+                    <div class="r-detail-rating" id="rating-stars" data-abs-id="{{ book.abs_id }}" data-rating="{{ book.rating or 0 }}">
+                        {% for i in range(1, 6) %}
+                        <button class="r-star-btn {% if i <= (book.rating or 0) %}filled{% elif i - 0.5 <= (book.rating or 0) %}half{% endif %}" data-value="{{ i }}" type="button">&#9733;</button>
+                        {% endfor %}
+                        <span class="r-rating-label" id="rating-label">{% if book.rating %}{{ book.rating }}/5{% else %}Rate{% endif %}</span>
+                    </div>
+                </div>
+                <div class="r-hero-info">
+                    <h1 class="r-detail-title">{{ book.abs_title }}{% if metadata.subtitle %}: {{ metadata.subtitle }}{% endif %}</h1>
+                    {% if metadata.author %}
+                    <div class="r-detail-author">{{ metadata.author }}</div>
+                    {% endif %}
+
+                    <div class="r-detail-badges">
+                        <span class="status-badge status-{{ book.status }}">{{ book.status|replace('_', ' ')|title }}</span>
+                        {% if book.read_count and book.read_count > 1 %}
+                        <span class="r-detail-reread">Read {{ book.read_count }}x</span>
+                        {% endif %}
+                    </div>
+
+                    {# Progress bar + percentage chip + manual input #}
+                    {% set show_manual = has_bookfusion_link or (book.book_type == 'ebook-only') %}
+                    {% if book.unified_progress > 0 %}
+                    <div class="r-detail-progress" id="progress-section">
+                        <div class="progress-bar">
+                            <div class="progress-bar-fill {% if book.status == 'paused' %}progress-paused-fill{% elif book.status == 'dnf' %}progress-dnf-fill{% endif %}"
+                                 id="progress-bar-fill"
+                                 style="width: {{ book.unified_progress }}%"></div>
+                        </div>
+                        <span class="r-detail-pct" id="progress-pct">{{ '%.0f' | format(book.unified_progress) }}%</span>
+                        {% if show_manual %}
+                        <div class="r-inline-progress">
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" id="manual-pct-input"
+                                   value="{{ '%.0f' | format(book.unified_progress) }}"
+                                   class="r-inline-pct-input" maxlength="3">
+                            <span class="r-inline-pct-symbol">%</span>
+                            <button class="r-inline-pct-save" onclick="setManualProgress()" title="Save">&#10003;</button>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% elif show_manual %}
+                    <div class="r-detail-progress" id="progress-section">
+                        <div class="r-inline-progress">
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" id="manual-pct-input"
+                                   value="0"
+                                   class="r-inline-pct-input" maxlength="3">
+                            <span class="r-inline-pct-symbol">%</span>
+                            <button class="r-inline-pct-save" onclick="setManualProgress()" title="Save">&#10003;</button>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {# Action buttons #}
+                    <div class="r-hero-actions">
+                        {% if book.status not in ['pending', 'processing'] %}
+                        <button class="r-hero-action-btn" id="btn-sync" onclick="rdAction('sync')">Sync Now</button>
+                        {% endif %}
+
+                        {% if book.status == 'active' %}
+                        <button class="r-hero-action-btn" onclick="rdAction('pause')">Pause</button>
+                        <button class="r-hero-action-btn" onclick="rdAction('dnf')">Mark DNF</button>
+                        <button class="r-hero-action-btn" onclick="rdAction('complete')">Mark Complete</button>
+                        <button class="r-hero-action-btn" onclick="rdAction('clear')">Clear Progress</button>
+                        {% elif book.status == 'paused' %}
+                        <button class="r-hero-action-btn" onclick="rdAction('resume')">Resume</button>
+                        <button class="r-hero-action-btn" onclick="rdAction('dnf')">Mark DNF</button>
+                        {% elif book.status == 'dnf' %}
+                        <button class="r-hero-action-btn" onclick="rdAction('resume')">Resume Reading</button>
+                        {% elif book.status == 'not_started' %}
+                        <button class="r-hero-action-btn" onclick="rdAction('resume')">Start Reading</button>
+                        <button class="r-hero-action-btn" onclick="rdAction('pause')">Pause</button>
+                        <button class="r-hero-action-btn" onclick="rdAction('dnf')">Mark DNF</button>
+                        <button class="r-hero-action-btn" onclick="rdAction('complete')">Mark Complete</button>
+                        {% elif book.status == 'completed' %}
+                        <button class="r-hero-action-btn" onclick="rdAction('clear')">Clear Progress</button>
+                        {% endif %}
+
+                        <button class="r-hero-action-btn r-hero-action-btn--danger" onclick="rdAction('delete')">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ── Tab Bar ── #}
+        <div class="r-tab-bar r-detail-tab-bar">
+            <button class="r-tab-btn active" data-tab="overview" type="button" onclick="switchTab('overview')">Overview</button>
+            <button class="r-tab-btn" data-tab="journal" type="button" onclick="switchTab('journal')">Journal</button>
+            {% if bf_highlights %}
+            <button class="r-tab-btn" data-tab="highlights" type="button" onclick="switchTab('highlights')">Highlights <span class="r-tab-badge">{{ bf_highlights|length }}</span></button>
+            {% endif %}
+        </div>
+
+        {# ── Overview Tab ── #}
+        <div class="r-tab-panel" data-tab="overview">
+            {# Services — dashboard order: ABS, KoSync, Storyteller, Booklore, Hardcover, BookFusion #}
+            {% set any_service = integrations.abs or integrations.kosync or integrations.storyteller or integrations.booklore or integrations.hardcover or integrations.bookfusion or services_enabled.storyteller or services_enabled.booklore or services_enabled.hardcover or services_enabled.bookfusion or (services_enabled.abs and not integrations.abs and book.book_type == 'ebook-only') %}
+            {% if any_service %}
+            <div class="r-detail-section">
+                <div class="r-services-list">
+                    {# ── Audiobookshelf ── #}
+                    {% if integrations.abs %}
+                    <div class="r-service-row">
+                        <img src="/static/audiobookshelf.png" alt="ABS" class="r-service-row-icon">
+                        <a href="{{ metadata.abs_url or '#' }}" target="_blank" rel="noopener noreferrer" class="r-service-row-name">Audiobookshelf</a>
+                        <span class="r-service-row-value">
+                            {% if service_states.abs is defined %}{{ '%.1f' | format(service_states.abs.percentage) }}%{% else %}--{% endif %}
+                        </span>
+                    </div>
+                    {% elif services_enabled.abs and book.book_type == 'ebook-only' %}
+                    <a href="/match?search={{ book.abs_title|urlencode }}&link_to={{ book.abs_id }}" class="r-service-row r-service-row--unlinked">
+                        <img src="/static/audiobookshelf.png" alt="ABS" class="r-service-row-icon">
+                        <span class="r-service-row-name">Audiobookshelf</span>
+                        <span class="r-service-row-link-action">Link</span>
+                    </a>
+                    {% endif %}
+
+                    {# ── KoSync ── #}
+                    {% if integrations.kosync %}
+                    <div class="r-service-row">
+                        <img src="/static/koreader-logo.svg" alt="KO" class="r-service-row-icon">
+                        <span class="r-service-row-name">KoSync</span>
+                        <span class="r-service-row-value">
+                            {% if service_states.kosync is defined %}{{ '%.1f' | format(service_states.kosync.percentage) }}%{% else %}--{% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
+
+                    {# ── Storyteller ── #}
+                    {% if services_enabled.storyteller %}
+                    {% if integrations.storyteller %}
+                    <div class="r-service-row">
+                        <img src="/static/Storyteller_Logo.png" alt="ST" class="r-service-row-icon" style="background: white; border-radius: 3px;">
+                        <span class="r-service-row-name">Storyteller</span>
+                        <button type="button" class="r-service-row-action" onclick="openStorytellerModal(_rdAbsId, _rdTitle)">Edit</button>
+                        <span class="r-service-row-value">
+                            {% if service_states.storyteller is defined %}{{ '%.1f' | format(service_states.storyteller.percentage) }}%{% else %}--{% endif %}
+                        </span>
+                    </div>
+                    {% else %}
+                    <div class="r-service-row r-service-row--unlinked">
+                        <img src="/static/Storyteller_Logo.png" alt="ST" class="r-service-row-icon" style="background: white; border-radius: 3px;">
+                        <span class="r-service-row-name">Storyteller</span>
+                        <button type="button" class="r-service-row-link-action" onclick="openStorytellerModal(_rdAbsId, _rdTitle)">Link</button>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
+                    {# ── Booklore ── #}
+                    {% if services_enabled.booklore %}
+                    {% if integrations.booklore %}
+                    <div class="r-service-row">
+                        <img src="/static/booklore.png" alt="BL" class="r-service-row-icon">
+                        {% if metadata.booklore_url %}
+                        <a href="{{ metadata.booklore_url }}" target="_blank" rel="noopener noreferrer" class="r-service-row-name">Booklore</a>
+                        {% else %}
+                        <span class="r-service-row-name">Booklore</span>
+                        {% endif %}
+                        <button type="button" class="r-service-row-action" onclick="openBookloreModal(_rdAbsId, _rdTitle)">Edit</button>
+                        <span class="r-service-row-value">
+                            {% if service_states.booklore is defined %}{{ '%.1f' | format(service_states.booklore.percentage) }}%{% else %}--{% endif %}
+                        </span>
+                    </div>
+                    {% else %}
+                    <div class="r-service-row r-service-row--unlinked">
+                        <img src="/static/booklore.png" alt="BL" class="r-service-row-icon">
+                        <span class="r-service-row-name">Booklore</span>
+                        <button type="button" class="r-service-row-link-action" onclick="openBookloreModal(_rdAbsId, _rdTitle)">Link</button>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
+                    {# ── Hardcover ── #}
+                    {% if services_enabled.hardcover %}
+                    {% if integrations.hardcover %}
+                    <div class="r-service-row">
+                        <img src="/static/hardcover.svg" alt="HC" class="r-service-row-icon">
+                        {% if metadata.hardcover_url %}
+                        <a href="{{ metadata.hardcover_url }}" target="_blank" rel="noopener noreferrer" class="r-service-row-name">Hardcover</a>
+                        {% else %}
+                        <span class="r-service-row-name">Hardcover</span>
+                        {% endif %}
+                        <button type="button" class="r-service-row-action" data-abs-id="{{ book.abs_id }}" onclick="openHcRelink(this)">Edit</button>
+                        <span class="r-service-row-value">
+                            {% if service_states.hardcover is defined %}{{ '%.1f' | format(service_states.hardcover.percentage) }}%{% else %}--{% endif %}
+                        </span>
+                    </div>
+                    {% else %}
+                    <div class="r-service-row r-service-row--unlinked">
+                        <img src="/static/hardcover.svg" alt="HC" class="r-service-row-icon">
+                        <span class="r-service-row-name">Hardcover</span>
+                        <button type="button" class="r-service-row-link-action" data-abs-id="{{ book.abs_id }}" onclick="openHcRelink(this)">Link</button>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
+                    {# ── BookFusion ── #}
+                    {% if services_enabled.bookfusion %}
+                    {% if integrations.bookfusion %}
+                    <div class="r-service-row">
+                        <img src="/static/bookfusion-logo.svg" alt="BF" class="r-service-row-icon">
+                        <a href="/bookfusion" class="r-service-row-name">BookFusion</a>
+                        <span class="r-service-row-value">Linked</span>
+                    </div>
+                    {% else %}
+                    <a href="/bookfusion?tab=library&q={{ book.abs_title|urlencode }}" class="r-service-row r-service-row--unlinked">
+                        <img src="/static/bookfusion-logo.svg" alt="BF" class="r-service-row-icon">
+                        <span class="r-service-row-name">BookFusion</span>
+                        <span class="r-service-row-link-action">Link</span>
+                    </a>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            {# About This Book metadata — tiered display #}
+            {% set meta_count = namespace(n=0) %}
+            {% for f in [metadata.narrator, metadata.duration, metadata.pages, metadata.isbn,
+                         metadata.genres, metadata.hc_tags, metadata.bf_series, metadata.release_year] %}
+                {% if f %}{% set meta_count.n = meta_count.n + 1 %}{% endif %}
+            {% endfor %}
+            {% set has_description = metadata.description %}
+            {% set rich_meta = (meta_count.n >= 3) or has_description %}
+
+            {% if rich_meta %}
+            {# Full collapsible panel #}
+            <div class="r-detail-section r-about-book">
+                <div class="r-meta-toggle r-about-book-toggle" id="meta-toggle" role="button" tabindex="0" aria-expanded="true">
+                    <div class="r-about-book-heading">
+                        <h3 class="r-section-title r-about-book-title">About This Book</h3>
+                    </div>
+                    <span class="r-meta-chevron r-about-book-chevron">&#9660;</span>
+                </div>
+                <div class="r-meta-body-inline r-about-book-body" id="meta-body">
+                    <div class="r-about-book-layout {% if not metadata.description %}r-about-book-layout--full{% endif %}">
+                        <div class="r-about-book-primary">
+                            <div class="r-about-book-stats">
+                                {% if metadata.narrator %}
+                                <div class="r-about-book-stat">
+                                    <span class="r-meta-label">Narrator</span>
+                                    <span class="r-about-book-stat-value">{{ metadata.narrator }}</span>
+                                </div>
+                                {% endif %}
+                                {% if metadata.duration %}
+                                <div class="r-about-book-stat">
+                                    <span class="r-meta-label">Duration</span>
+                                    <span class="r-about-book-stat-value">{{ metadata.duration }}</span>
+                                </div>
+                                {% endif %}
+                                {% if metadata.pages %}
+                                <div class="r-about-book-stat">
+                                    <span class="r-meta-label">Pages</span>
+                                    <span class="r-about-book-stat-value">{{ metadata.pages }}</span>
+                                </div>
+                                {% endif %}
+                                {% if metadata.release_year %}
+                                <div class="r-about-book-stat">
+                                    <span class="r-meta-label">Year</span>
+                                    <span class="r-about-book-stat-value">{{ metadata.release_year }}</span>
+                                </div>
+                                {% endif %}
+                                {% if metadata.isbn %}
+                                <div class="r-about-book-stat">
+                                    <span class="r-meta-label">ISBN</span>
+                                    <span class="r-about-book-stat-value r-about-book-stat-value--mono">{{ metadata.isbn }}</span>
+                                </div>
+                                {% endif %}
+                                {% if metadata.asin %}
+                                <div class="r-about-book-stat">
+                                    <span class="r-meta-label">ASIN</span>
+                                    <span class="r-about-book-stat-value r-about-book-stat-value--mono">{{ metadata.asin }}</span>
+                                </div>
+                                {% endif %}
+                            </div>
+
+                            {% if metadata.genres or metadata.hc_tags or metadata.bf_series or metadata.bf_tags %}
+                            <div class="r-about-book-details">
+                                {% if metadata.genres %}
+                                <div class="r-about-book-detail-block">
+                                    <span class="r-meta-label">Genres</span>
+                                    <div class="r-about-book-chips">
+                                        {% for genre in metadata.genres %}
+                                        <span class="r-about-book-chip">{{ genre }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                {% if metadata.hc_tags %}
+                                <div class="r-about-book-detail-block">
+                                    <span class="r-meta-label">Hardcover Tags</span>
+                                    <div class="r-about-book-chips">
+                                        {% for tag in metadata.hc_tags %}
+                                        <span class="r-about-book-chip">{{ tag }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                {% if metadata.bf_series %}
+                                <div class="r-about-book-detail-block">
+                                    <span class="r-meta-label">Series</span>
+                                    <div class="r-about-book-detail-copy">{{ metadata.bf_series }}</div>
+                                </div>
+                                {% endif %}
+                                {% if metadata.bf_tags %}
+                                <div class="r-about-book-detail-block">
+                                    <span class="r-meta-label">Tags</span>
+                                    <div class="r-about-book-detail-copy">{{ metadata.bf_tags }}</div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        {% if metadata.description %}
+                        <div class="r-about-book-description">
+                            <span class="r-meta-label">Description</span>
+                            <div class="r-meta-desc-wrap {% if metadata.description|length > 600 %}is-collapsed{% endif %}" id="about-book-desc-wrap">
+                                <div class="r-meta-desc-text r-about-book-desc-text" id="about-book-desc-text">{{ metadata.description | sanitize_html }}</div>
+                            </div>
+                            {% if metadata.description|length > 600 %}
+                            <button type="button" class="r-about-book-more" id="about-book-more" aria-expanded="false">
+                                Read More
+                            </button>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% elif meta_count.n > 0 %}
+            {# Compact inline chips — single muted line, no heading #}
+            <div class="r-detail-section">
+                <div class="r-meta-compact">
+                    {% set chips = [] %}
+                    {% if metadata.pages %}{% set _ = chips.append(metadata.pages ~ ' pages') %}{% endif %}
+                    {% if metadata.duration %}{% set _ = chips.append(metadata.duration) %}{% endif %}
+                    {% if metadata.narrator %}{% set _ = chips.append('Narrated by ' ~ metadata.narrator) %}{% endif %}
+                    {% if metadata.isbn %}{% set _ = chips.append('ISBN ' ~ metadata.isbn) %}{% endif %}
+                    {% if metadata.release_year %}{% set _ = chips.append(metadata.release_year|string) %}{% endif %}
+                    {% if metadata.bf_series %}{% set _ = chips.append(metadata.bf_series) %}{% endif %}
+                    {% if metadata.genres %}{% set _ = chips.append(metadata.genres | join(', ')) %}{% endif %}
+                    {% if metadata.hc_tags %}{% set _ = chips.append(metadata.hc_tags | join(', ')) %}{% endif %}
+                    {{ chips | join(' · ') }}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {# ── Journal Tab ── #}
+        <div class="r-tab-panel" data-tab="journal" style="display: none;">
+            <div class="r-journal-shell">
+                <div class="r-journal-panel">
+                    <div class="r-journal-panel-head">
+                        <div class="r-journal-panel-copy">
+                            <h3 class="r-section-title r-journal-title">Reading Journal</h3>
+                            <p class="r-journal-intro">Track milestones, leave quick notes, and keep the reading timeline in one place.</p>
+                        </div>
+                    </div>
+
+                    <div class="r-journal-meta">
+                        <label class="r-date-field r-journal-date-field">
+                            <span class="r-date-label">Started</span>
+                            <input type="date" id="started-at" class="input-inline" value="{{ book.started_at or '' }}" data-abs-id="{{ book.abs_id }}">
+                        </label>
+                        <label class="r-date-field r-journal-date-field">
+                            <span class="r-date-label">Finished</span>
+                            <input type="date" id="finished-at" class="input-inline" value="{{ book.finished_at or '' }}" data-abs-id="{{ book.abs_id }}">
+                        </label>
+                    </div>
+
+                    <form class="r-journal-form" id="journal-form" data-abs-id="{{ book.abs_id }}">
+                        <div class="r-journal-compose">
+                            <label for="journal-entry" class="r-journal-compose-label">Add Note</label>
+                            <textarea id="journal-entry" placeholder="What stood out in this session?" rows="3"></textarea>
+                        </div>
+                        <div class="r-journal-form-actions">
+                            <button type="button" class="btn btn-secondary btn-sm r-journal-cancel hidden" id="journal-cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary btn-sm r-journal-submit" id="journal-submit">Add Note</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="r-journal-timeline-card">
+                    <div class="r-journal-panel-head r-journal-panel-head--timeline">
+                        <div class="r-journal-panel-copy">
+                            <h3 class="r-section-title r-journal-title">Timeline</h3>
+                        </div>
+                    </div>
+
+                    <div class="r-timeline" id="journal-timeline">
+                        {% for journal in journals %}
+                        <div class="r-tl-item" data-journal-id="{{ journal.id }}">
+                            <div class="r-tl-line"></div>
+                            <div class="r-tl-dot r-tl-dot-{{ journal.event }}"></div>
+                            <div class="r-tl-body">
+                                <div class="r-tl-head">
+                                    <span class="r-tl-event r-tl-event-{{ journal.event }}">{{ journal.event|capitalize }}</span>
+                                    <span class="r-tl-date">{{ journal.created_at.strftime('%b %d, %Y') if journal.created_at else '' }}</span>
+                                    {% if journal.percentage is not none %}
+                                    <span class="r-tl-pct">{{ '%.0f' | format(journal.percentage * 100) }}%</span>
+                                    {% endif %}
+                                </div>
+                                {% if journal.entry %}
+                                <p class="r-tl-text">{{ journal.entry }}</p>
+                                {% endif %}
+                                {% if journal.event in ['note', 'highlight'] %}
+                                <div class="r-tl-menu" data-journal-id="{{ journal.id }}" data-journal-event="{{ journal.event }}">
+                                    <button class="r-tl-menu-trigger" title="More actions" aria-label="More actions" aria-expanded="false" type="button">⋯</button>
+                                    <div class="r-tl-menu-dropdown">
+                                        {% if journal.event == 'note' %}
+                                        <button class="r-tl-menu-item" type="button" data-action="edit">Edit</button>
+                                        {% endif %}
+                                        <button class="r-tl-menu-item r-tl-menu-item--danger" type="button" data-action="delete">Delete</button>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+
+                        {% if not journals %}
+                        <div class="r-journal-empty">No journal entries yet</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ── Highlights Tab ── #}
+        {% if bf_highlights %}
+        <div class="r-tab-panel" data-tab="highlights" style="display: none;">
+            <div class="r-highlights-body">
+                {% for hl in bf_highlights %}
+                <div class="r-highlight-card">
+                    <blockquote class="r-highlight-quote">{{ (hl.quote_text or hl.content) | sanitize_html }}</blockquote>
+                    <div class="r-highlight-meta">
+                        {% if hl.chapter_heading %}
+                        <span class="r-highlight-chapter">{{ hl.chapter_heading | replace('# ', '') | e }}</span>
+                        {% endif %}
+                        {% if hl.highlighted_at %}
+                        <span class="r-highlight-date">{{ hl.highlighted_at.strftime('%b %d, %Y') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {# ── Cover Picker Modal ── #}
+    <div id="cover-picker-modal" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeCoverPicker()">
+        <div class="modal-content cp-modal-content">
+            <div class="modal-header">
+                <h3>Change Cover</h3>
+                <button class="modal-close" onclick="closeCoverPicker()">&times;</button>
+            </div>
+            <div class="cp-tabs">
+                <button type="button" id="cp-tab-search" class="cp-tab active" onclick="switchCoverTab('search')">Search Hardcover</button>
+                <button type="button" id="cp-tab-custom" class="cp-tab" onclick="switchCoverTab('custom')">Paste URL</button>
+            </div>
+            <div id="cp-search-pane">
+                <form class="cp-search-form" onsubmit="handleCoverSearch(event); return false;">
+                    <input type="text" id="cp-search-input" class="input-inline" placeholder="Search by title...">
+                    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                </form>
+                <div id="cp-results" class="cp-results-grid"></div>
+            </div>
+            <div id="cp-custom-pane" style="display:none;">
+                <div class="cp-custom-form">
+                    <input type="url" id="cp-custom-url" class="input-inline" placeholder="https://example.com/cover.jpg">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="submitCustomCoverUrl()">Set Cover</button>
+                </div>
+            </div>
+            <div id="cp-status" class="cp-status"></div>
+            <div class="cp-footer">
+                <button type="button" class="btn btn-sm btn-danger-subtle" onclick="removeCover()">Remove Cover</button>
+            </div>
+        </div>
+    </div>
+
+    {# ── Confirm Modal (for actions) ── #}
+    <div id="rd-confirm-modal" class="confirm-modal" style="display: none;">
+        <div class="confirm-modal-overlay" onclick="closeRdConfirm()"></div>
+        <div class="confirm-modal-box">
+            <div class="confirm-modal-icon confirm-icon-warning">&#9888;</div>
+            <h3 class="confirm-modal-title" id="rd-confirm-title"></h3>
+            <p class="confirm-modal-message" id="rd-confirm-msg"></p>
+            <div class="confirm-modal-actions">
+                <button class="btn btn-secondary" onclick="closeRdConfirm()">Cancel</button>
+                <button class="btn btn-danger" id="rd-confirm-btn" onclick="rdConfirmExec()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    {# ── Hardcover Edition Picker Modal ── #}
+    <div id="hardcover-modal" class="hc-modal" style="display:none;">
+        <div class="hc-modal-backdrop" onclick="closeHardcoverModal()"></div>
+        <div class="hc-modal-content">
+            <div class="hc-modal-header">
+                <h3>Link to Hardcover</h3>
+                <button class="hc-modal-close" onclick="closeHardcoverModal()" aria-label="Close">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round">
+                        <path d="M1 1l12 12M13 1L1 13" />
+                    </svg>
+                </button>
+            </div>
+            <div class="hc-modal-body">
+                <div id="hc-loading" class="hc-loading" style="display:none;">
+                    <div class="hc-loading-spinner"></div>
+                    <div class="hc-loading-text">Searching Hardcover...</div>
+                </div>
+                <div id="hc-found" style="display:none;">
+                    <div class="hc-book-info">
+                        <div class="hc-book-title" id="hc-title"></div>
+                        <div class="hc-book-author" id="hc-author"></div>
+                    </div>
+                    <div class="hc-editions-label">Select Edition</div>
+                    <div id="hc-editions"></div>
+                    <p class="hc-text-muted"><a href="#" onclick="showManualInput(); return false;">Wrong book? Enter URL manually</a></p>
+                </div>
+                <div id="hc-manual" style="display:none;">
+                    <p>Enter Hardcover URL or book ID:</p>
+                    <input type="text" id="hc-input" placeholder="https://hardcover.app/books/...">
+                    <button class="btn btn-md btn-accent" onclick="resolveManualInput()">Search</button>
+                </div>
+                <div id="hc-error" style="display:none;">
+                    <p id="hc-error-msg" class="hc-text-error"></p>
+                    <p class="hc-text-muted"><a href="#" onclick="showManualInput(); return false;">Try entering URL manually</a></p>
+                </div>
+            </div>
+            <div class="hc-modal-footer">
+                <button class="btn btn-md btn-secondary hc-btn-cancel" onclick="closeHardcoverModal()">Cancel</button>
+                <button id="hc-link-btn" class="btn btn-md btn-accent hc-btn-link" onclick="linkSelectedEdition()" disabled>Link Book</button>
+            </div>
+        </div>
+    </div>
+
+    {# ── Booklore Link Modal ── #}
+    <div id="bl-modal" class="hc-modal" style="display:none;">
+        <div class="hc-modal-backdrop" onclick="closeBookloreModal()"></div>
+        <div class="hc-modal-content">
+            <div class="hc-modal-header">
+                <h3 id="bl-modal-title">Link to Booklore</h3>
+                <button class="hc-modal-close" onclick="closeBookloreModal()" aria-label="Close">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round">
+                        <path d="M1 1l12 12M13 1L1 13" />
+                    </svg>
+                </button>
+            </div>
+            <div class="hc-modal-body">
+                <div class="st-search-bar">
+                    <input type="text" id="bl-search-input" placeholder="Search Booklore..." class="modal-search-input">
+                    <button onclick="searchBooklore()" class="btn btn-primary">Search</button>
+                </div>
+                <div id="bl-results" class="st-results"></div>
+            </div>
+        </div>
+    </div>
+
+    {# ── Storyteller Link Modal ── #}
+    <div id="st-modal" class="hidden">
+        <div class="st-modal-content">
+            <div class="st-modal-header">
+                <h3 id="st-modal-title">Link Storyteller</h3>
+                <button class="modal-close" onclick="closeStorytellerModal()" aria-label="Close">&#10005;</button>
+            </div>
+            <div class="st-modal-body">
+                <div class="st-search-bar">
+                    <input type="text" id="st-search-input" placeholder="Search Storyteller..." class="modal-search-input">
+                    <button onclick="searchStoryteller()" class="btn btn-primary">Search</button>
+                </div>
+                <div id="st-results" class="st-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/hardcover-modal.js"></script>
+    <script src="/static/js/booklore-link-modal.js"></script>
+    <script src="/static/js/storyteller-modal.js"></script>
+    <script src="/static/js/cover-picker-modal.js"></script>
+    <script src="/static/js/reading.js"></script>
+    <script>
+        initReadingDetail();
+
+        var _rdAbsId = {{ book.abs_id | tojson }};
+        var _rdTitle = {{ book.abs_title | tojson }};
+
+        (function() {
+            var btn = document.getElementById('change-cover-btn');
+            if (btn) {
+                btn.addEventListener('click', function() {
+                    openCoverPicker(_rdAbsId, _rdTitle);
+                });
+            }
+        })();
+
+        // Hardcover re-link
+        function openHcRelink(btn) {
+            hardcoverModalState.absId = btn.dataset.absId;
+            hardcoverModalState.bookData = null;
+            hardcoverModalState.selectedEditionId = null;
+            openHardcoverModal();
+            autoResolveBook();
+        }
+
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.r-tab-btn').forEach(function(btn) {
+                btn.classList.toggle('active', btn.dataset.tab === tabName);
+            });
+            document.querySelectorAll('.r-tab-panel').forEach(function(panel) {
+                panel.style.display = panel.dataset.tab === tabName ? '' : 'none';
+            });
+        }
+
+        // Manual progress
+        function setManualProgress() {
+            var input = document.getElementById('manual-pct-input');
+            if (!input) return;
+            var pct = parseFloat(input.value);
+            if (isNaN(pct) || pct < 0 || pct > 100) return;
+
+            fetch('/api/reading/book/' + encodeURIComponent(_rdAbsId) + '/progress', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ percentage: pct / 100 })
+            })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Request failed');
+                return r.json();
+            })
+            .then(function(data) {
+                if (data.success) {
+                    var fill = document.getElementById('progress-bar-fill');
+                    if (fill) {
+                        fill.style.width = pct + '%';
+                    } else {
+                        var section = document.getElementById('progress-section');
+                        if (!section) {
+                            section = document.createElement('div');
+                            section.className = 'r-detail-progress';
+                            section.id = 'progress-section';
+                            var heroInfo = document.querySelector('.r-hero-info');
+                            var ratingEl = document.getElementById('rating-stars');
+                            heroInfo.insertBefore(section, ratingEl);
+                        }
+                        var bar = document.createElement('div');
+                        bar.className = 'progress-bar';
+                        var fillEl = document.createElement('div');
+                        fillEl.className = 'progress-bar-fill';
+                        fillEl.id = 'progress-bar-fill';
+                        fillEl.style.width = pct + '%';
+                        bar.appendChild(fillEl);
+                        section.insertBefore(bar, section.firstChild);
+                    }
+                    var pctLabel = document.getElementById('progress-pct');
+                    if (pctLabel) {
+                        pctLabel.textContent = Math.round(pct) + '%';
+                    } else if (section) {
+                        var newPct = document.createElement('span');
+                        newPct.className = 'r-detail-pct';
+                        newPct.id = 'progress-pct';
+                        newPct.textContent = Math.round(pct) + '%';
+                        section.appendChild(newPct);
+                    }
+                }
+            })
+            .catch(function(err) {
+                console.error('Failed to update progress:', err);
+                alert('Failed to save progress. Please try again.');
+            });
+        }
+
+        // Action handling
+        var _rdPendingAction = null;
+
+        function rdAction(action) {
+            if (action === 'sync') {
+                var btn = document.getElementById('btn-sync');
+                if (btn) { btn.disabled = true; btn.textContent = '...'; }
+                fetch('/api/sync-now/' + encodeURIComponent(_rdAbsId), { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(function(r) { return r.json(); })
+                .then(function(d) { if (d.success) { location.reload(); } else { if (btn) { btn.textContent = 'Err'; btn.disabled = false; } } })
+                .catch(function() { if (btn) { btn.textContent = 'Err'; btn.disabled = false; } });
+            } else if (action === 'pause') {
+                fetch('/api/pause/' + encodeURIComponent(_rdAbsId), { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.success) {
+                        location.reload();
+                    } else {
+                        alert(d.error || 'Failed to pause');
+                    }
+                })
+                .catch(function() {
+                    alert('Request failed');
+                });
+            } else if (action === 'resume') {
+                fetch('/api/resume/' + encodeURIComponent(_rdAbsId), { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.success) {
+                        location.reload();
+                    } else {
+                        alert(d.error || 'Failed to resume');
+                    }
+                })
+                .catch(function() {
+                    alert('Request failed');
+                });
+            } else if (action === 'dnf') {
+                showRdConfirm('Mark DNF', 'Mark "' + _rdTitle + '" as Did Not Finish? This book will be excluded from syncing.', 'dnf');
+            } else if (action === 'complete') {
+                showRdConfirm('Mark Complete', 'Mark "' + _rdTitle + '" as complete? This will set progress to 100% on all synced platforms.', 'complete');
+            } else if (action === 'clear') {
+                showRdConfirm('Clear Progress', 'Clear all reading progress for this book across all synced platforms?', 'clear');
+            } else if (action === 'delete') {
+                showRdConfirm('Delete Book', 'Permanently delete this book mapping and all cached data?', 'delete');
+            }
+        }
+
+        function showRdConfirm(title, msg, action) {
+            _rdPendingAction = action;
+            document.getElementById('rd-confirm-title').textContent = title;
+            document.getElementById('rd-confirm-msg').textContent = msg;
+            document.getElementById('rd-confirm-btn').textContent = title;
+            var btn = document.getElementById('rd-confirm-btn');
+            btn.className = (action === 'delete') ? 'btn btn-danger' : 'btn btn-warning';
+            document.getElementById('rd-confirm-modal').style.display = 'flex';
+        }
+
+        function closeRdConfirm() {
+            document.getElementById('rd-confirm-modal').style.display = 'none';
+            _rdPendingAction = null;
+        }
+
+        function rdConfirmExec() {
+            var action = _rdPendingAction;
+            closeRdConfirm();
+            if (!action) return;
+
+            if (action === 'dnf') {
+                fetch('/api/dnf/' + encodeURIComponent(_rdAbsId), { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(function(r) { return r.json(); })
+                .then(function(d) { if (d.success) location.reload(); else alert(d.error || 'Error'); });
+            } else if (action === 'complete') {
+                fetch('/api/mark-complete/' + encodeURIComponent(_rdAbsId), { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ delete: false }) })
+                .then(function(r) { return r.json(); })
+                .then(function(d) { if (d.success) location.reload(); else alert(d.error || 'Error'); });
+            } else if (action === 'clear') {
+                // Post as form — same as dashboard confirm modal
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/clear-progress/' + encodeURIComponent(_rdAbsId);
+                document.body.appendChild(form);
+                form.submit();
+            } else if (action === 'delete') {
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/delete/' + encodeURIComponent(_rdAbsId);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeRdConfirm();
+        });
+
+        // Toggle metadata
+        (function() {
+            function setupToggle(toggleEl, bodyId, chevronClass) {
+                if (!toggleEl) return;
+                function doToggle() {
+                    var body = document.getElementById(bodyId);
+                    if (!body) return;
+                    body.classList.toggle('hidden');
+                    toggleEl.querySelector('.' + chevronClass).classList.toggle('collapsed');
+                    toggleEl.setAttribute('aria-expanded',
+                        !body.classList.contains('hidden'));
+                }
+                toggleEl.addEventListener('click', doToggle);
+                toggleEl.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        doToggle();
+                    }
+                });
+            }
+            setupToggle(document.getElementById('meta-toggle'), 'meta-body', 'r-meta-chevron');
+        })();
+    </script>
+</body>
+</html>

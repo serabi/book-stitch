@@ -16,25 +16,22 @@
 <body>
     {% include 'partials/navbar.html' %}
 
-    <!-- Main Container -->
     <div class="container">
         <div class="page-header">
             {% if attach_to %}
             <h2>Attach Ebook</h2>
-            <p class="subtitle">Attaching ebook to: <strong>{{ attach_title }}</strong></p>
+            <p class="subtitle">Choose an ebook source to attach to <strong>{{ attach_title }}</strong>.</p>
             {% elif link_to %}
             <h2>Attach Audiobook</h2>
-            <p class="subtitle">Linking audiobook to: <strong>{{ link_title }}</strong></p>
+            <p class="subtitle">Choose an audiobook from your ABS library to link to <strong>{{ link_title }}</strong>.</p>
             {% else %}
-            <h2>Create New Mapping</h2>
-            <p class="subtitle">Create a new book mapping for synchronized reading progress</p>
+            <h2>Create New Book Mapping</h2>
             {% endif %}
         </div>
 
-        <!-- Search Section -->
-        <div class="search-section">
-            <form method="GET" action="/match">
-                <input type="text" name="search" placeholder="🔍 Search by title, author, or filename..."
+        <section class="search-section batch-search-section">
+            <form method="GET" action="/match" class="batch-search-form">
+                <input type="text" name="search" placeholder="Search by title, author, or filename..."
                     class="search-box" value="{{ search }}" autofocus>
                 {% if attach_to %}
                 <input type="hidden" name="attach_to" value="{{ attach_to }}">
@@ -42,203 +39,270 @@
                 {% if link_to %}
                 <input type="hidden" name="link_to" value="{{ link_to }}">
                 {% endif %}
-                <button type="submit" class="btn btn-primary mt-16">Search</button>
+                <button type="submit" class="btn btn-primary">Search</button>
             </form>
-        </div>
+        </section>
 
         <form method="POST" action="/match" id="mappingForm">
-            <!-- Hidden action field for special modes -->
             <input type="hidden" name="action" id="input_action" value="">
             <input type="hidden" name="storyteller_title" id="input_storyteller_title" value="">
 
             {% if attach_to %}
-            <!-- Attach ebook mode: hidden inputs -->
             <input type="hidden" name="attach_abs_id" value="{{ attach_to }}">
             {% endif %}
             {% if link_to %}
-            <!-- Attach audiobook mode: hidden inputs -->
             <input type="hidden" name="link_book_id" value="{{ link_to }}">
             {% endif %}
 
-            <div class="selection-container">
+            {% set single_match = audiobooks|length == 1 %}
+            {% set single_st_match = storyteller_books|length == 1 %}
+            {% set single_eb_match = ebooks|length == 1 %}
 
-                {% if not attach_to %}
-                <!-- GRID COL 1: Audiobook -->
-                <div class="section">
-                    <h3><span class="section-number">1</span>Audiobook</h3>
-                    <p class="section-hint">Select an audiobook from your ABS library</p>
-                    <div class="scrollable-content">
-                        {% if audiobooks %}
-                        <div class="media-grid">
-                            {% set single_match = audiobooks|length == 1 %}
-                            {% for ab in audiobooks %}
-                            {% set is_preselected = (preselect_abs_id and ab.id == preselect_abs_id) %}
-                            <label class="audiobook-option ab-option {% if single_match or is_preselected %}selected{% endif %}"
-                                onclick="selectItem(this, 'audiobook_id')">
-                                <input type="radio" name="audiobook_id" value="{{ ab.id }}" {% if single_match or is_preselected
-                                    %}checked{% endif %}>
-                                <div class="audiobook-cover-container">
-                                    {% if ab.cover_url %}
-                                    <img src="{{ ab.cover_url }}" alt="Cover" class="audiobook-cover"
-                                        onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
-                                    <div class="audiobook-cover-placeholder hidden"></div>
-                                    {% else %}
-                                    <div class="audiobook-cover-placeholder"></div>
-                                    {% endif %}
-                                </div>
-                                <div class="audiobook-info">
-                                    <div class="audiobook-title">{{ get_title(ab) }}</div>
-                                </div>
-                            </label>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="empty-state">
-                            <div class="empty-state-icon"></div>
-                            <h3>No audiobooks found</h3>
-                            <p>Try a different search term</p>
-                        </div>
-                        {% endif %}
+            <section class="batch-summary-bar match-summary-bar">
+                <div class="batch-summary-metrics match-summary-metrics {% if attach_to or link_to %}match-summary-metrics--compact{% endif %}">
+                    {% if not attach_to %}
+                    <div class="batch-summary-card match-summary-card" id="audiobookSummaryCard">
+                        <span class="batch-summary-label">Audiobook</span>
+                        <strong class="batch-summary-value" id="audiobookSummaryValue">Not selected</strong>
+                        <span class="batch-summary-meta" id="audiobookSummaryMeta">Choose one ABS title</span>
                     </div>
-                </div>
-                {% endif %}
+                    {% endif %}
 
-                {% if not link_to and not attach_to %}
-                <!-- GRID COL 2: Storyteller -->
-                <div class="section">
-                    <h3><span class="section-number">2</span>Storyteller</h3>
-                    <p class="section-hint">Sync with Storyteller for narrated ebooks</p>
-                    <div class="scrollable-content">
-                        {% if storyteller_books %}
-                        <div class="resource-grid">
-                            {% set single_st_match = storyteller_books|length == 1 %}
-                            <!-- None Option -->
-                            <label
-                                class="audiobook-option st-option resource-card ghost-card {% if not single_st_match %}selected{% endif %}"
-                                onclick="selectItem(this, 'storyteller_uuid')">
-                                <input type="radio" name="storyteller_uuid" value="" {% if not single_st_match
-                                    %}checked{% endif %}>
-                                <div class="resource-icon"></div>
-                                <div class="resource-title">None / Skip</div>
-                            </label>
-
-                            {% for st in storyteller_books %}
-                            <label
-                                class="audiobook-option st-option resource-card {% if single_st_match %}selected{% endif %}"
-                                onclick="selectItem(this, 'storyteller_uuid')">
-                                <input type="radio" name="storyteller_uuid" value="{{ st.uuid }}" {% if
-                                    single_st_match %}checked{% endif %}>
-                                <div class="resource-icon"></div>
-                                <div class="resource-title" title="{{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}">
-                                    {{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}
-                                </div>
-                                {% if st.authors %}
-                                <div class="resource-subtitle">{{ st.authors|join(', ') }}</div>
-                                {% endif %}
-                            </label>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="empty-state">
-                            <div class="empty-state-icon"></div>
-                            <h3>No Storyteller books</h3>
-                        </div>
-                        <input type="hidden" name="storyteller_uuid" value="">
-                        {% endif %}
+                    {% if not link_to and not attach_to %}
+                    <div class="batch-summary-card match-summary-card" id="storytellerSummaryCard">
+                        <span class="batch-summary-label">Storyteller</span>
+                        <strong class="batch-summary-value" id="storytellerSummaryValue">Skipped</strong>
+                        <span class="batch-summary-meta" id="storytellerSummaryMeta">Optional narrated ebook source</span>
                     </div>
-                </div>
-                {% else %}
-                <input type="hidden" name="storyteller_uuid" value="">
-                {% endif %}
+                    {% endif %}
 
-                {% if not link_to %}
-                <!-- GRID COL 3: eBook Source -->
-                <div class="section">
-                    <h3><span class="section-number">{% if attach_to %}1{% elif storyteller_books %}3{% else %}2{% endif %}</span>eBook Source</h3>
-                    <p class="section-hint">Select an ebook to sync reading progress</p>
-                    <div class="scrollable-content">
-                        {% if ebooks %}
-                        <div class="resource-grid">
-                            {% set single_eb_match = ebooks|length == 1 %}
-                            {% for eb in ebooks %}
-                            <label
-                                class="audiobook-option eb-option resource-card {% if single_eb_match %}selected{% endif %}"
-                                data-source-type="{{ eb.source }}" data-source-path="{{ eb.path }}"
-                                data-source-id="{{ eb.source_id }}" onclick="selectItem(this, 'ebook_filename')">
-                                <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match
-                                    %}checked{% endif %}>
-                                {% if eb.cover_url %}
-                                <div class="resource-cover-container">
-                                    <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
-                                        onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
-                                    <div class="resource-icon hidden"></div>
+                    {% if not link_to %}
+                    <div class="batch-summary-card match-summary-card" id="ebookSummaryCard">
+                        <span class="batch-summary-label">eBook</span>
+                        <strong class="batch-summary-value" id="ebookSummaryValue">Not selected</strong>
+                        <span class="batch-summary-meta" id="ebookSummaryMeta">
+                            {% if attach_to %}
+                            Select an ebook to attach
+                            {% else %}
+                            Pick a text source or create audio-only
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="batch-summary-actions match-summary-actions">
+                    {% if attach_to %}
+                    <button type="submit" class="btn btn-success" id="attachEbookBtn" disabled
+                        onclick="document.getElementById('input_action').value='attach_ebook';">
+                        Attach Ebook
+                    </button>
+                    {% elif link_to %}
+                    <button type="submit" class="btn btn-success" id="attachAudiobookBtn" disabled
+                        onclick="document.getElementById('input_action').value='attach_audiobook';">
+                        Attach Audiobook
+                    </button>
+                    {% else %}
+                    <button type="submit" class="btn btn-success" id="submitBtn" disabled>
+                        Create Mapping
+                    </button>
+                    <button type="submit" class="btn btn-warning-solid" id="audioOnlyBtn" disabled
+                        onclick="document.getElementById('input_action').value='audio_only';">
+                        Audio Only
+                    </button>
+                    <button type="submit" class="btn btn-purple" id="ebookOnlyBtn" disabled
+                        onclick="document.getElementById('input_action').value='ebook_only';">
+                        Add Book
+                    </button>
+                    {% endif %}
+                </div>
+            </section>
+
+            <section class="batch-selection-workspace match-selection-workspace">
+                <div class="batch-selection-grid match-selection-grid {% if attach_to or link_to %}match-selection-grid--compact{% endif %}">
+                    {% if not attach_to %}
+                    <div class="batch-selection-column">
+                        <div class="batch-selection-header">
+                            <h3><span class="section-number">1</span>Audiobook</h3>
+                            <p class="section-hint">Select one audiobook from your ABS library.</p>
+                        </div>
+                        <div class="batch-selection-panel">
+                            <div class="scrollable-content">
+                                {% if audiobooks %}
+                                <div class="media-grid">
+                                    {% for ab in audiobooks %}
+                                    {% set is_preselected = (preselect_abs_id and ab.id == preselect_abs_id) %}
+                                    <label class="audiobook-option batch-select-card ab-option {% if single_match or is_preselected %}selected{% endif %}"
+                                        onclick="selectItem(this, 'audiobook_id')">
+                                        <input type="radio" name="audiobook_id" value="{{ ab.id }}" {% if single_match or is_preselected %}checked{% endif %}>
+                                        <div class="audiobook-cover-container">
+                                            {% if ab.cover_url %}
+                                            <img src="{{ ab.cover_url }}" alt="Cover" class="audiobook-cover"
+                                                onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                                            <div class="audiobook-cover-placeholder hidden"></div>
+                                            {% else %}
+                                            <div class="audiobook-cover-placeholder"></div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="audiobook-info">
+                                            <div class="audiobook-title">{{ get_title(ab) }}</div>
+                                        </div>
+                                    </label>
+                                    {% endfor %}
                                 </div>
                                 {% else %}
-                                <div class="resource-icon"></div>
-                                {% endif %}
-                                <div class="resource-title" title="{{ eb.display_name }}">
-                                    {{ eb.title }}{% if eb.subtitle %}: {{ eb.subtitle }}{% endif %}
+                                <div class="empty-state batch-empty-state">
+                                    <div class="empty-state-icon"></div>
+                                    <h3>No audiobooks found</h3>
+                                    <p>Search to load audiobook matches.</p>
                                 </div>
-                                {% if eb.authors %}
-                                <div class="resource-subtitle">{{ eb.authors }}</div>
                                 {% endif %}
-                                {% if eb.source %}
-                                {% set badge_cls = eb.source.lower().replace(' ', '') %}
-                                <span class="source-badge {{ badge_cls }}">{{ eb.source }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if not link_to and not attach_to %}
+                    <div class="batch-selection-column">
+                        <div class="batch-selection-header">
+                            <h3><span class="section-number">2</span>Storyteller</h3>
+                            <p class="section-hint">Optional narrated ebook sync source.</p>
+                        </div>
+                        <div class="batch-selection-panel">
+                            <div class="scrollable-content">
+                                {% if storyteller_books %}
+                                <div class="resource-grid">
+                                    <label
+                                        class="audiobook-option resource-card st-option ghost-card batch-select-card {% if not single_st_match %}selected{% endif %}"
+                                        onclick="selectItem(this, 'storyteller_uuid')">
+                                        <input type="radio" name="storyteller_uuid" value="" {% if not single_st_match %}checked{% endif %}>
+                                        <div class="resource-icon"></div>
+                                        <div class="resource-title">None / Skip</div>
+                                    </label>
+
+                                    {% for st in storyteller_books %}
+                                    <label
+                                        class="audiobook-option resource-card st-option batch-select-card {% if single_st_match %}selected{% endif %}"
+                                        onclick="selectItem(this, 'storyteller_uuid')">
+                                        <input type="radio" name="storyteller_uuid" value="{{ st.uuid }}" {% if single_st_match %}checked{% endif %}>
+                                        <div class="resource-icon"></div>
+                                        <div class="resource-title" title="{{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}">
+                                            {{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}
+                                        </div>
+                                        {% if st.authors %}
+                                        <div class="resource-subtitle">{{ st.authors|join(', ') }}</div>
+                                        {% endif %}
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <div class="empty-state batch-empty-state">
+                                    <div class="empty-state-icon"></div>
+                                    <h3>No Storyteller books</h3>
+                                    <p>You can still create a mapping with ABS and ebook sources.</p>
+                                </div>
+                                <input type="hidden" name="storyteller_uuid" value="">
                                 {% endif %}
-                            </label>
-                            {% endfor %}
+                            </div>
                         </div>
-                        {% else %}
-                        <div class="empty-state">
-                            <div class="empty-state-icon"></div>
-                            <h3>No ebooks found</h3>
-                            <p>Try a different search term</p>
+                    </div>
+                    {% else %}
+                    <input type="hidden" name="storyteller_uuid" value="">
+                    {% endif %}
+
+                    {% if not link_to %}
+                    <div class="batch-selection-column">
+                        <div class="batch-selection-header">
+                            <h3><span class="section-number">{% if attach_to %}1{% elif storyteller_books %}3{% else %}2{% endif %}</span>eBook Source</h3>
+                            <p class="section-hint">
+                                {% if attach_to %}
+                                Select the ebook source you want to attach.
+                                {% else %}
+                                Optional ebook source for progress sync.
+                                {% endif %}
+                            </p>
                         </div>
-                        {% endif %}
+                        <div class="batch-selection-panel">
+                            <div class="scrollable-content">
+                                {% if ebooks %}
+                                <div class="resource-grid">
+                                    {% for eb in ebooks %}
+                                    <label
+                                        class="audiobook-option resource-card eb-option batch-select-card {% if single_eb_match %}selected{% endif %}"
+                                        data-source-type="{{ eb.source }}" data-source-path="{{ eb.path }}"
+                                        data-source-id="{{ eb.source_id }}" onclick="selectItem(this, 'ebook_filename')">
+                                        <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match %}checked{% endif %}>
+                                        {% if eb.cover_url %}
+                                        <div class="resource-cover-container">
+                                            <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
+                                                onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                                            <div class="resource-icon hidden"></div>
+                                        </div>
+                                        {% else %}
+                                        <div class="resource-icon"></div>
+                                        {% endif %}
+                                        <div class="resource-title" title="{{ eb.display_name }}">
+                                            {{ eb.title }}{% if eb.subtitle %}: {{ eb.subtitle }}{% endif %}
+                                        </div>
+                                        {% if eb.authors %}
+                                        <div class="resource-subtitle">{{ eb.authors }}</div>
+                                        {% endif %}
+                                        {% if eb.source %}
+                                        {% set badge_cls = eb.source.lower().replace(' ', '') %}
+                                        <span class="source-badge {{ badge_cls }}">{{ eb.source }}</span>
+                                        {% endif %}
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <div class="empty-state batch-empty-state">
+                                    <div class="empty-state-icon"></div>
+                                    <h3>No ebooks found</h3>
+                                    <p>
+                                        {% if attach_to %}
+                                        Try a different search term.
+                                        {% else %}
+                                        You can still create an audio-only mapping.
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="batch-selection-footer match-selection-footer">
+                    <div class="batch-selection-status match-selection-status" id="validationMsg" aria-live="polite">
+                        Select an audiobook and/or text source to continue.
                     </div>
                 </div>
-                {% endif %}
-
-            </div>
-
-            <!-- Submit Buttons -->
-            <div class="submit-container">
-                {% if attach_to %}
-                <button type="submit" class="btn btn-success" id="attachEbookBtn" disabled
-                    onclick="document.getElementById('input_action').value='attach_ebook';">
-                    Attach Ebook
-                </button>
-                {% elif link_to %}
-                <button type="submit" class="btn btn-success" id="attachAudiobookBtn" disabled
-                    onclick="document.getElementById('input_action').value='attach_audiobook';">
-                    Attach Audiobook
-                </button>
-                {% else %}
-                <button type="submit" class="btn btn-success" id="submitBtn" disabled>
-                    Create Mapping
-                </button>
-                <button type="submit" class="btn btn-warning" id="audioOnlyBtn"
-                    style="margin-left: 10px;"
-                    disabled
-                    onclick="document.getElementById('input_action').value='audio_only';">
-                    Audio Only
-                </button>
-                <button type="submit" class="btn btn-purple" id="ebookOnlyBtn"
-                    style="margin-left: 10px;"
-                    disabled
-                    onclick="document.getElementById('input_action').value='ebook_only';">
-                    Add Book
-                </button>
-                {% endif %}
-                <div id="validationMsg" style="margin-top: 10px; color: #ff6b6b; display: none;"></div>
-            </div>
+            </section>
         </form>
     </div>
 
     <script>
         const isAttachEbook = {{ 'true' if attach_to else 'false' }};
         const isAttachAudiobook = {{ 'true' if link_to else 'false' }};
+
+        function setSummaryCardState(prefix, state, valueText, metaText) {
+            const card = document.getElementById(`${prefix}SummaryCard`);
+            const value = document.getElementById(`${prefix}SummaryValue`);
+            const meta = document.getElementById(`${prefix}SummaryMeta`);
+
+            if (!card || !value || !meta) return;
+
+            card.dataset.state = state;
+            value.textContent = valueText;
+            meta.textContent = metaText;
+        }
+
+        function setButtonEnabled(button, enabled) {
+            if (!button) return;
+            button.disabled = !enabled;
+            button.style.opacity = enabled ? '1' : '0.5';
+        }
 
         function selectItem(element, groupName) {
             let wrapperClass = '';
@@ -247,7 +311,7 @@
             if (groupName === 'ebook_filename') wrapperClass = '.eb-option';
 
             if (wrapperClass) {
-                document.querySelectorAll(wrapperClass).forEach(el => {
+                document.querySelectorAll(wrapperClass).forEach((el) => {
                     el.classList.remove('selected');
                 });
             }
@@ -256,7 +320,6 @@
             const radio = element.querySelector('input[type="radio"]');
             if (radio) radio.checked = true;
 
-            // Populate storyteller_title hidden input
             if (groupName === 'storyteller_uuid') {
                 const titleEl = element.querySelector('.resource-title');
                 const stInput = document.getElementById('input_storyteller_title');
@@ -274,85 +337,95 @@
             const eb = document.querySelector('input[name="ebook_filename"]:checked');
             const msg = document.getElementById('validationMsg');
 
-            let hasAudio = !!ab;
-            let stVal = st ? st.value : "";
-            let ebVal = eb ? eb.value : "";
-            let hasText = (stVal !== "") || (ebVal !== "");
+            const hasAudio = !!ab;
+            const stVal = st ? st.value : '';
+            const ebVal = eb ? eb.value : '';
+            const hasText = (stVal !== '') || (ebVal !== '');
+
+            if (!isAttachEbook) {
+                setSummaryCardState(
+                    'audiobook',
+                    hasAudio ? 'ready' : 'empty',
+                    hasAudio ? 'Selected' : 'Not selected',
+                    hasAudio ? 'Audiobook ready to link' : 'Choose one ABS title'
+                );
+            }
+
+            if (!isAttachAudiobook && !isAttachEbook) {
+                const storytellerSelected = st && stVal !== '';
+                setSummaryCardState(
+                    'storyteller',
+                    storytellerSelected ? 'ready' : 'optional',
+                    storytellerSelected ? 'Selected' : 'Skipped',
+                    storytellerSelected ? 'Narrated ebook source ready' : 'Optional narrated ebook source'
+                );
+            }
+
+            if (!isAttachAudiobook) {
+                setSummaryCardState(
+                    'ebook',
+                    ebVal !== '' ? 'ready' : 'empty',
+                    ebVal !== '' ? 'Selected' : 'Not selected',
+                    ebVal !== ''
+                        ? 'eBook source ready'
+                        : (isAttachEbook ? 'Select an ebook to attach' : 'Pick a text source or create audio-only')
+                );
+            }
 
             if (isAttachEbook) {
-                // Attach ebook mode: just need an ebook selected
                 const btn = document.getElementById('attachEbookBtn');
-                if (ebVal !== "") {
-                    btn.disabled = false;
-                    btn.style.opacity = "1";
-                    msg.style.display = "none";
-                } else {
-                    btn.disabled = true;
-                    btn.style.opacity = "0.5";
-                    msg.textContent = "Please select an ebook to attach";
-                    msg.style.display = "block";
-                }
+                const isReady = ebVal !== '';
+                setButtonEnabled(btn, isReady);
+                msg.textContent = isReady ? 'eBook selected. Ready to attach.' : 'Please select an ebook to attach.';
+                msg.dataset.state = isReady ? 'ready' : 'warning';
                 return;
             }
 
             if (isAttachAudiobook) {
-                // Attach audiobook mode: just need an audiobook selected
                 const btn = document.getElementById('attachAudiobookBtn');
-                if (hasAudio) {
-                    btn.disabled = false;
-                    btn.style.opacity = "1";
-                    msg.style.display = "none";
-                } else {
-                    btn.disabled = true;
-                    btn.style.opacity = "0.5";
-                    msg.textContent = "Please select an audiobook to link";
-                    msg.style.display = "block";
-                }
+                const isReady = hasAudio;
+                setButtonEnabled(btn, isReady);
+                msg.textContent = isReady ? 'Audiobook selected. Ready to attach.' : 'Please select an audiobook to link.';
+                msg.dataset.state = isReady ? 'ready' : 'warning';
                 return;
             }
 
-            // Normal mode: 3-button validation
             const submitBtn = document.getElementById('submitBtn');
             const audioOnlyBtn = document.getElementById('audioOnlyBtn');
             const ebookOnlyBtn = document.getElementById('ebookOnlyBtn');
 
-            // Reset all
-            [submitBtn, audioOnlyBtn, ebookOnlyBtn].forEach(b => {
-                if (b) { b.disabled = true; b.style.opacity = "0.5"; }
-            });
+            setButtonEnabled(submitBtn, false);
+            setButtonEnabled(audioOnlyBtn, false);
+            setButtonEnabled(ebookOnlyBtn, false);
 
             if (hasAudio && hasText) {
-                // Full match: enable Match
-                submitBtn.disabled = false;
-                submitBtn.style.opacity = "1";
-                msg.style.display = "none";
+                setButtonEnabled(submitBtn, true);
+                msg.textContent = 'Audiobook and text source selected. Ready to create the mapping.';
+                msg.dataset.state = 'ready';
             } else if (hasAudio && !hasText) {
-                // Audio only
-                audioOnlyBtn.disabled = false;
-                audioOnlyBtn.style.opacity = "1";
-                msg.textContent = "No ebook selected — use 'Audio Only' or select a text source";
-                msg.style.display = "block";
+                setButtonEnabled(audioOnlyBtn, true);
+                msg.textContent = "No ebook selected. Use 'Audio Only' or choose a text source.";
+                msg.dataset.state = 'warning';
             } else if (!hasAudio && hasText) {
-                // Ebook only
-                ebookOnlyBtn.disabled = false;
-                ebookOnlyBtn.style.opacity = "1";
-                msg.textContent = "No audiobook selected — use 'Add Book' or select an audiobook";
-                msg.style.display = "block";
+                setButtonEnabled(ebookOnlyBtn, true);
+                msg.textContent = "No audiobook selected. Use 'Add Book' or choose an audiobook.";
+                msg.dataset.state = 'warning';
             } else {
-                msg.textContent = "Please select an Audiobook and/or Text Source";
-                msg.style.display = "block";
+                msg.textContent = 'Please select an audiobook and/or text source.';
+                msg.dataset.state = 'warning';
             }
         }
 
-        // Initial check and setup
         document.addEventListener('DOMContentLoaded', () => {
             const initialEb = document.querySelector('input[name="ebook_filename"]:checked');
             if (initialEb) {
                 const label = initialEb.closest('.eb-option');
                 if (label) {
                     selectItem(label, 'ebook_filename');
+                    return;
                 }
             }
+
             validateForm();
         });
     </script>

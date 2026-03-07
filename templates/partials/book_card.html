@@ -1,0 +1,343 @@
+{# Book card macro — extracted from index.html for reuse and readability #}
+{% macro render_book_card(mapping, integrations, booklore_label='Booklore') %}
+{# Calculate sync discrepancy for highlighting #}
+{% set progress_values = [] %}
+{% if mapping.states.abs is defined and mapping.states.abs.percentage is not none %}
+{% set _ = progress_values.append(mapping.states.abs.percentage) %}
+{% endif %}
+{% if mapping.states.storyteller is defined and mapping.states.storyteller.percentage is not none %}
+{% set _ = progress_values.append(mapping.states.storyteller.percentage) %}
+{% endif %}
+{% if mapping.states.booklore is defined and mapping.states.booklore.percentage is not none %}
+{% set _ = progress_values.append(mapping.states.booklore.percentage) %}
+{% endif %}
+{% if mapping.states.booklore2 is defined and mapping.states.booklore2.percentage is not none %}
+{% set _ = progress_values.append(mapping.states.booklore2.percentage) %}
+{% endif %}
+{% if mapping.states.kosync is defined and mapping.states.kosync.percentage is not none %}
+{% set _ = progress_values.append(mapping.states.kosync.percentage) %}
+{% endif %}
+{% set max_diff = (progress_values|max|default(0) - progress_values|min|default(0)) if progress_values|length > 1
+else 0 %}
+{% set bt = mapping.book_type|default('linked') %}
+
+<div class="book-card {% if max_diff > 5 %}out-of-sync{% endif %}" data-progress="{{ mapping.unified_progress }}"
+    data-last-sync="{{ mapping.last_sync }}" data-status="{{ mapping.status }}" data-title="{{ mapping.abs_title|e }}"
+    data-sync-mode="{{ mapping.sync_mode }}" data-abs-id="{{ mapping.abs_id }}"
+    data-book-type="{{ bt }}">
+
+    {# Cover image section — clickable link to book detail page #}
+    <div class="book-cover-section">
+        <a href="/reading/book/{{ mapping.abs_id }}?from=dashboard" class="book-cover-link">
+            <div class="book-cover-inner">
+                {% if mapping.cover_url %}
+                <img src="{{ mapping.cover_url }}" alt="Cover" class="book-cover" loading="lazy"
+                    onerror="{% if mapping.kosync_doc_id %}this.onerror=null; this.src='/covers/{{ mapping.kosync_doc_id }}.jpg';{% else %}this.style.display='none'; this.nextElementSibling.classList.remove('hidden');{% endif %}">
+                <div class="book-cover-placeholder hidden"></div>
+                {% elif mapping.kosync_doc_id %}
+                <img src="/covers/{{ mapping.kosync_doc_id }}.jpg" alt="Cover" class="book-cover" loading="lazy"
+                    onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                <div class="book-cover-placeholder hidden"></div>
+                {% else %}
+                <div class="book-cover-placeholder"></div>
+                {% endif %}
+            </div>
+        </a>
+    </div>
+
+    {# Info section #}
+    <div class="book-info">
+        <div class="book-header">
+            <div class="book-title">
+                {{ mapping.abs_title }}{% if mapping.abs_subtitle %}: {{ mapping.abs_subtitle }}{% endif %}
+            </div>
+        </div>
+
+        <div class="book-author">{{ mapping.abs_author or mapping.ebook_filename or '—' }}</div>
+
+        {% if mapping.status == 'processing' %}
+        <div class="book-progress progress-processing" data-processing-bar>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" style="width: {{ mapping.job_progress|default(0) }}%"></div>
+            </div>
+            <span class="progress-percent">Transcribing... {{ '%.0f' | format(mapping.job_progress|default(0)) }}%</span>
+        </div>
+        {% elif mapping.status == 'pending' %}
+        <div class="processing-status-text">
+            <span class="pending-dot"></span>
+            <span>Queued for processing</span>
+        </div>
+        {% elif mapping.status == 'failed_retry_later' %}
+        <div class="retry-status-text">Retry scheduled{% if mapping.retry_count|default(0) > 0 %} (attempt {{ mapping.retry_count }}){% endif %}</div>
+        {% elif mapping.status in ['active', 'paused', 'dnf', 'not_started'] %}
+        <div class="book-progress {% if mapping.status == 'paused' %}progress-paused{% elif mapping.status == 'dnf' %}progress-dnf{% endif %}">
+            <div class="progress-bar">
+                <div class="progress-bar-fill" style="width: {{ mapping.unified_progress }}%"></div>
+            </div>
+            <span class="progress-percent">
+                {{ '%.0f' | format(mapping.unified_progress) }}%
+                {% if mapping.status != 'active' %}
+                <span class="progress-status-label">{{ mapping.status }}</span>
+                {% endif %}
+            </span>
+        </div>
+        {% if mapping.status in ['paused', 'dnf'] and mapping.activity_flag %}
+        <div class="activity-notification">
+            <span>Activity detected</span>
+            <button onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume</button>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {# Attach action buttons for incomplete book types #}
+        {% if bt == 'audio-only' %}
+        <div class="attach-action">
+            <a href="/match?search={{ mapping.abs_title|urlencode }}&attach_to={{ mapping.abs_id }}"
+               class="attach-action-btn" title="Attach an ebook to this audiobook">
+                + Add Ebook
+            </a>
+        </div>
+        {% elif bt == 'ebook-only' %}
+        <div class="attach-action">
+            <a href="/match?search={{ mapping.abs_title|urlencode }}&link_to={{ mapping.abs_id }}"
+               class="attach-action-btn" title="Link an audiobook to this ebook">
+                + Add Audiobook
+            </a>
+        </div>
+        {% endif %}
+
+        <div class="card-footer">
+            <div class="last-sync">{% if mapping.status == 'processing' %}Processing...{% elif mapping.status == 'pending' %}Queued{% elif mapping.status == 'failed_retry_later' %}Retry pending{% else %}Synced {{ mapping.last_sync }}{% endif %}</div>
+            <div class="card-menu">
+                <button class="card-menu-trigger" aria-label="Actions" aria-expanded="false">⋮</button>
+                <div class="card-menu-dropdown">
+                    {# ── Main menu view ── #}
+                    <div class="card-menu-main">
+                        {# Info section at top of menu #}
+                        <div class="card-menu-info">
+                            <div class="card-menu-info-row">
+                                <span class="card-menu-info-label">Status</span>
+                                <span class="status-badge status-{{ mapping.status }}">
+                                    {% if mapping.status == 'processing' and mapping.job_progress is defined %}
+                                    {{ mapping.job_progress }}%
+                                    {% else %}
+                                    {{ mapping.status }}
+                                    {% endif %}
+                                </span>
+                            </div>
+                            <div class="card-menu-info-row">
+                                <span class="card-menu-info-label">Type</span>
+                                <span class="card-menu-info-value">
+                                    {% if bt == 'audio-only' %}Audio Only
+                                    {% elif bt == 'ebook-only' %}Ebook Only
+                                    {% else %}Linked
+                                    {% endif %}
+                                </span>
+                            </div>
+                            {% if max_diff > 5 %}
+                            <div class="card-menu-info-row card-menu-info-warning">
+                                <span class="card-menu-info-label">Sync</span>
+                                <span class="card-menu-info-value">Out of sync by {{ '%.1f' | format(max_diff) }}%</span>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        {% if mapping.status in ['active', 'completed'] %}
+                        {# Per-service progress #}
+                        <div class="card-menu-divider"></div>
+                        <div class="card-menu-services">
+                            {# ABS audiobook - hide for ebook-only #}
+                            {% if bt != 'ebook-only' and integrations.abs %}
+                            <a href="{{ mapping.abs_url }}" target="_blank" rel="noopener noreferrer" class="service-item"
+                                title="Open in Audiobookshelf">
+                                <img src="/static/audiobookshelf.png" alt="ABS" class="service-icon">
+                                <span class="service-name">ABS</span>
+                                {% if mapping.states.abs is defined %}
+                                <span class="service-value">{{ '%d:%02d:%02d' | format((mapping.states.abs.timestamp|default(0)|int)
+                                    // 3600,
+                                    ((mapping.states.abs.timestamp|default(0)|int) % 3600) // 60,
+                                    (mapping.states.abs.timestamp|default(0)|int) % 60) }}</span>
+                                {% else %}
+                                <span class="service-value">0:00:00</span>
+                                {% endif %}
+                            </a>
+                            {% endif %}
+
+                            {# KoSync - hide for audio-only #}
+                            {% if bt != 'audio-only' and integrations.kosync %}
+                            <div class="service-item cursor-pointer"
+                                title="Update KoReader Hash (Current: {{ mapping.kosync_doc_id }})"
+                                data-abs-id="{{ mapping.abs_id }}" data-title="{{ mapping.abs_title|escape }}"
+                                data-hash="{{ mapping.kosync_doc_id|escape }}" onclick="updateKoSyncHash(event)">
+                                <img src="/static/koreader-logo.svg" alt="KO" class="service-icon">
+                                <span class="service-name">KoSync</span>
+                                {% if mapping.states.kosync is defined %}
+                                <span class="service-value">{{ '%.1f' | format(mapping.states.kosync.percentage|default(0))
+                                    }}%</span>
+                                {% else %}
+                                <span class="service-value">0.0%</span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            {# Storyteller - hide for audio-only #}
+                            {% if bt != 'audio-only' and integrations.storyteller %}
+                            <div class="service-item" title="Storyteller">
+                                <img src="/static/Storyteller_Logo.png" alt="ST" style="opacity: 1; filter: none; background: white; border-radius: 3px" class="service-icon
+                                    {%- if not mapping.storyteller_uuid and not mapping.storyteller_legacy_link and mapping.states.storyteller is not defined %} grayscale-muted{% endif %}">
+                                <span class="service-name">Storyteller</span>
+                                {% if mapping.storyteller_legacy_link %}
+                                <span class="service-value cursor-pointer" style="color: #FF9800;"
+                                    onclick='openStorytellerModal({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'
+                                    title="Legacy Link: Click to fix">
+                                    Fix Link
+                                </span>
+                                {% elif mapping.states.storyteller is defined %}
+                                <span class="service-value">{{ '%.1f' | format(mapping.states.storyteller.percentage|default(0))
+                                    }}%</span>
+                                {% elif mapping.storyteller_uuid %}
+                                <span class="service-value" title="Linked via UUID">0.0%</span>
+                                {% else %}
+                                <span class="service-value cursor-pointer color-inherit"
+                                    onclick='openStorytellerModal({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'
+                                    title="Click to search and link a Storyteller book">
+                                    <span class="link-icon">+</span>
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            {# Booklore - hide for audio-only #}
+                            {% if bt != 'audio-only' and integrations.booklore %}
+                            {% if mapping.states.booklore is defined or mapping.booklore_id %}
+                            <a href="{{ mapping.booklore_url|default('#') }}" target="_blank" rel="noopener noreferrer"
+                                class="service-item" title="Open in {{ booklore_label }}">
+                                <img src="/static/booklore.png" alt="BL" class="service-icon">
+                                <span class="service-name">{{ booklore_label }}</span>
+                                <span class="service-value">
+                                    {% if mapping.states.booklore is defined %}
+                                    {{ '%.1f' | format(mapping.states.booklore.percentage) }}%
+                                    {% else %}
+                                    0.0%
+                                    {% endif %}
+                                </span>
+                            </a>
+                            {% else %}
+                            <div class="service-item">
+                                <img src="/static/booklore.png" alt="BL" class="service-icon grayscale-muted">
+                                <span class="service-name">{{ booklore_label }}</span>
+                                <span class="service-value cursor-pointer color-inherit"
+                                    onclick='openBookloreModal({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'
+                                    title="Link to {{ booklore_label }}">
+                                    <span class="link-icon">+</span>
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endif %}
+
+                            {# Hardcover #}
+                            {% if integrations.hardcover %}
+                            <div class="service-item progress-item-hc">
+                                <a href="{{ mapping.hardcover_url|default('https://hardcover.app') }}" target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="{% if mapping.hardcover_book_id %}Open {{ mapping.hardcover_title }} in Hardcover{% else %}Not linked to Hardcover{% endif %}"
+                                    class="hc-link {% if not mapping.hardcover_book_id %}pe-none{% endif %}">
+                                    <img src="/static/hardcover.svg" alt="HC"
+                                        class="service-icon {% if not mapping.hardcover_book_id %}grayscale-muted{% endif %}">
+                                </a>
+                                <span class="service-name">Hardcover</span>
+                                <span class="service-value cursor-pointer color-inherit" title="Click to edit Hardcover link"
+                                    data-abs-id="{{ mapping.abs_id }}" data-title="{{ mapping.hardcover_title|default('')|escape }}"
+                                    onclick="linkHardcover(event)">
+                                    {% if mapping.hardcover_book_id %}
+                                    {% if mapping.states.hardcover is defined %}
+                                    {{ '%.0f' | format(mapping.states.hardcover.percentage|default(0)) }}%
+                                    {% else %}
+                                    0%
+                                    {% endif %}
+                                    {% else %}
+                                    <span class="link-icon">+</span>
+                                    {% endif %}
+                                </span>
+                            </div>
+                            {% endif %}
+
+                            {# BookFusion #}
+                            {% if integrations.bookfusion is defined and integrations.bookfusion %}
+                            <div class="service-item">
+                                <img src="/static/bookfusion-logo.svg" alt="BF" class="service-icon {% if not mapping.bookfusion_linked %}grayscale-muted{% endif %}">
+                                <span class="service-name">BookFusion</span>
+                                <a href="/bookfusion?tab=library&q={{ mapping.abs_title|urlencode }}" class="service-value cursor-pointer color-inherit" title="{% if mapping.bookfusion_linked %}Manage BookFusion link{% else %}Link in BookFusion{% endif %}">
+                                    {% if mapping.bookfusion_linked %}Linked{% else %}<span class="link-icon">+</span>{% endif %}
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <div class="card-menu-divider"></div>
+                        {# Direct actions (always in main view) #}
+                        {% if mapping.status == 'active' %}
+                        <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync Now</button>
+                        {% elif mapping.status == 'completed' %}
+                        <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync status to all services</button>
+                        {% elif mapping.status == 'failed_retry_later' %}
+                        <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
+                        {% elif mapping.status == 'failed_permanent' %}
+                        <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
+                        {% elif mapping.status not in ['pending', 'processing'] %}
+                        <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync Now</button>
+                        {% endif %}
+
+                        {# Submenu trigger for status actions (hide for processing/pending/failed states) #}
+                        {% if mapping.status not in ['pending', 'processing', 'failed_retry_later', 'failed_permanent'] %}
+                        <button class="card-menu-item card-menu-submenu-trigger" type="button">
+                            <span>Edit Book Status</span>
+                            <span class="card-menu-chevron">&rsaquo;</span>
+                        </button>
+                        {% endif %}
+                    </div>
+
+                    {# ── Status submenu ── #}
+                    <div class="card-menu-status-sub" style="display: none;">
+                        <button class="card-menu-item card-menu-back" type="button">
+                            <span class="card-menu-back-arrow">&lsaquo;</span>
+                            <span>Book Status</span>
+                        </button>
+                        <div class="card-menu-divider"></div>
+
+                        {% if mapping.status == 'active' %}
+                        <button class="card-menu-item" onclick='pauseBook({{ mapping.abs_id|tojson }}, this)'>Pause</button>
+                        <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
+                        <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
+                        <button type="button" class="card-menu-item card-menu-warning"
+                            onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
+                        {% elif mapping.status == 'paused' %}
+                        <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume</button>
+                        <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
+                        {% elif mapping.status == 'dnf' %}
+                        <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume Reading</button>
+                        {% elif mapping.status == 'not_started' %}
+                        <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Start Reading</button>
+                        <button class="card-menu-item" onclick='pauseBook({{ mapping.abs_id|tojson }}, this)'>Pause</button>
+                        <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
+                        <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
+                        {% elif mapping.status == 'completed' %}
+                        <button type="button" class="card-menu-item card-menu-warning"
+                            onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
+                        {% else %}
+                        <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
+                        <button type="button" class="card-menu-item card-menu-warning"
+                            onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
+                        {% endif %}
+
+                        <div class="card-menu-divider"></div>
+                        <button type="button" class="card-menu-item card-menu-danger"
+                            onclick='showConfirmModal("Delete Book", "Permanently delete this book mapping and all cached data?", {{ ("/delete/" ~ mapping.abs_id)|tojson }}, "danger")'>Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

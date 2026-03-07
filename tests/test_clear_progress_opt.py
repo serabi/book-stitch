@@ -32,18 +32,18 @@ def test_clear_progress_optimization():
     # CASE A: Smart Reset Enabled (Default), Alignment EXISTS
     print("\n[CASE A] Smart Reset enabled, Alignment EXISTS")
     with patch.dict(os.environ, {"REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT": "true"}):
-        alignment_service._get_alignment.return_value = [{"some": "map"}]
+        alignment_service.has_alignment.return_value = True
         sync_manager.clear_progress("test_book")
 
         print(f"DEBUG: Book status: {book.status}")
-        assert book.status == "active", "Book should remain active if alignment exists"
-        db_service.save_book.assert_not_called() # It was already active
+        assert book.status == "not_started", "Book should be not_started after clearing progress with alignment"
+        db_service.save_book.assert_called()
 
     # CASE B: Smart Reset Enabled, Alignment MISSING
     print("\n[CASE B] Smart Reset enabled, Alignment MISSING")
     book.status = "active"
     db_service.save_book.reset_mock()
-    alignment_service._get_alignment.return_value = None
+    alignment_service.has_alignment.return_value = False
 
     with patch.dict(os.environ, {"REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT": "true"}):
         sync_manager.clear_progress("test_book")
@@ -56,14 +56,14 @@ def test_clear_progress_optimization():
     print("\n[CASE C] Smart Reset DISABLED")
     book.status = "active"
     db_service.save_book.reset_mock()
+    alignment_service.has_alignment.return_value = False
 
     with patch.dict(os.environ, {"REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT": "false"}):
         sync_manager.clear_progress("test_book")
 
         print(f"DEBUG: Book status: {book.status}")
-        assert book.status == "active", "Book should remain active if smart reset is disabled"
-        # In my implementation, I explicitly set it to active and saved it if it was something else,
-        # but here it's already active.
+        assert book.status == "not_started", "Book should be not_started after clearing progress with smart reset disabled"
+        db_service.save_book.assert_called()
 
     print("\n[PASS] All clear_progress optimization tests passed!")
 

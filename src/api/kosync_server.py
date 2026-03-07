@@ -487,7 +487,7 @@ def kosync_put_progress():
 
                         # Step 2: If audiobook matches found, create a suggestion for user review
                         if audiobook_matches:
-                            # Check if suggestion already exists (pending OR dismissed - don't re-suggest)
+                            # Check if suggestion already exists (pending OR hidden - don't re-suggest)
                             if not _database_service.suggestion_exists(doc_hash_val):
                                 suggestion = PendingSuggestion(
                                     source_id=doc_hash_val,
@@ -498,7 +498,8 @@ def kosync_put_progress():
                                         "source": "ebook",
                                         "filename": epub_filename,
                                         "confidence": "high"
-                                    }])
+                                    }]),
+                                    source='kosync',
                                 )
                                 _database_service.save_pending_suggestion(suggestion)
                                 logger.info(f"Created suggestion for '{title}' - found {len(audiobook_matches)} audiobook match(es)")
@@ -519,7 +520,7 @@ def kosync_put_progress():
                         )
                         _database_service.save_book(book)
                         _database_service.link_kosync_document(doc_hash_val, book_id)
-                        _database_service.dismiss_suggestion(doc_hash_val)
+                        _database_service.resolve_suggestion(doc_hash_val)
                         logger.info(f"Auto-created ebook-only mapping: {book_id} -> {epub_filename}")
 
                         if _manager:
@@ -535,7 +536,7 @@ def kosync_put_progress():
 
     if linked_book:
         # Flag activity on paused/DNF books
-        if linked_book.status in ('paused', 'dnf') and not linked_book.activity_flag:
+        if linked_book.status in ('paused', 'dnf', 'not_started') and not linked_book.activity_flag:
             linked_book.activity_flag = True
             _database_service.save_book(linked_book)
             logger.info(f"KOSync PUT: Activity detected on {linked_book.status} book '{linked_book.abs_title}'")
@@ -973,8 +974,8 @@ def api_link_kosync_document(doc_hash):
             book.kosync_doc_id = doc_hash
             _database_service.save_book(book)
 
-        # Cleanup: Dismiss any pending suggestion for this document since it's now linked
-        _database_service.dismiss_suggestion(doc_hash)
+        # Cleanup: remove any actionable suggestion for this document since it's now linked
+        _database_service.resolve_suggestion(doc_hash)
 
         return jsonify({'success': True, 'message': f'Linked to {book.abs_title}'})
 

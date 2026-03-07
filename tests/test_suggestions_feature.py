@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 # Add project root to Python path
@@ -16,6 +17,7 @@ class MockContainer:
         self.mock_abs_client = Mock()
         self.mock_booklore_client = Mock()
         self.mock_storyteller_client = Mock()
+        self.mock_bookfusion_client = Mock()
         self.mock_database_service = Mock()
         # Ensure get_all_settings returns a dict
         self.mock_database_service.get_all_settings.return_value = {}
@@ -23,6 +25,9 @@ class MockContainer:
         self.mock_database_service.get_books_by_status.return_value = []
         self.mock_database_service.get_all_books.return_value = []
         self.mock_database_service.get_all_pending_suggestions.return_value = []
+        self.mock_database_service.get_all_actionable_suggestions.return_value = []
+        self.mock_database_service.get_bookfusion_books.return_value = []
+        self.mock_bookfusion_client.is_configured.return_value = False
 
         self.mock_ebook_parser = Mock()
         self.mock_sync_clients = Mock()
@@ -37,6 +42,7 @@ class MockContainer:
     def abs_client(self): return self.mock_abs_client
     def booklore_client(self): return self.mock_booklore_client
     def storyteller_client(self): return self.mock_storyteller_client
+    def bookfusion_client(self): return self.mock_bookfusion_client
     def ebook_parser(self): return self.mock_ebook_parser
     def database_service(self): return self.mock_database_service
     def hardcover_client(self): return self.mock_hardcover_client
@@ -49,6 +55,9 @@ class TestSuggestionsFeature(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
         os.environ['DATA_DIR'] = self.temp_dir
+        project_root = Path(__file__).parent.parent
+        os.environ['TEMPLATE_DIR'] = str(project_root / 'templates')
+        os.environ['STATIC_DIR'] = str(project_root / 'static')
 
         self.mock_container = MockContainer()
 
@@ -76,8 +85,9 @@ class TestSuggestionsFeature(unittest.TestCase):
         import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
         # Reset env var
-        if 'SUGGESTIONS_ENABLED' in os.environ:
-            del os.environ['SUGGESTIONS_ENABLED']
+        for key in ('SUGGESTIONS_ENABLED', 'TEMPLATE_DIR', 'STATIC_DIR'):
+            if key in os.environ:
+                del os.environ[key]
 
     @patch('src.web_server.apply_settings')
     def test_settings_save_toggle(self, mock_restart):
@@ -129,12 +139,12 @@ class TestSuggestionsFeature(unittest.TestCase):
         # Should proceed to call DB
         self.mock_container.mock_database_service.get_all_books.assert_called()
 
-    def test_auto_dismiss_on_match(self):
-        """Test that /match endpoint calls dismiss_suggestion."""
+    def test_match_resolves_suggestions(self):
+        """Test that /match endpoint resolves suggestions."""
         # Mock dependencies for match
-        import src.blueprints.books
-        original_get_kosync = src.blueprints.books.get_kosync_id_for_ebook
-        src.blueprints.books.get_kosync_id_for_ebook = Mock(return_value='test-kosync-id')
+        import src.blueprints.matching_bp
+        original_get_kosync = src.blueprints.matching_bp.get_kosync_id_for_ebook
+        src.blueprints.matching_bp.get_kosync_id_for_ebook = Mock(return_value='test-kosync-id')
 
         try:
             self.mock_container.mock_abs_client.get_all_audiobooks.return_value = [
@@ -149,12 +159,58 @@ class TestSuggestionsFeature(unittest.TestCase):
                 'ebook_filename': 'test.epub'
             })
 
-            # Verify dismiss was called for both abs_id AND kosync_doc_id
-            self.mock_container.mock_database_service.dismiss_suggestion.assert_any_call('abc-123')
-            self.mock_container.mock_database_service.dismiss_suggestion.assert_any_call('test-kosync-id')
+            # Verify resolution was called for both abs_id AND kosync_doc_id
+            self.mock_container.mock_database_service.resolve_suggestion.assert_any_call('abc-123')
+            self.mock_container.mock_database_service.resolve_suggestion.assert_any_call('test-kosync-id')
 
         finally:
-            src.blueprints.books.get_kosync_id_for_ebook = original_get_kosync
+            src.blueprints.matching_bp.get_kosync_id_for_ebook = original_get_kosync
+
+    def test_suggestions_page_renders_hidden_section(self):
+        """Test that the Suggestions page includes the hidden section UI."""
+        self.mock_container.mock_database_service.get_bookfusion_books.return_value = []
+        self.mock_container.mock_database_service.get_all_actionable_suggestions.return_value = [
+            SimpleNamespace(
+                id=1,
+                source_id='visible-1',
+                title='Visible Book',
+                author='Visible Author',
+                cover_url=None,
+                matches=[{'title': 'Candidate', 'author': 'Author', 'source_family': 'booklore', 'confidence': 'high', 'score': 0.9, 'evidence': []}],
+                status='pending',
+                created_at=None,
+            ),
+            SimpleNamespace(
+                id=2,
+                source_id='hidden-1',
+                title='Hidden Book',
+                author='Hidden Author',
+                cover_url=None,
+                matches=[{'title': 'Candidate', 'author': 'Author', 'source_family': 'booklore', 'confidence': 'high', 'score': 0.9, 'evidence': []}],
+                status='hidden',
+                created_at=None,
+            ),
+        ]
+
+        response = self.client.get('/suggestions')
+
+        self.assertEqual(response.status_code, 200)
+        page = response.get_data(as_text=True)
+        self.assertIn('Hidden', page)
+        self.assertIn('hidden suggestions', page)
+
+    def test_hide_and_unhide_suggestion_api(self):
+        """Test hide/unhide suggestion API endpoints."""
+        self.mock_container.mock_database_service.hide_suggestion.return_value = True
+        self.mock_container.mock_database_service.unhide_suggestion.return_value = True
+
+        hide_response = self.client.post('/api/suggestions/test-source/hide')
+        unhide_response = self.client.post('/api/suggestions/test-source/unhide')
+
+        self.assertEqual(hide_response.status_code, 200)
+        self.assertEqual(unhide_response.status_code, 200)
+        self.mock_container.mock_database_service.hide_suggestion.assert_called_once_with('test-source')
+        self.mock_container.mock_database_service.unhide_suggestion.assert_called_once_with('test-source')
 
 if __name__ == '__main__':
     unittest.main()

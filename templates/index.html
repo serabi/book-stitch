@@ -4,311 +4,7 @@
 <head>
     <meta charset="UTF-8">
 
-    {# Macro for rendering a book card - used by both currently-reading and all-books grids #}
-    {% macro render_book_card(mapping, integrations) %}
-    {# Calculate sync discrepancy for highlighting #}
-    {% set progress_values = [] %}
-    {% if mapping.states.abs is defined and mapping.states.abs.percentage is not none %}
-    {% set _ = progress_values.append(mapping.states.abs.percentage) %}
-    {% endif %}
-    {% if mapping.states.storyteller is defined and mapping.states.storyteller.percentage is not none %}
-    {% set _ = progress_values.append(mapping.states.storyteller.percentage) %}
-    {% endif %}
-    {% if mapping.states.booklore is defined and mapping.states.booklore.percentage is not none %}
-    {% set _ = progress_values.append(mapping.states.booklore.percentage) %}
-    {% endif %}
-    {% if mapping.states.booklore2 is defined and mapping.states.booklore2.percentage is not none %}
-    {% set _ = progress_values.append(mapping.states.booklore2.percentage) %}
-    {% endif %}
-    {% if mapping.states.kosync is defined and mapping.states.kosync.percentage is not none %}
-    {% set _ = progress_values.append(mapping.states.kosync.percentage) %}
-    {% endif %}
-    {% set max_diff = (progress_values|max|default(0) - progress_values|min|default(0)) if progress_values|length > 1
-    else 0 %}
-    {% set bt = mapping.book_type|default('linked') %}
-
-    <div class="book-card {% if max_diff > 5 %}out-of-sync{% endif %}" data-progress="{{ mapping.unified_progress }}"
-        data-last-sync="{{ mapping.last_sync }}" data-status="{{ mapping.status }}" data-title="{{ mapping.abs_title }}"
-        data-sync-mode="{{ mapping.sync_mode }}" data-abs-id="{{ mapping.abs_id }}"
-        data-book-type="{{ bt }}">
-
-        {# Cover image section - full width, padded/inset #}
-        <div class="book-cover-section">
-            <div class="book-cover-inner">
-                {% if mapping.cover_url %}
-                <img src="{{ mapping.cover_url }}" alt="Cover" class="book-cover" loading="lazy"
-                    onerror="{% if mapping.kosync_doc_id %}this.onerror=null; this.src='/covers/{{ mapping.kosync_doc_id }}.jpg';{% else %}this.style.display='none'; this.nextElementSibling.classList.remove('hidden');{% endif %}">
-                <div class="book-cover-placeholder hidden"></div>
-                {% elif mapping.kosync_doc_id %}
-                <img src="/covers/{{ mapping.kosync_doc_id }}.jpg" alt="Cover" class="book-cover" loading="lazy"
-                    onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
-                <div class="book-cover-placeholder hidden"></div>
-                {% else %}
-                <div class="book-cover-placeholder"></div>
-                {% endif %}
-            </div>
-        </div>
-
-        {# Info section #}
-        <div class="book-info">
-            <div class="book-header">
-                <div class="book-title">
-                    {{ mapping.abs_title }}{% if mapping.abs_subtitle %}: {{ mapping.abs_subtitle }}{% endif %}
-                </div>
-            </div>
-
-            <div class="book-author">{{ mapping.abs_author or mapping.ebook_filename or '—' }}</div>
-
-            {% if mapping.status == 'processing' %}
-            <div class="book-progress progress-processing" data-processing-bar>
-                <div class="progress-bar">
-                    <div class="progress-bar-fill" style="width: {{ mapping.job_progress|default(0) }}%"></div>
-                </div>
-                <span class="progress-percent">Transcribing... {{ '%.0f' | format(mapping.job_progress|default(0)) }}%</span>
-            </div>
-            {% elif mapping.status == 'pending' %}
-            <div class="processing-status-text">
-                <span class="pending-dot"></span>
-                <span>Queued for processing</span>
-            </div>
-            {% elif mapping.status == 'failed_retry_later' %}
-            <div class="retry-status-text">Retry scheduled{% if mapping.retry_count|default(0) > 0 %} (attempt {{ mapping.retry_count }}){% endif %}</div>
-            {% elif mapping.status in ['active', 'paused', 'dnf'] %}
-            <div class="book-progress {% if mapping.status == 'paused' %}progress-paused{% elif mapping.status == 'dnf' %}progress-dnf{% endif %}">
-                <div class="progress-bar">
-                    <div class="progress-bar-fill" style="width: {{ mapping.unified_progress }}%"></div>
-                </div>
-                <span class="progress-percent">
-                    {{ '%.0f' | format(mapping.unified_progress) }}%
-                    {% if mapping.status != 'active' %}
-                    <span class="progress-status-label">{{ mapping.status }}</span>
-                    {% endif %}
-                </span>
-            </div>
-            {% if mapping.status in ['paused', 'dnf'] and mapping.activity_flag %}
-            <div class="activity-notification">
-                <span>Activity detected</span>
-                <button onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume</button>
-            </div>
-            {% endif %}
-            {% endif %}
-
-            {# Attach action buttons for incomplete book types #}
-            {% if bt == 'audio-only' %}
-            <div class="attach-action">
-                <a href="/match?search={{ mapping.abs_title|urlencode }}&attach_to={{ mapping.abs_id }}"
-                   class="attach-action-btn" title="Attach an ebook to this audiobook">
-                    + Add Ebook
-                </a>
-            </div>
-            {% elif bt == 'ebook-only' %}
-            <div class="attach-action">
-                <a href="/match?search={{ mapping.abs_title|urlencode }}&link_to={{ mapping.abs_id }}"
-                   class="attach-action-btn" title="Link an audiobook to this ebook">
-                    + Add Audiobook
-                </a>
-            </div>
-            {% endif %}
-
-            <div class="card-footer">
-                <div class="last-sync">{% if mapping.status == 'processing' %}Processing...{% elif mapping.status == 'pending' %}Queued{% elif mapping.status == 'failed_retry_later' %}Retry pending{% else %}Synced {{ mapping.last_sync }}{% endif %}</div>
-                <div class="card-menu">
-                    <button class="card-menu-trigger" aria-label="Actions" aria-expanded="false">⋮</button>
-                    <div class="card-menu-dropdown">
-                        {# Info section at top of menu #}
-                        <div class="card-menu-info">
-                            <div class="card-menu-info-row">
-                                <span class="card-menu-info-label">Status</span>
-                                <span class="status-badge status-{{ mapping.status }}">
-                                    {% if mapping.status == 'processing' and mapping.job_progress is defined %}
-                                    {{ mapping.job_progress }}%
-                                    {% else %}
-                                    {{ mapping.status }}
-                                    {% endif %}
-                                </span>
-                            </div>
-                            <div class="card-menu-info-row">
-                                <span class="card-menu-info-label">Type</span>
-                                <span class="card-menu-info-value">
-                                    {% if bt == 'audio-only' %}Audio Only
-                                    {% elif bt == 'ebook-only' %}Ebook Only
-                                    {% else %}Linked
-                                    {% endif %}
-                                </span>
-                            </div>
-                            {% if max_diff > 5 %}
-                            <div class="card-menu-info-row card-menu-info-warning">
-                                <span class="card-menu-info-label">Sync</span>
-                                <span class="card-menu-info-value">Out of sync by {{ '%.1f' | format(max_diff) }}%</span>
-                            </div>
-                            {% endif %}
-                        </div>
-
-                        {% if mapping.status in ['active', 'completed'] %}
-                        {# Per-service progress #}
-                        <div class="card-menu-divider"></div>
-                        <div class="card-menu-services">
-                            {# ABS audiobook - hide for ebook-only #}
-                            {% if bt != 'ebook-only' and integrations.abs %}
-                            <a href="{{ mapping.abs_url }}" target="_blank" rel="noopener noreferrer" class="service-item"
-                                title="Open in Audiobookshelf">
-                                <img src="/static/audiobookshelf.png" alt="ABS" class="service-icon">
-                                <span class="service-name">ABS</span>
-                                {% if mapping.states.abs is defined %}
-                                <span class="service-value">{{ '%d:%02d:%02d' | format((mapping.states.abs.timestamp|default(0)|int)
-                                    // 3600,
-                                    ((mapping.states.abs.timestamp|default(0)|int) % 3600) // 60,
-                                    (mapping.states.abs.timestamp|default(0)|int) % 60) }}</span>
-                                {% else %}
-                                <span class="service-value">0:00:00</span>
-                                {% endif %}
-                            </a>
-                            {% endif %}
-
-                            {# KoSync - hide for audio-only #}
-                            {% if bt != 'audio-only' and integrations.kosync %}
-                            <div class="service-item cursor-pointer"
-                                title="Update KoReader Hash (Current: {{ mapping.kosync_doc_id }})"
-                                data-abs-id="{{ mapping.abs_id }}" data-title="{{ mapping.abs_title|escape }}"
-                                data-hash="{{ mapping.kosync_doc_id }}" onclick="updateKoSyncHash(event)">
-                                <img src="/static/koreader-logo.svg" alt="KO" class="service-icon">
-                                <span class="service-name">KoSync</span>
-                                {% if mapping.states.kosync is defined %}
-                                <span class="service-value">{{ '%.1f' | format(mapping.states.kosync.percentage|default(0))
-                                    }}%</span>
-                                {% else %}
-                                <span class="service-value">0.0%</span>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-
-                            {# Storyteller - hide for audio-only #}
-                            {% if bt != 'audio-only' and integrations.storyteller %}
-                            <div class="service-item" title="Storyteller">
-                                <img src="/static/Storyteller_Logo.png" alt="ST" style="opacity: 1; filter: none; background: white; border-radius: 3px" class="service-icon
-                                    {%- if not mapping.storyteller_uuid and not mapping.storyteller_legacy_link and mapping.states.storyteller is not defined %} grayscale-muted{% endif %}">
-                                <span class="service-name">Storyteller</span>
-                                {% if mapping.storyteller_legacy_link %}
-                                <span class="service-value cursor-pointer" style="color: #FF9800;"
-                                    onclick='openStorytellerModal({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'
-                                    title="Legacy Link: Click to fix">
-                                    Fix Link
-                                </span>
-                                {% elif mapping.states.storyteller is defined %}
-                                <span class="service-value">{{ '%.1f' | format(mapping.states.storyteller.percentage|default(0))
-                                    }}%</span>
-                                {% elif mapping.storyteller_uuid %}
-                                <span class="service-value" title="Linked via UUID">0.0%</span>
-                                {% else %}
-                                <span class="service-value cursor-pointer color-inherit"
-                                    onclick='openStorytellerModal({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'
-                                    title="Click to search and link a Storyteller book">
-                                    <span class="link-icon">+</span>
-                                </span>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-
-                            {# Booklore - hide for audio-only #}
-                            {% if bt != 'audio-only' and integrations.booklore and (mapping.states.booklore is defined or mapping.booklore_id) %}
-                            <a href="{{ mapping.booklore_url|default('#') }}" target="_blank" rel="noopener noreferrer"
-                                class="service-item" title="Open in {{ booklore_label }}">
-                                <img src="/static/booklore.png" alt="BL" class="service-icon">
-                                <span class="service-name">{{ booklore_label }}</span>
-                                <span class="service-value">
-                                    {% if mapping.states.booklore is defined %}
-                                    {{ '%.1f' | format(mapping.states.booklore.percentage) }}%
-                                    {% else %}
-                                    0.0%
-                                    {% endif %}
-                                </span>
-                            </a>
-                            {% endif %}
-
-                            {# Booklore 2 - hide for audio-only #}
-                            {% if bt != 'audio-only' and integrations.booklore2 and (mapping.states.booklore2 is defined or mapping.booklore_2_url) %}
-                            <a href="{{ mapping.booklore_2_url|default('#') }}" target="_blank" rel="noopener noreferrer"
-                                class="service-item" title="Open in {{ booklore_2_label }}">
-                                <img src="/static/booklore.png" alt="BL2" class="service-icon">
-                                <span class="service-name">{{ booklore_2_label }}</span>
-                                <span class="service-value">
-                                    {% if mapping.states.booklore2 is defined %}
-                                    {{ '%.1f' | format(mapping.states.booklore2.percentage) }}%
-                                    {% else %}
-                                    0.0%
-                                    {% endif %}
-                                </span>
-                            </a>
-                            {% endif %}
-
-                            {# Hardcover #}
-                            {% if integrations.hardcover %}
-                            <div class="service-item progress-item-hc">
-                                <a href="{{ mapping.hardcover_url|default('https://hardcover.app') }}" target="_blank"
-                                    rel="noopener noreferrer"
-                                    title="{% if mapping.hardcover_book_id %}Open {{ mapping.hardcover_title }} in Hardcover{% else %}Not linked to Hardcover{% endif %}"
-                                    class="hc-link {% if not mapping.hardcover_book_id %}pe-none{% endif %}">
-                                    <img src="/static/hardcover.svg" alt="HC"
-                                        class="service-icon {% if not mapping.hardcover_book_id %}grayscale-muted{% endif %}">
-                                </a>
-                                <span class="service-name">Hardcover</span>
-                                <span class="service-value cursor-pointer color-inherit" title="Click to edit Hardcover link"
-                                    data-abs-id="{{ mapping.abs_id }}" data-title="{{ mapping.hardcover_title|default('')|escape }}"
-                                    onclick="linkHardcover(event)">
-                                    {% if mapping.hardcover_book_id %}
-                                    {% if mapping.states.hardcover is defined %}
-                                    {{ '%.0f' | format(mapping.states.hardcover.percentage|default(0)) }}%
-                                    {% else %}
-                                    0%
-                                    {% endif %}
-                                    {% else %}
-                                    <span class="link-icon">+</span>
-                                    {% endif %}
-                                </span>
-                            </div>
-                            {% endif %}
-                        </div>
-                        {% endif %}
-
-                        <div class="card-menu-divider"></div>
-                        {# Actions - conditional on status #}
-                        {% if mapping.status in ['pending', 'processing'] %}
-                        {# Processing books only get Cancel (Delete) — no sync/progress actions #}
-                        {% elif mapping.status == 'active' %}
-                        <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync Now</button>
-                        <button class="card-menu-item" onclick='pauseBook({{ mapping.abs_id|tojson }}, this)'>Pause</button>
-                        <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
-                        <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
-                        <button type="button" class="card-menu-item card-menu-warning"
-                            onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
-                        {% elif mapping.status == 'paused' %}
-                        <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume</button>
-                        <button class="card-menu-item" onclick='dnfBook({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark DNF</button>
-                        {% elif mapping.status == 'dnf' %}
-                        <button class="card-menu-item" onclick='resumeBook({{ mapping.abs_id|tojson }}, this)'>Resume Reading</button>
-                        {% elif mapping.status == 'failed_retry_later' %}
-                        <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
-                        {% elif mapping.status == 'completed' %}
-                        <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync status to all services</button>
-                        <button type="button" class="card-menu-item card-menu-warning"
-                            onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
-                        {% elif mapping.status == 'failed_permanent' %}
-                        <button class="card-menu-item" onclick='retryTranscription({{ mapping.abs_id|tojson }}, this)'>Retry Transcription</button>
-                        {% else %}
-                        <button class="card-menu-item" onclick='syncNow({{ mapping.abs_id|tojson }}, this)'>Sync Now</button>
-                        <button class="card-menu-item" onclick='markComplete({{ mapping.abs_id|tojson }}, {{ mapping.abs_title|tojson }})'>Mark Complete</button>
-                        <button type="button" class="card-menu-item card-menu-warning"
-                            onclick='showConfirmModal("Clear Progress", "Clear all reading progress for this book across all synced platforms?", {{ ("/clear-progress/" ~ mapping.abs_id)|tojson }}, "warning")'>Clear Progress</button>
-                        {% endif %}
-                        <div class="card-menu-divider"></div>
-                        <button type="button" class="card-menu-item card-menu-danger"
-                            onclick='showConfirmModal("Delete Book", "Permanently delete this book mapping and all cached data?", {{ ("/delete/" ~ mapping.abs_id)|tojson }}, "danger")'>Delete</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endmacro %}
+    {% from 'partials/book_card.html' import render_book_card %}
 
     <title>PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -328,121 +24,6 @@
     {% include 'partials/navbar.html' %}
 
     <div class="container">
-        {% if suggestions %}
-        <div id="suggestions-section">
-            <div class="suggestions-banner" id="suggestions-banner">
-                <div class="suggestions-title-group">
-                    <h2 class="suggestions-title">Pending Suggestions</h2>
-                    <span class="count-badge">{{ suggestions|length }}</span>
-                </div>
-                <div class="banner-hint">
-                    <span>Click to Review</span>
-                    <span class="chevron">↓</span>
-                </div>
-            </div>
-            <div class="suggestions-content" id="suggestions-content">
-                <div class="suggestions-container" style="padding: 0; border: none; background: transparent;">
-                    <div class="suggestions-grid"
-                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
-                        {% for suggestion in suggestions %}
-                        <div class="suggestion-card" id="suggestion-{{ suggestion.source_id }}"
-                            style="background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 12px; transition: transform 0.2s; border: 1px solid rgba(255,255,255,0.05);">
-                            <div class="suggestion-details">
-                                <h3 style="font-size: 0.95rem; margin: 0 0 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
-                                    title="{{ suggestion.title }}">{{ suggestion.title }}</h3>
-                                <div
-                                    style="font-size: 0.8rem; color: #888; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                    {{ suggestion.author }}</div>
-
-                                <div
-                                    style="font-size: 0.75rem; color: #0D9488; margin-bottom: 8px; display: flex; align-items: center; gap: 4px;">
-                                    <span>Found {{ suggestion.audiobook_count }} potential match(es)</span>
-                                </div>
-
-                                <div class="suggestion-actions" style="display: flex; gap: 8px;">
-                                    <a href="/match?search={{ suggestion.title|urlencode }}"
-                                        class="btn btn-sm btn-primary"
-                                        style="padding: 4px 10px; font-size: 0.8rem; text-decoration: none;">Review</a>
-                                    <button onclick='dismissSuggestion(event, {{ suggestion.source_id|tojson }})'
-                                        class="btn btn-sm"
-                                        style="padding: 4px 10px; font-size: 0.8rem; background: rgba(255,255,255,0.1); border: none; cursor: pointer; color: #fff;">Dismiss</button>
-                                </div>
-                            </div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-            <script>
-                // Make function globally available
-                window.toggleSuggestions = function () {
-                    const content = document.getElementById('suggestions-content');
-                    const banner = document.getElementById('suggestions-banner');
-
-                    if (!content || !banner) return;
-
-                    const isShowing = content.classList.toggle('show');
-                    banner.classList.toggle('active');
-
-                    // Persist state in localStorage safely
-                    try {
-                        localStorage.setItem('suggestions_expanded', isShowing);
-                    } catch (e) {
-                        console.debug('LocalStorage error:', e);
-                    }
-                };
-
-                // Initialize on load
-                document.addEventListener('DOMContentLoaded', () => {
-                    // Attach click handler
-                    const banner = document.getElementById('suggestions-banner');
-                    if (banner) {
-                        banner.addEventListener('click', window.toggleSuggestions);
-                    }
-
-                    // Restore state
-                    try {
-                        const shouldExpand = localStorage.getItem('suggestions_expanded') === 'true';
-                        if (shouldExpand) {
-                            const content = document.getElementById('suggestions-content');
-                            if (content && banner) {
-                                content.classList.add('show');
-                                banner.classList.add('active');
-                            }
-                        }
-                    } catch (e) {
-                        console.debug('LocalStorage error:', e);
-                    }
-                });
-
-                function dismissSuggestion(e, id) {
-                    e.preventDefault();
-                    console.log('Dismissing suggestion:', id);
-                    fetch(`/api/suggestions/${id}/dismiss`, { method: 'POST' })
-                        .then(r => {
-                            console.log('Response status:', r.status);
-                            return r.json();
-                        })
-                        .then(data => {
-                            console.log('Response data:', data);
-                            if (data.success) {
-                                const card = document.getElementById(`suggestion-${id}`);
-                                if (card) {
-                                    card.style.transition = 'opacity 0.3s';
-                                    card.style.opacity = '0';
-                                    setTimeout(() => { card.remove(); }, 300);
-                                }
-                            } else {
-                                console.error('Dismiss failed:', data.error);
-                            }
-                        })
-                        .catch(err => {
-                            console.error('Fetch error:', err);
-                        });
-                }
-            </script>
-        </div>
-        {% endif %}
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         <div class="flash-messages mb-16">
@@ -480,7 +61,7 @@
                     <option value="status">Status</option>
                     <option value="last_sync">Last Synced</option>
                 </select>
-                <span class="sort-direction" id="sort-direction" title="Click to Reverse Order">↓</span>
+                <button type="button" class="sort-direction" id="sort-direction" title="Click to Reverse Order" style="border: none;">↓</button>
             </div>
         </div>
 
@@ -492,7 +73,7 @@
         </div>
         <div class="book-grid" id="processing-grid">
             {% for mapping in processing_books %}
-            {{ render_book_card(mapping, integrations) }}
+            {{ render_book_card(mapping, integrations, booklore_label) }}
             {% endfor %}
         </div>
         </div>
@@ -505,8 +86,8 @@
 
         <div class="book-grid" id="currently-reading-grid">
             {% for mapping in mappings %}
-            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['completed', 'paused', 'dnf', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
-                integrations) }} {% endif %} {% endfor %} </div>
+            {% if mapping.unified_progress > 0 and mapping.unified_progress < 100 and mapping.status not in ['completed', 'paused', 'dnf', 'not_started', 'pending', 'processing', 'failed_retry_later'] %} {{ render_book_card(mapping,
+                integrations, booklore_label) }} {% endif %} {% endfor %} </div>
         </div>
 
                 {% set finished_books = mappings|selectattr('status', 'equalto', 'completed')|list + mappings|rejectattr('status', 'equalto', 'completed')|selectattr('unified_progress', 'ge', 100)|list %}
@@ -516,7 +97,7 @@
                 </div>
                 <div class="book-grid" id="finished-grid">
                     {% for mapping in finished_books %}
-                    {{ render_book_card(mapping, integrations) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>
@@ -528,7 +109,7 @@
                 </div>
                 <div class="book-grid" id="paused-grid">
                     {% for mapping in paused_books %}
-                    {{ render_book_card(mapping, integrations) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>
@@ -540,7 +121,7 @@
                 </div>
                 <div class="book-grid" id="dnf-grid">
                     {% for mapping in dnf_books %}
-                    {{ render_book_card(mapping, integrations) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>
@@ -552,7 +133,7 @@
 
                 <div class="book-grid" id="all-books-grid">
                     {% for mapping in mappings %}
-                    {{ render_book_card(mapping, integrations) }}
+                    {{ render_book_card(mapping, integrations, booklore_label) }}
                     {% endfor %}
                 </div>
                 </div>
@@ -566,429 +147,8 @@
                     <a href="/match" class="btn btn-primary">Add Your First Book</a>
                 </div>
                 {% endif %}
+
         </div>
-
-        <script>
-            const processingGrid = document.getElementById('processing-grid');
-            const currentlyReadingGrid = document.getElementById('currently-reading-grid');
-            const finishedGrid = document.getElementById('finished-grid');
-            const pausedGrid = document.getElementById('paused-grid');
-            const dnfGrid = document.getElementById('dnf-grid');
-            const allBooksGrid = document.getElementById('all-books-grid');
-            const sortSelect = document.getElementById('sort-select');
-            const filterSelect = document.getElementById('filter-select');
-
-            // One-time migration: read new key, fall back to legacy key, migrate forward
-            function migrateLocalStorage(newKey, legacyKey) {
-                let val = localStorage.getItem(newKey);
-                if (val !== null) return val;
-                val = localStorage.getItem(legacyKey);
-                if (val !== null) localStorage.setItem(newKey, val);
-                return val;
-            }
-            const directionBtn = document.getElementById('sort-direction');
-            const dashboardSearch = document.getElementById('dashboard-search');
-
-            function filterBooks() {
-                const filterValue = filterSelect.value;
-                const searchString = dashboardSearch ? dashboardSearch.value.toLowerCase() : '';
-                const cards = document.querySelectorAll('.book-card');
-
-                cards.forEach(card => {
-                    // Default to 'audiobook' if not specified
-                    const syncMode = card.dataset.syncMode || 'audiobook';
-
-                    const titleEl = card.querySelector('.book-title');
-                    const authorEl = card.querySelector('.book-author');
-                    const title = titleEl ? titleEl.textContent.toLowerCase() : '';
-                    const author = authorEl ? authorEl.textContent.toLowerCase() : '';
-
-                    let isVisible = true;
-                    const status = card.dataset.status || '';
-                    const progress = parseFloat(card.dataset.progress) || 0;
-                    if (filterValue === 'currently_reading') {
-                        if (!(progress > 0 && progress < 100 && status !== 'completed' && status !== 'paused' && status !== 'dnf')) {
-                            isVisible = false;
-                        }
-                    } else if (filterValue === 'finished') {
-                        if (status !== 'completed' && progress < 100) {
-                            isVisible = false;
-                        }
-                    } else if (filterValue === 'paused' && status !== 'paused') {
-                        isVisible = false;
-                    } else if (filterValue === 'dnf' && status !== 'dnf') {
-                        isVisible = false;
-                    } else if (filterValue === 'audiobook' && syncMode !== 'audiobook') {
-                        isVisible = false;
-                    } else if (filterValue === 'ebook_only' && syncMode !== 'ebook_only') {
-                        isVisible = false;
-                    }
-
-                    if (isVisible && searchString) {
-                        if (!title.includes(searchString) && !author.includes(searchString)) {
-                            isVisible = false;
-                        }
-                    }
-
-                    if (isVisible) {
-                        card.classList.remove('hidden');
-                        card.style.display = ''; // Ensure display is reset if it was hidden inline
-                    } else {
-                        card.classList.add('hidden');
-                        card.style.display = 'none'; // Force hide
-                    }
-                });
-
-                // Hide sections that don't match the active filter
-                const statusGridMap = {
-                    currently_reading: 'currently-reading-grid',
-                    finished: 'finished-grid',
-                    paused: 'paused-grid',
-                    dnf: 'dnf-grid',
-                };
-                const targetGridId = statusGridMap[filterValue];
-
-                document.querySelectorAll('.book-section').forEach(section => {
-                    const grid = section.querySelector('.book-grid');
-                    if (!grid) return;
-
-                    if (targetGridId) {
-                        // Status filter: only show the matching section
-                        section.style.display = grid.id === targetGridId ? '' : 'none';
-                    } else {
-                        // "all" or sync-mode filter: show sections that have visible cards
-                        const hasVisible = grid.querySelector('.book-card:not(.hidden)') !== null;
-                        section.style.display = hasVisible ? '' : 'none';
-                    }
-                });
-
-                // Persist choice
-                localStorage.setItem('pagekeeper_filter', filterValue);
-            }
-
-            function updateKoSyncHash(event) {
-                event.stopPropagation();
-                const item = event.currentTarget;
-                const absId = item.dataset.absId;
-                const title = item.dataset.title;
-                const currentHash = item.dataset.hash;
-
-                const msg = `Enter new KoSync MD5 Hash for '${title}'\n\nCurrent: ${currentHash}\n\n(Leave empty to automatically recalculate from the ebook file)`;
-                const input = prompt(msg);
-
-                if (input !== null) {
-                    const form = document.createElement('form');
-                    form.method = 'POST';
-                    form.action = `/update-hash/${absId}`;
-
-                    const inputField = document.createElement('input');
-                    inputField.type = 'hidden';
-                    inputField.name = 'new_hash';
-                    inputField.value = input.trim();
-
-                    form.appendChild(inputField);
-                    document.body.appendChild(form);
-                    form.submit();
-                }
-            }
-
-            // Initial Sort Defaults
-            let sortState = {
-                title: 'asc',      // A-Z default
-                progress: 'desc',  // Highest progress first
-                status: 'asc',
-                last_sync: 'desc'  // Newest sync first
-            };
-
-            // Track last sort to detect toggles.
-            // Important: Start as null to prevent auto-toggling on page load
-            let lastSort = null;
-
-            // Load saved preferences
-            const savedSort = migrateLocalStorage('pagekeeper_sort', 'book_sync_sort') || 'title';
-            const savedSortState = migrateLocalStorage('pagekeeper_sort_state', 'book_sync_sort_state');
-
-            if (savedSort) {
-                sortSelect.value = savedSort;
-            }
-
-            if (savedSortState) {
-                try {
-                    // Merge saved state with defaults
-                    sortState = { ...sortState, ...JSON.parse(savedSortState) };
-                } catch (e) {
-                    console.error("Error parsing saved sort state", e);
-                }
-            }
-
-            // Parse "Time Ago" for sorting
-            function parseLastSync(syncText) {
-                if (!syncText || syncText === 'Never' || syncText === 'Error') return -1;
-
-                const match = syncText.match(/(\d+)([smhd])/);
-                if (!match) return -1;
-
-                const value = parseInt(match[1]);
-                const unit = match[2];
-
-                if (unit === 's') return value;
-                if (unit === 'm') return value * 60;
-                if (unit === 'h') return value * 3600;
-                if (unit === 'd') return value * 86400;
-
-                return -1;
-            }
-
-            function sortCards(grid, sortBy, direction) {
-                if (!grid) return;
-                const cards = Array.from(grid.children);
-
-                const sortedCards = cards.sort((a, b) => {
-                    let comparison = 0;
-
-                    // Safety checks for missing data attributes
-                    const valA = a.dataset[sortBy === 'last_sync' ? 'lastSync' : sortBy] || '';
-                    const valB = b.dataset[sortBy === 'last_sync' ? 'lastSync' : sortBy] || '';
-
-                    if (sortBy === 'title') {
-                        comparison = valA.localeCompare(valB);
-                    } else if (sortBy === 'progress') {
-                        comparison = (parseFloat(valA) || 0) - (parseFloat(valB) || 0);
-                    } else if (sortBy === 'status') {
-                        comparison = valA.localeCompare(valB);
-                    } else if (sortBy === 'last_sync') {
-                        comparison = parseLastSync(valA) - parseLastSync(valB);
-                    }
-
-                    // Apply direction
-                    return direction === 'asc' ? comparison : -comparison;
-                });
-
-                // Re-append in new order
-                sortedCards.forEach(card => grid.appendChild(card));
-            }
-
-            function applySorting(sortBy) {
-                let direction;
-
-                // Check if we are selecting the same sort type to toggle direction
-                if (lastSort === sortBy) {
-                    const currentDirection = sortState[sortBy];
-                    direction = currentDirection === 'asc' ? 'desc' : 'asc';
-                    sortState[sortBy] = direction;
-                } else {
-                    // Different selection (or first load) -> Use stored direction
-                    direction = sortState[sortBy];
-                }
-
-                // Update tracker
-                lastSort = sortBy;
-
-                // Update UI Arrow
-                updateSortIndicator(direction);
-
-                // Sort Grids
-                sortCards(processingGrid, sortBy, direction);
-                sortCards(currentlyReadingGrid, sortBy, direction);
-                sortCards(finishedGrid, sortBy, direction);
-                sortCards(pausedGrid, sortBy, direction);
-                sortCards(dnfGrid, sortBy, direction);
-                sortCards(allBooksGrid, sortBy, direction);
-
-                // Save preferences
-                localStorage.setItem('pagekeeper_sort', sortBy);
-                localStorage.setItem('pagekeeper_sort_state', JSON.stringify(sortState));
-            }
-
-            function updateSortIndicator(direction) {
-                if (directionBtn) {
-                    directionBtn.textContent = direction === 'asc' ? '↑' : '↓';
-                }
-            }
-
-            // --- Event Listeners ---
-
-            if (sortSelect) {
-                sortSelect.addEventListener('change', (e) => {
-                    applySorting(e.target.value);
-                });
-            }
-
-            // NEW: Clickable Arrow Logic
-            if (directionBtn) {
-                directionBtn.addEventListener('click', () => {
-                    // Clicking the arrow re-applies the CURRENT sort value.
-                    // Since 'lastSort' will match, this triggers the toggle logic in applySorting.
-                    applySorting(sortSelect.value);
-                });
-            }
-
-            // --- Initialization ---
-
-            // Apply initial sort on load (if content exists)
-            if (currentlyReadingGrid || finishedGrid || pausedGrid || dnfGrid || allBooksGrid) {
-                applySorting(savedSort);
-            }
-
-            // Filter Logic initialization
-            if (filterSelect) {
-                filterSelect.addEventListener('change', filterBooks);
-                const savedFilter = migrateLocalStorage('pagekeeper_filter', 'book_sync_filter') || 'all';
-                filterSelect.value = savedFilter;
-                // Apply filter initially
-                filterBooks();
-            }
-
-            if (dashboardSearch) {
-                dashboardSearch.addEventListener('input', filterBooks);
-            }
-
-            let refreshPaused = false;
-
-            function refreshDashboard() {
-                if (refreshPaused) {
-                    setTimeout(refreshDashboard, 30000);
-                    return;
-                }
-
-                fetch('/api/status')
-                    .then(r => r.json())
-                    .then(data => {
-                        if (!data || !data.mappings) return;
-                        data.mappings.forEach(book => {
-                            const card = document.querySelector(`.book-card[data-abs-id="${book.abs_id}"]`);
-                            if (!card) return;
-
-                            // Update overall progress in menu
-                            const progressPercent = card.querySelector('.progress-percent');
-                            if (progressPercent) {
-                                const statusLabel = progressPercent.querySelector('.progress-status-label');
-                                progressPercent.textContent = `${book.unified_progress.toFixed(0)}%`;
-                                if (statusLabel) {
-                                    progressPercent.appendChild(document.createTextNode(' '));
-                                    progressPercent.appendChild(statusLabel);
-                                }
-                            }
-
-                            // Update data attribute for sorting
-                            card.dataset.progress = book.unified_progress;
-
-                            // Update individual service values
-                            const absItem = card.querySelector('.service-item[title="Open in Audiobookshelf"] .service-value');
-                            if (absItem && book.states && book.states.abs) {
-                                const ts = book.states.abs.timestamp || 0;
-                                const h = Math.floor(ts / 3600);
-                                const m = Math.floor((ts % 3600) / 60);
-                                const s = Math.floor(ts % 60);
-                                absItem.textContent = `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-                            }
-
-                            const kosyncItem = card.querySelector('.service-item[title^="Update KoReader Hash"] .service-value');
-                            if (kosyncItem && book.states && book.states.kosync) {
-                                kosyncItem.textContent = `${book.states.kosync.percentage.toFixed(1)}%`;
-                            }
-
-                            const stItem = card.querySelector('.service-item[title="Storyteller"] .service-value');
-                            if (stItem && book.states && book.states.storyteller) {
-                                stItem.textContent = `${book.states.storyteller.percentage.toFixed(1)}%`;
-                            }
-
-                            // Update last sync text
-                            const lastSync = card.querySelector('.last-sync');
-                            if (lastSync && book.last_sync) {
-                                lastSync.textContent = `Synced ${book.last_sync}`;
-                            }
-                        });
-                    })
-                    .catch(() => { })
-                    .finally(() => setTimeout(refreshDashboard, 30000));
-            }
-
-            // Pause on modal open
-            document.addEventListener('click', e => {
-                if (e.target.closest('[data-modal], .modal-trigger, button[onclick*="modal"]')) {
-                    refreshPaused = true;
-                }
-            });
-            document.addEventListener('keydown', e => {
-                if (e.key === 'Escape') refreshPaused = false;
-            });
-            document.body.addEventListener('click', e => {
-                if (e.target.classList.contains('modal-overlay')) refreshPaused = false;
-            });
-
-            setTimeout(refreshDashboard, 30000);
-
-            // --- Processing status polling (5s, only when processing books exist) ---
-            function pollProcessingStatus() {
-                const processingSection = document.getElementById('processing-section');
-                if (!processingSection) return; // No processing books, stop polling
-
-                fetch('/api/processing-status')
-                    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-                    .then(data => {
-                        if (typeof data !== 'object' || data === null) return;
-                        const ids = Object.keys(data);
-                        if (ids.length === 0) {
-                            // All books finished processing — reload to move cards
-                            location.reload();
-                            return;
-                        }
-
-                        let anyStillProcessing = false;
-                        let shouldReload = false;
-                        for (const absId of ids) {
-                            const info = data[absId];
-                            const card = processingSection.querySelector(`.book-card[data-abs-id="${absId}"]`);
-                            if (!card) continue;
-
-                            const cardStatus = card.dataset.status;
-                            if (info.status === 'active' || cardStatus !== info.status) {
-                                shouldReload = true;
-                                break;
-                            }
-
-                            anyStillProcessing = true;
-
-                            if (info.status === 'processing') {
-                                let pctVal = Number(info.job_progress);
-                                if (!isFinite(pctVal)) pctVal = 0;
-                                pctVal = Math.max(0, Math.min(100, pctVal));
-                                const fill = card.querySelector('.progress-bar-fill');
-                                const pct = card.querySelector('.progress-percent');
-                                if (fill) fill.style.width = `${pctVal}%`;
-                                if (pct) pct.textContent = `Transcribing... ${Math.round(pctVal)}%`;
-                            }
-                        }
-
-                        // Check if any processing card is now missing from the response (completed)
-                        if (!shouldReload) {
-                            const processingCards = processingSection.querySelectorAll('.book-card');
-                            for (const card of processingCards) {
-                                if (!data[card.dataset.absId]) {
-                                    shouldReload = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (shouldReload) {
-                            location.reload();
-                            return;
-                        }
-
-                        if (anyStillProcessing) {
-                            setTimeout(pollProcessingStatus, 5000);
-                        }
-                    })
-                    .catch(() => setTimeout(pollProcessingStatus, 5000));
-            }
-
-            // Start polling if there are processing books
-            if (document.getElementById('processing-section')) {
-                setTimeout(pollProcessingStatus, 5000);
-            }
-        </script>
 
         <!-- Hardcover Edition Picker Modal -->
         <div id="hardcover-modal" class="hc-modal" style="display:none;">
@@ -1021,7 +181,7 @@
                     <div id="hc-manual" style="display:none;">
                         <p>Enter Hardcover URL or book ID:</p>
                         <input type="text" id="hc-input" placeholder="https://hardcover.app/books/...">
-                        <button onclick="resolveManualInput()">Search</button>
+                        <button class="btn btn-md btn-accent" onclick="resolveManualInput()">Search</button>
                     </div>
                     <div id="hc-error" style="display:none;">
                         <p id="hc-error-msg" class="hc-text-error"></p>
@@ -1030,25 +190,46 @@
                     </div>
                 </div>
                 <div class="hc-modal-footer">
-                    <button class="hc-btn-cancel" onclick="closeHardcoverModal()">Cancel</button>
-                    <button id="hc-link-btn" class="hc-btn-link" onclick="linkSelectedEdition()" disabled>Link
+                    <button class="btn btn-md btn-secondary hc-btn-cancel" onclick="closeHardcoverModal()">Cancel</button>
+                    <button id="hc-link-btn" class="btn btn-md btn-accent hc-btn-link" onclick="linkSelectedEdition()" disabled>Link
                         Book</button>
                 </div>
             </div>
         </div>
         <script src="/static/js/hardcover-modal.js" defer></script>
+        <!-- Booklore Link Modal -->
+        <div id="bl-modal" class="hc-modal" style="display:none;">
+            <div class="hc-modal-backdrop" onclick="closeBookloreModal()"></div>
+            <div class="hc-modal-content">
+                <div class="hc-modal-header">
+                    <h3 id="bl-modal-title">Link to Booklore</h3>
+                    <button class="hc-modal-close" onclick="closeBookloreModal()" aria-label="Close">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round">
+                            <path d="M1 1l12 12M13 1L1 13" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="hc-modal-body">
+                    <div class="st-search-bar">
+                        <input type="text" id="bl-search-input" placeholder="Search Booklore..." class="modal-search-input">
+                        <button onclick="searchBooklore()" class="btn btn-primary">Search</button>
+                    </div>
+                    <div id="bl-results" class="st-results"></div>
+                </div>
+            </div>
+        </div>
+        <script src="/static/js/booklore-link-modal.js" defer></script>
         <!-- Storyteller Link Modal -->
         <div id="st-modal" class="hidden">
             <div class="st-modal-content">
                 <div class="st-modal-header">
                     <h3 id="st-modal-title">Link Storyteller</h3>
-                    <button class="action-btn" onclick="closeStorytellerModal()"
-                        style="background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">✕</button>
+                    <button class="modal-close" onclick="closeStorytellerModal()" aria-label="Close">✕</button>
                 </div>
                 <div class="st-modal-body">
                     <div class="st-search-bar">
-                        <input type="text" id="st-search-input" placeholder="Search Storyteller..." class="hc-input"
-                            style="flex:1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white;">
+                        <input type="text" id="st-search-input" placeholder="Search Storyteller..." class="modal-search-input">
                         <button onclick="searchStoryteller()" class="btn btn-primary">Search</button>
                     </div>
                     <div id="st-results" class="st-results"></div>
@@ -1056,315 +237,6 @@
             </div>
         </div>
         <script src="/static/js/storyteller-modal.js" defer></script>
-        <div
-            style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; background: rgba(20, 20, 20, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);">
-            <span
-                style="font-size: 11px; color: rgba(255,255,255,0.4); font-weight: 600; letter-spacing: 0.5px; font-family: monospace;">
-                {% if app_version.startswith('dev') %}
-                Build {{ app_version }}
-                {% else %}
-                v{{ app_version.lstrip('v') }}
-                {% endif %}
-            </span>
-            {% if update_available %}
-            <a href="https://github.com/serabi/pagekeeper/releases/latest" target="_blank"
-                style="font-size: 11px; color: #7C3AED; text-decoration: none; background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.3); border-radius: 4px; padding: 3px 8px; white-space: nowrap; transition: all 0.2s; font-weight: 600;"
-                onmouseover="this.style.background='rgba(124,58,237,0.25)'"
-                onmouseout="this.style.background='rgba(124,58,237,0.15)'">
-                ↑ v{{ latest_version }} Available
-            </a>
-            {% endif %}
-        </div>
-
-        <script>
-            function syncNow(absId, btn) {
-                btn.disabled = true;
-                const originalText = btn.textContent;
-                btn.textContent = "...";
-
-                fetch('/api/sync-now/' + absId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                }).then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            if (data.reload) {
-                                window.location.reload();
-                                return;
-                            }
-                            btn.textContent = "OK";
-                            setTimeout(() => {
-                                btn.textContent = originalText;
-                                btn.disabled = false;
-                                closeAllMenus();
-                            }, 2000);
-                        } else {
-                            btn.textContent = "Err";
-                            setTimeout(() => {
-                                btn.textContent = originalText;
-                                btn.disabled = false;
-                                closeAllMenus();
-                            }, 2000);
-                        }
-                    }).catch(error => {
-                        console.error('Error:', error);
-                        btn.textContent = "Err";
-                        setTimeout(() => {
-                            btn.textContent = originalText;
-                            btn.disabled = false;
-                            closeAllMenus();
-                        }, 2000);
-                    });
-            }
-
-            function pauseBook(absId, btn) {
-                btn.disabled = true;
-                const originalText = btn.textContent;
-                btn.textContent = "...";
-
-                fetch('/api/pause/' + absId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                }).then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            btn.textContent = "OK";
-                            setTimeout(() => window.location.reload(), 1000);
-                        } else {
-                            btn.textContent = "Err";
-                            setTimeout(() => {
-                                btn.textContent = originalText;
-                                btn.disabled = false;
-                            }, 2000);
-                        }
-                    }).catch(error => {
-                        console.error('Error:', error);
-                        btn.textContent = "Err";
-                        setTimeout(() => {
-                            btn.textContent = originalText;
-                            btn.disabled = false;
-                        }, 2000);
-                    });
-            }
-
-            function resumeBook(absId, btn) {
-                btn.disabled = true;
-                const originalText = btn.textContent;
-                btn.textContent = "...";
-
-                fetch('/api/resume/' + absId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                }).then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            btn.textContent = "OK";
-                            setTimeout(() => window.location.reload(), 1000);
-                        } else {
-                            btn.textContent = "Err";
-                            setTimeout(() => {
-                                btn.textContent = originalText;
-                                btn.disabled = false;
-                            }, 2000);
-                        }
-                    }).catch(error => {
-                        console.error('Error:', error);
-                        btn.textContent = "Err";
-                        setTimeout(() => {
-                            btn.textContent = originalText;
-                            btn.disabled = false;
-                        }, 2000);
-                    });
-            }
-
-            function dnfBook(absId, title) {
-                closeAllMenus();
-                if (!confirm('Mark "' + title + '" as Did Not Finish? This book will be excluded from syncing.')) {
-                    return;
-                }
-
-                fetch('/api/dnf/' + absId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                }).then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            window.location.reload();
-                        } else {
-                            alert('Error marking book as DNF: ' + (data.error || 'Unknown error'));
-                        }
-                    }).catch(error => {
-                        console.error('Error:', error);
-                        alert('Connection error while marking book as DNF');
-                    });
-            }
-
-            function retryTranscription(absId, btn) {
-                btn.disabled = true;
-                const originalText = btn.textContent;
-                btn.textContent = "...";
-
-                fetch('/api/retry-transcription/' + absId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                }).then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            btn.textContent = "OK";
-                            setTimeout(() => window.location.reload(), 1000);
-                        } else {
-                            btn.textContent = "Err";
-                            setTimeout(() => {
-                                btn.textContent = originalText;
-                                btn.disabled = false;
-                            }, 2000);
-                        }
-                    }).catch(error => {
-                        console.error('Error:', error);
-                        btn.textContent = "Err";
-                        setTimeout(() => {
-                            btn.textContent = originalText;
-                            btn.disabled = false;
-                        }, 2000);
-                    });
-            }
-
-            function markComplete(absId, title) {
-                closeAllMenus();
-                if (!confirm('Are you sure you want to mark "' + title + '" as complete? This will set progress to 100% on all synced platforms.')) {
-                    return;
-                }
-                window._mcAbsId = absId;
-                document.getElementById('delete-mapping-modal').style.display = 'flex';
-            }
-
-            function closeDeleteMappingModal() {
-                document.getElementById('delete-mapping-modal').style.display = 'none';
-                window._mcAbsId = null;
-            }
-
-            function _dmExecuteFetch(absId, shouldDelete) {
-                closeDeleteMappingModal();
-                fetch('/api/mark-complete/' + absId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ delete: shouldDelete })
-                }).then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            if (shouldDelete) {
-                                const cardElement = document.querySelector('.book-card[data-abs-id="' + absId + '"]');
-                                if (cardElement) {
-                                    cardElement.remove();
-                                } else {
-                                    window.location.reload();
-                                }
-                            } else {
-                                window.location.reload();
-                            }
-                        } else {
-                            alert('Error marking book as complete: ' + (data.error || 'Unknown error'));
-                        }
-                    }).catch(error => {
-                        console.error('Error:', error);
-                        alert('Connection error while marking book as complete');
-                    });
-            }
-
-            function _dmYesDelete() { _dmExecuteFetch(window._mcAbsId, true); }
-            function _dmNoKeepMapping() { _dmExecuteFetch(window._mcAbsId, false); }
-
-            // --- Card action panel (shared bottom-sheet / modal) ---
-            let _panelSourceMenu = null;
-
-            function openActionPanel(trigger) {
-                const card = trigger.closest('.book-card');
-                const dropdown = card.querySelector('.card-menu-dropdown');
-                const panelBody = document.getElementById('action-panel-body');
-                const panel = document.getElementById('action-panel');
-
-                // Move children from dropdown into panel
-                _panelSourceMenu = dropdown;
-                while (dropdown.firstChild) {
-                    panelBody.appendChild(dropdown.firstChild);
-                }
-
-                panel.style.display = '';
-
-                // On desktop, position sheet near the trigger button
-                const sheet = panel.querySelector('.action-panel-sheet');
-                if (window.innerWidth > 600) {
-                    const rect = trigger.getBoundingClientRect();
-                    let top = rect.bottom + 4;
-                    let left = rect.right - 280;
-
-                    // Clamp: don't overflow bottom
-                    const sheetHeight = Math.min(sheet.scrollHeight, window.innerHeight * 0.8);
-                    if (top + sheetHeight > window.innerHeight - 8) {
-                        top = rect.top - sheetHeight - 4;
-                    }
-                    // Clamp: don't overflow left
-                    if (left < 8) left = 8;
-
-                    sheet.style.position = 'fixed';
-                    sheet.style.top = top + 'px';
-                    sheet.style.left = left + 'px';
-                    sheet.style.right = 'auto';
-                    sheet.style.bottom = 'auto';
-                } else {
-                    sheet.style.cssText = '';
-                }
-
-                // Force reflow then add .open for CSS transition
-                panel.offsetHeight;
-                panel.classList.add('open');
-                trigger.setAttribute('aria-expanded', 'true');
-            }
-
-            function closeActionPanel() {
-                const panel = document.getElementById('action-panel');
-                const panelBody = document.getElementById('action-panel-body');
-                const sheet = panel.querySelector('.action-panel-sheet');
-
-                panel.classList.remove('open');
-                sheet.style.cssText = '';
-
-                // Move children back to original dropdown
-                if (_panelSourceMenu) {
-                    while (panelBody.firstChild) {
-                        _panelSourceMenu.appendChild(panelBody.firstChild);
-                    }
-                    const trigger = _panelSourceMenu.closest('.card-menu')?.querySelector('.card-menu-trigger');
-                    if (trigger) trigger.setAttribute('aria-expanded', 'false');
-                    _panelSourceMenu = null;
-                }
-
-                panel.style.display = 'none';
-            }
-
-            // Alias so existing code (syncNow, etc.) still works
-            function closeAllMenus() {
-                closeActionPanel();
-            }
-
-            document.addEventListener('click', function(e) {
-                const trigger = e.target.closest('.card-menu-trigger');
-                if (trigger) {
-                    e.stopPropagation();
-                    closeActionPanel();
-                    openActionPanel(trigger);
-                    return;
-                }
-                // Click on overlay closes panel
-                if (e.target.closest('.action-panel-overlay')) {
-                    closeActionPanel();
-                }
-            });
-
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') closeActionPanel();
-            });
-        </script>
 
         <!-- Shared Action Panel (card menu) -->
         <div id="action-panel" style="display:none;">
@@ -1391,50 +263,6 @@
             </div>
         </div>
 
-        <script>
-            function showConfirmModal(title, message, formAction, accentType) {
-                closeAllMenus();
-                const modal = document.getElementById('confirm-modal');
-                const iconEl = document.getElementById('confirm-modal-icon');
-                const titleEl = document.getElementById('confirm-modal-title');
-                const msgEl = document.getElementById('confirm-modal-message');
-                const formEl = document.getElementById('confirm-modal-form');
-                const submitBtn = document.getElementById('confirm-modal-submit');
-
-                titleEl.textContent = title;
-                msgEl.textContent = message;
-                formEl.action = formAction;
-
-                // Reset classes
-                submitBtn.className = 'btn';
-                iconEl.className = 'confirm-modal-icon';
-
-                if (accentType === 'danger') {
-                    submitBtn.classList.add('btn-danger');
-                    iconEl.textContent = '⚠';
-                    iconEl.classList.add('confirm-icon-danger');
-                } else {
-                    submitBtn.classList.add('btn-warning');
-                    iconEl.textContent = '⚠';
-                    iconEl.classList.add('confirm-icon-warning');
-                }
-
-                submitBtn.textContent = title;
-                modal.style.display = 'flex';
-            }
-
-            function closeConfirmModal() {
-                document.getElementById('confirm-modal').style.display = 'none';
-            }
-
-            // Close on Escape
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    closeConfirmModal();
-                }
-            });
-        </script>
-
         <!-- Delete Mapping Confirmation Modal -->
         <div id="delete-mapping-modal" class="hc-modal" style="display:none;">
             <div class="hc-modal-backdrop" onclick="closeDeleteMappingModal()"></div>
@@ -1449,20 +277,19 @@
                     </button>
                 </div>
                 <div class="hc-modal-body">
-                    <p style="color:rgba(255,255,255,0.75); margin:0; line-height:1.6;">
+                    <p class="confirm-modal-message">
                         Do you also want to delete the mapping and all cached files for this book?
                     </p>
                 </div>
                 <div class="hc-modal-footer">
-                    <button class="hc-btn-cancel" onclick="closeDeleteMappingModal()">Cancel</button>
-                    <button class="hc-btn-link" onclick="_dmNoKeepMapping()">No, Keep Mapping</button>
-                    <button onclick="_dmYesDelete()"
-                        style="padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:0.9rem; background:linear-gradient(135deg,#e53e3e,#c53030); color:#fff;">Yes,
-                        Delete</button>
+                    <button class="btn btn-md btn-secondary hc-btn-cancel" onclick="closeDeleteMappingModal()">Cancel</button>
+                    <button class="btn btn-md btn-accent hc-btn-link" onclick="_dmNoKeepMapping()">No, Keep Mapping</button>
+                    <button onclick="_dmYesDelete()" class="btn btn-danger">Yes, Delete</button>
                 </div>
             </div>
         </div>
+        <script src="/static/js/dashboard.js"></script>
+        <script>initDashboard();</script>
 </body>
-
 
 </html>

@@ -220,7 +220,7 @@ class ABSSocketListener:
             logger.debug(f"ABS Socket.IO: Progress event for '{library_item_id[:12]}...' — not a tracked book, queuing suggestion discovery")
             self._suggestion_pool.submit(self._sync_manager.queue_suggestion, library_item_id)
             return
-        if book.status in ('paused', 'dnf') and not book.activity_flag:
+        if book.status in ('paused', 'dnf', 'not_started') and not book.activity_flag:
             book.activity_flag = True
             self._db.save_book(book)
             logger.info(f"ABS Socket.IO: Activity detected on {book.status} book '{book.abs_title}'")

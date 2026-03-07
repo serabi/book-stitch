@@ -64,7 +64,7 @@ class TestQueueSuggestion(unittest.TestCase):
         self.mock_db.suggestion_exists.return_value = False
 
         # Simulate first call in-flight
-        self.manager._suggestion_in_flight.add('book-dup')
+        self.manager.suggestion_service._suggestion_in_flight.add('book-dup')
         self.manager.queue_suggestion('book-dup')
 
         # Should not reach _create_suggestion since it's in-flight
@@ -77,7 +77,7 @@ class TestQueueSuggestion(unittest.TestCase):
         self.manager.queue_suggestion('book-err')
 
         # Should clean up despite error
-        self.assertNotIn('book-err', self.manager._suggestion_in_flight)
+        self.assertNotIn('book-err', self.manager.suggestion_service._suggestion_in_flight)
 
 
 if __name__ == '__main__':

@@ -1,74 +1,83 @@
+{% macro service_links(extra_class='') %}
+    <div class="library-links {{ extra_class }}" role="navigation" aria-label="Service shortcuts">
+        {% if abs_url %}
+        <a href="{{ abs_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer" title="Audiobookshelf">
+            <img src="/static/audiobookshelf.png" alt="ABS" class="nav-service-icon">
+        </a>
+        {% endif %}
+
+        {% if storyteller_url %}
+        <a href="{{ storyteller_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer" title="Storyteller">
+            <img src="/static/storyteller.png" alt="Storyteller" class="nav-service-icon">
+        </a>
+        {% endif %}
+
+        {% if booklore_url %}
+        <a href="{{ booklore_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer" title="{{ get_val('BOOKLORE_LABEL') or 'Booklore' }}">
+            <img src="/static/booklore.png" alt="Booklore" class="nav-service-icon">
+        </a>
+        {% endif %}
+
+        {% if cwa_url %}
+        <a href="{{ cwa_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer" title="Calibre-Web Automated">
+            <img src="/static/cwa.svg" alt="CWA" class="nav-service-icon">
+        </a>
+        {% endif %}
+
+        {% if hardcover_url %}
+        <a href="{{ hardcover_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer" title="Hardcover">
+            <img src="/static/hardcover.svg" alt="Hardcover" class="nav-service-icon">
+        </a>
+        {% endif %}
+
+        {% if show_bookfusion_icon %}
+        <a href="https://www.bookfusion.com/bookshelf" class="nav-icon-link" target="_blank" rel="noopener noreferrer" title="BookFusion Bookshelf">
+            <img src="/static/bookfusion.svg" alt="BookFusion" class="nav-service-icon">
+        </a>
+        {% endif %}
+    </div>
+{% endmacro %}
+
 <header class="top-nav">
     <div class="nav-brand">
         <a href="/" class="brand-link">
             <img src="/static/icon.png" alt="PageKeeper" class="app-icon" width="36" height="36">
-            <h1>PageKeeper</h1>
+            <div class="brand-copy">
+                <h1>PageKeeper</h1>
+            </div>
         </a>
     </div>
+    {% set abs_url = get_header_service_url('ABS') %}
+    {% set storyteller_url = get_header_service_url('STORYTELLER') %}
+    {% set booklore_url = get_header_service_url('BOOKLORE') %}
+    {% set cwa_url = get_header_service_url('CWA') %}
+    {% set hardcover_url = get_header_service_url('HARDCOVER') %}
+    {% set show_bookfusion_page = get_bool('BOOKFUSION_ENABLED') and (get_val('BOOKFUSION_API_KEY') or get_val('BOOKFUSION_UPLOAD_API_KEY')) %}
+    {% set show_bookfusion_icon = get_bool('BOOKFUSION_ENABLED') %}
+    {% set has_any_link = abs_url or storyteller_url or booklore_url or cwa_url or hardcover_url or show_bookfusion_icon %}
+
+    {% if has_any_link %}
+    {{ service_links('library-links-desktop') }}
+    {% endif %}
+
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-controls="nav-menu" aria-expanded="false">
         <span></span><span></span><span></span>
     </button>
     <nav class="nav-menu" id="nav-menu">
-        {% set abs_url = (get_val('ABS_WEB_URL') or abs_server) if get_bool('ABS_ENABLED') else '' %}
-        {% set booklore_url = (get_val('BOOKLORE_WEB_URL') or booklore_server) if get_bool('BOOKLORE_ENABLED') else '' %}
-        {% set booklore2_url = get_val('BOOKLORE_2_WEB_URL') if get_bool('BOOKLORE_2_ENABLED') else '' %}
-        {% set storyteller_url = get_val('STORYTELLER_WEB_URL') if get_bool('STORYTELLER_ENABLED') else '' %}
-        {% set cwa_url = get_val('CWA_WEB_URL') if get_bool('CWA_ENABLED') else '' %}
-        {% set hardcover_url = get_val('HARDCOVER_WEB_URL') or ('https://hardcover.app' if get_bool('HARDCOVER_ENABLED') else '') %}
-        {% set has_any_link = abs_url or booklore_url or booklore2_url or storyteller_url or cwa_url or hardcover_url %}
-
-        {% if has_any_link %}
-        <div class="library-links">
-            {% if abs_url %}
-            <a href="{{ abs_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
-                title="Audiobookshelf">
-                <img src="/static/audiobookshelf.png" alt="ABS" class="nav-service-icon">
-            </a>
-            {% endif %}
-
-            {% if storyteller_url %}
-            <a href="{{ storyteller_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
-                title="Storyteller">
-                <img src="/static/storyteller.png" alt="Storyteller" class="nav-service-icon">
-            </a>
-            {% endif %}
-
-            {% if booklore_url %}
-            <a href="{{ booklore_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
-                title="{{ get_val('BOOKLORE_LABEL') or 'Booklore' }}">
-                <img src="/static/booklore.png" alt="Booklore" class="nav-service-icon">
-            </a>
-            {% endif %}
-
-            {% if booklore2_url %}
-            <a href="{{ booklore2_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
-                title="{{ get_val('BOOKLORE_2_LABEL') or 'Booklore 2' }}">
-                <img src="/static/booklore.png" alt="Booklore 2" class="nav-service-icon">
-            </a>
-            {% endif %}
-
-            {% if cwa_url %}
-            <a href="{{ cwa_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
-                title="Calibre-Web Automated">
-                <img src="/static/cwa.svg" alt="CWA" class="nav-service-icon">
-            </a>
-            {% endif %}
-
-            {% if hardcover_url %}
-            <a href="{{ hardcover_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer"
-                title="Hardcover">
-                <img src="/static/hardcover.svg" alt="Hardcover" class="nav-service-icon">
-            </a>
-            {% endif %}
-        </div>
-        {% endif %}
-
         <div class="nav-actions">
-            <a href="/suggestions" class="nav-link">Suggestions</a>
-            <a href="/settings" class="nav-link">Settings</a>
-            <a href="/logs" class="nav-link">Logs</a>
-            <a href="/batch-match" class="nav-link">Batch</a>
-            <a href="/match" class="btn btn-primary">Add Book</a>
+            {% if has_any_link %}
+            {{ service_links('library-links-mobile') }}
+            {% endif %}
+            <a href="/" class="nav-link {% if is_active_path('/') %}active{% endif %}">Dashboard</a>
+            <a href="/reading" class="nav-link {% if is_active_path('/reading') %}active{% endif %}">Reading Log</a>
+            {% if show_bookfusion_page %}
+            <a href="/bookfusion" class="nav-link {% if is_active_path('/bookfusion') %}active{% endif %}">BookFusion Books</a>
+            {% endif %}
+            <a href="/suggestions" class="nav-link {% if is_active_path('/suggestions') %}active{% endif %}">Suggestions</a>
+            <a href="/batch-match" class="nav-link {% if is_active_path('/batch-match') %}active{% endif %}">Batch</a>
+            <a href="/logs" class="nav-link {% if is_active_path('/logs') %}active{% endif %}">Logs</a>
+            <a href="/settings" class="nav-link {% if is_active_path('/settings') %}active{% endif %}">Settings</a>
+            <a href="/match" class="btn btn-primary nav-cta">Add Book</a>
         </div>
     </nav>
 </header>

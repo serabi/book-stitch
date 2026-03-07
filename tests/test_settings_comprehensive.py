@@ -3,10 +3,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 # Add project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.modules.setdefault('nh3', SimpleNamespace(clean=lambda value, tags=None, attributes=None: value))
 
 class MockContainer:
     """Mock container for testing."""
@@ -74,6 +76,7 @@ class TestSettingsComprehensive(unittest.TestCase):
             'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT',
             'INSTANT_SYNC_ENABLED',
             'ABS_SOCKET_ENABLED',
+            'BOOKFUSION_ENABLED',
         ]
 
     def tearDown(self):
@@ -88,6 +91,9 @@ class TestSettingsComprehensive(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
         # Clear env vars
         for key in self.bool_keys:
+            if key in os.environ:
+                del os.environ[key]
+        for key in ['STORYTELLER_PASSWORD']:
             if key in os.environ:
                 del os.environ[key]
 
@@ -142,6 +148,41 @@ class TestSettingsComprehensive(unittest.TestCase):
 
         for key, val in test_data.items():
             self.mock_container.mock_database_service.set_setting.assert_any_call(key, val)
+
+    @patch('src.blueprints.settings_bp.http_requests.get')
+    def test_abs_connection_test_uses_unsaved_payload(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'username': 'payload-user'}
+        mock_get.return_value = mock_response
+
+        response = self.client.post('/api/test-connection/abs', json={
+            'server': 'abs.local:13378',
+            'token': 'payload-token',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        args, kwargs = mock_get.call_args
+        self.assertEqual(args[0], 'http://abs.local:13378/api/me')
+        self.assertEqual(kwargs['headers']['Authorization'], 'Bearer payload-token')
+
+    @patch('src.blueprints.settings_bp.http_requests.post')
+    def test_storyteller_connection_test_falls_back_to_saved_secret(self, mock_post):
+        os.environ['STORYTELLER_PASSWORD'] = 'saved-secret'
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        response = self.client.post('/api/test-connection/storyteller', json={
+            'api_url': 'story.local:8000',
+            'user': 'sarah',
+            'password': '',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], 'http://story.local:8000/api/token')
+        self.assertEqual(kwargs['data']['password'], 'saved-secret')
 
 if __name__ == '__main__':
     unittest.main()

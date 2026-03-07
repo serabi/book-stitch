@@ -129,6 +129,18 @@ class HardcoverClient:
 
         return None
 
+    def _extract_cover_url(self, cached_image) -> str | None:
+        """Extract a cover image URL from the cached_image jsonb field.
+        The field is a JSON object like {"url": "https://..."} or similar.
+        """
+        if not cached_image:
+            return None
+        if isinstance(cached_image, dict):
+            return cached_image.get("url")
+        if isinstance(cached_image, str):
+            return cached_image
+        return None
+
     def _extract_authors_from_cached(self, cached_contributors) -> list[str]:
         """
         Parses the JSON list of contributors from Hardcover API.
@@ -166,6 +178,7 @@ class HardcoverClient:
                     id
                     title
                     slug
+                    cached_image
                 }}
             }}
         }}
@@ -180,6 +193,7 @@ class HardcoverClient:
                 "edition_id": edition["id"],
                 "pages": edition["pages"],
                 "title": edition["book"]["title"],
+                "cached_image": self._extract_cover_url(edition["book"].get("cached_image")),
             }
         return None
 
@@ -220,6 +234,7 @@ class HardcoverClient:
                 id
                 title
                 slug
+                cached_image
                 cached_contributors
             }
         }
@@ -296,6 +311,7 @@ class HardcoverClient:
                 "edition_id": edition.get("id") if edition else None,
                 "pages": edition.get("pages") if edition else None,
                 "title": best_match["title"],
+                "cached_image": self._extract_cover_url(best_match.get("cached_image")),
             }
 
         return None
@@ -439,6 +455,7 @@ class HardcoverClient:
                         id
                         title
                         slug
+                        cached_image
                         default_ebook_edition {
                             id
                             pages
@@ -471,6 +488,7 @@ class HardcoverClient:
                     id
                     title
                     slug
+                    cached_image
                     default_ebook_edition {
                         id
                         pages
@@ -509,6 +527,7 @@ class HardcoverClient:
             "pages": edition.get("pages") if edition else None,
             "audio_seconds": audio_seconds,
             "title": book.get("title"),
+            "cached_image": self._extract_cover_url(book.get("cached_image")),
         }
 
     def find_user_book(self, book_id: int) -> dict | None:
@@ -657,7 +676,7 @@ class HardcoverClient:
                 variables = {
                     "id": read_id,
                     "seconds": progress_seconds,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -679,7 +698,7 @@ class HardcoverClient:
                 variables = {
                     "id": read_id,
                     "pages": page,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -718,7 +737,7 @@ class HardcoverClient:
                 variables = {
                     "id": user_book_id,
                     "seconds": progress_seconds,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -740,7 +759,7 @@ class HardcoverClient:
                 variables = {
                     "id": user_book_id,
                     "pages": page,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -753,4 +772,199 @@ class HardcoverClient:
                 return True
             return False
 
+    def get_book_metadata(self, book_id: int) -> dict | None:
+        """Fetch enrichment metadata (description, tags, subtitle, release_year) for a book."""
+        query = """
+        query ($bookId: Int!) {
+            books_by_pk(id: $bookId) {
+                description
+                cached_tags
+                release_year
+                subtitle
+            }
+        }
+        """
+        result = self.query(query, {"bookId": book_id})
+        if not result or not result.get("books_by_pk"):
+            return None
+        book = result["books_by_pk"]
 
+        def _normalize_tag_name(value):
+            if isinstance(value, str):
+                return value.strip()
+            return ""
+
+        ignored_category_labels = {
+            "genre",
+            "genres",
+            "mood",
+            "moods",
+            "content warning",
+            "content warnings",
+            "tag",
+            "tags",
+        }
+
+        def _normalize_category_label(value):
+            normalized = _normalize_tag_name(value).lower()
+            singular_map = {
+                'genres': 'genre',
+                'moods': 'mood',
+                'content warnings': 'content warning',
+                'tags': 'tag',
+            }
+            return singular_map.get(normalized, normalized)
+
+        def _normalize_category(raw_tag):
+            if not isinstance(raw_tag, dict):
+                return ""
+
+            category = raw_tag.get("tag_category")
+            if isinstance(category, dict):
+                return _normalize_category_label(
+                    category.get("slug")
+                    or category.get("category")
+                    or category.get("name")
+                    or ""
+                )
+
+            if isinstance(category, str):
+                return _normalize_category_label(category)
+
+            return _normalize_category_label(
+                raw_tag.get("category")
+                or raw_tag.get("tag_category_slug")
+                or raw_tag.get("tag_category_name")
+                or raw_tag.get("type")
+                or ""
+            )
+
+        genres = []
+        tags = []
+        source_tags = book.get("cached_tags") or []
+
+        def _append_tag(name, category=""):
+            clean_name = _normalize_tag_name(name)
+            if not clean_name:
+                return
+            if clean_name.lower() in ignored_category_labels:
+                return
+            if _normalize_category_label(category) == "genre":
+                genres.append(clean_name)
+            else:
+                tags.append(clean_name)
+
+        if isinstance(source_tags, dict):
+            for raw_category, values in source_tags.items():
+                category = _normalize_category_label(raw_category)
+                if isinstance(values, list):
+                    for value in values:
+                        if isinstance(value, dict):
+                            _append_tag(
+                                value.get("tag")
+                                or value.get("name")
+                                or value.get("label")
+                                or value.get("value"),
+                                category,
+                            )
+                        else:
+                            _append_tag(value, category)
+                elif isinstance(values, dict):
+                    _append_tag(
+                        values.get("tag")
+                        or values.get("name")
+                        or values.get("label")
+                        or values.get("value"),
+                        category,
+                    )
+                else:
+                    _append_tag(values, category)
+        else:
+            for t in source_tags:
+                if isinstance(t, dict):
+                    name = _normalize_tag_name(
+                        t.get("tag")
+                        or t.get("name")
+                        or t.get("label")
+                        or t.get("value")
+                    )
+                    category = _normalize_category(t)
+                    if not name:
+                        continue
+                    if name.strip().lower() in ignored_category_labels:
+                        continue
+                    if _normalize_category_label(category) == "genre":
+                        genres.append(name)
+                    else:
+                        tags.append(name)
+                elif isinstance(t, str):
+                    name = t.strip()
+                    if name and name.lower() not in ignored_category_labels:
+                        tags.append(name)
+
+        genres = list(dict.fromkeys(t for t in genres if t))
+        tags = list(dict.fromkeys(t for t in tags if t))
+        return {
+            "description": book.get("description"),
+            "genres": genres,
+            "tags": tags,
+            "release_year": book.get("release_year"),
+            "subtitle": book.get("subtitle"),
+        }
+
+    def search_books_with_covers(self, query_str: str, limit: int = 5) -> list[dict]:
+        """Search for books and return results with cover images (for cover picker)."""
+        search_query = """
+        query ($query: String!) {
+            search(
+                query: $query,
+                per_page: 10,
+                page: 1,
+                query_type: "Book"
+            ) {
+                ids
+            }
+        }
+        """
+
+        result = self.query(search_query, {"query": query_str})
+        if not result or not result.get("search") or not result["search"].get("ids"):
+            return []
+
+        book_ids = result["search"]["ids"][:limit]
+        if not book_ids:
+            return []
+
+        book_query = """
+        query ($ids: [Int!]) {
+            books(where: { id: { _in: $ids }}) {
+                id
+                title
+                slug
+                cached_image
+                cached_contributors
+            }
+        }
+        """
+
+        book_result = self.query(book_query, {"ids": book_ids})
+        if not book_result or not book_result.get("books"):
+            return []
+
+        # Create lookup for quick access
+        books_by_id = {book["id"]: book for book in book_result["books"]}
+
+        results = []
+        for book_id in book_ids:
+            book = books_by_id.get(book_id)
+            if not book:
+                continue
+            authors = self._extract_authors_from_cached(book.get("cached_contributors"))
+            results.append({
+                "book_id": book["id"],
+                "title": book.get("title", ""),
+                "author": authors[0] if authors else "",
+                "cached_image": self._extract_cover_url(book.get("cached_image")),
+                "slug": book.get("slug"),
+            })
+        return results

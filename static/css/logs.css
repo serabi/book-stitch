@@ -53,12 +53,6 @@
 
 .controls .control-group input,
 .controls .control-group select {
-  padding: 10px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-bg-input);
-  color: var(--color-text);
-  font-size: 14px;
   min-width: 120px;
 }
 

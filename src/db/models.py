@@ -5,7 +5,7 @@ SQLAlchemy ORM models for PageKeeper database.
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 
@@ -80,6 +80,7 @@ class Book(Base):
     sync_mode = Column(String(20), default='audiobook')  # 'audiobook' or 'ebook_only'
     storyteller_uuid = Column(String(36), index=True, nullable=True)
     abs_ebook_item_id = Column(String(255), nullable=True)  # New ID to track ebook item separately
+    custom_cover_url = Column(String(500), nullable=True)
 
     # Reading tracker fields
     started_at = Column(String(10), nullable=True)    # YYYY-MM-DD
@@ -99,6 +100,7 @@ class Book(Base):
                  kosync_doc_id: str = None, transcript_file: str = None,
                  status: str = 'active', duration: float = None, sync_mode: str = 'audiobook',
                  storyteller_uuid: str = None, abs_ebook_item_id: str = None,
+                 custom_cover_url: str = None,
                  started_at: str = None, finished_at: str = None,
                  rating: float = None, read_count: int = 1):
         self.abs_id = abs_id
@@ -112,6 +114,7 @@ class Book(Base):
         self.sync_mode = sync_mode
         self.storyteller_uuid = storyteller_uuid
         self.abs_ebook_item_id = abs_ebook_item_id
+        self.custom_cover_url = custom_cover_url
         self.started_at = started_at
         self.finished_at = finished_at
         self.rating = rating
@@ -135,12 +138,12 @@ class ReadingJournal(Base):
     book = relationship("Book", back_populates="reading_journals")
 
     def __init__(self, abs_id: str, event: str, entry: str = None,
-                 percentage: float = None):
+                 percentage: float = None, created_at=None):
         self.abs_id = abs_id
         self.event = event
         self.entry = entry
         self.percentage = percentage
-        self.created_at = datetime.utcnow()
+        self.created_at = created_at or datetime.utcnow()
 
     def __repr__(self):
         return f"<ReadingJournal(id={self.id}, abs_id='{self.abs_id}', event='{self.event}')>"
@@ -177,6 +180,7 @@ class HardcoverDetails(Base):
     isbn = Column(String(255))
     asin = Column(String(255))
     matched_by = Column(String(50))  # 'isbn', 'asin', 'title_author', 'title'
+    hardcover_cover_url = Column(String(500), nullable=True)
 
     # Relationship
     book = relationship("Book", back_populates="hardcover_details")
@@ -184,7 +188,8 @@ class HardcoverDetails(Base):
     def __init__(self, abs_id: str, hardcover_book_id: str = None, hardcover_slug: str = None,
                  hardcover_edition_id: str = None,
                  hardcover_pages: int = None, hardcover_audio_seconds: int = None,
-                 isbn: str = None, asin: str = None, matched_by: str = None):
+                 isbn: str = None, asin: str = None, matched_by: str = None,
+                 hardcover_cover_url: str = None):
         self.abs_id = abs_id
         self.hardcover_book_id = hardcover_book_id
         self.hardcover_slug = hardcover_slug
@@ -194,6 +199,7 @@ class HardcoverDetails(Base):
         self.isbn = isbn
         self.asin = asin
         self.matched_by = matched_by
+        self.hardcover_cover_url = hardcover_cover_url
 
     def __repr__(self):
         return f"<HardcoverDetails(abs_id='{self.abs_id}', hardcover_book_id='{self.hardcover_book_id}')>"
@@ -279,7 +285,9 @@ class PendingSuggestion(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def __init__(self, source_id: str, title: str, author: str = None,
-                 cover_url: str = None, matches_json: str = "[]", status: str = 'pending'):
+                 cover_url: str = None, matches_json: str = "[]", status: str = 'pending',
+                 source: str = 'abs'):
+        self.source = source
         self.source_id = source_id
         self.title = title
         self.author = author
@@ -341,18 +349,86 @@ class BookAlignment(Base):
         self.alignment_map_json = alignment_map_json
 
 
+class BookfusionHighlight(Base):
+    """BookFusion highlight synced via the Obsidian API."""
+    __tablename__ = 'bookfusion_highlights'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    bookfusion_book_id = Column(String(255), nullable=False)
+    highlight_id = Column(String(255), nullable=False, unique=True)
+    book_title = Column(String(500))
+    content = Column(Text, nullable=False)
+    chapter_heading = Column(String(500))
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    highlighted_at = Column(DateTime, nullable=True)
+    quote_text = Column(Text, nullable=True)
+    matched_abs_id = Column(String(255), nullable=True)
+
+    def __init__(self, bookfusion_book_id: str, highlight_id: str, content: str,
+                 book_title: str = None, chapter_heading: str = None,
+                 highlighted_at=None, quote_text: str = None,
+                 matched_abs_id: str = None):
+        self.bookfusion_book_id = bookfusion_book_id
+        self.highlight_id = highlight_id
+        self.content = content
+        self.book_title = book_title
+        self.chapter_heading = chapter_heading
+        self.fetched_at = datetime.utcnow()
+        self.highlighted_at = highlighted_at
+        self.quote_text = quote_text
+        self.matched_abs_id = matched_abs_id
+
+    def __repr__(self):
+        return f"<BookfusionHighlight(id={self.id}, book='{self.book_title}')>"
+
+
+class BookfusionBook(Base):
+    """BookFusion library catalog entry synced via the Obsidian API."""
+    __tablename__ = 'bookfusion_books'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    bookfusion_id = Column(String(255), unique=True, nullable=False)
+    title = Column(String(500))
+    authors = Column(String(500))
+    filename = Column(String(500))
+    frontmatter = Column(Text)
+    tags = Column(String(500))
+    series = Column(String(500))
+    highlight_count = Column(Integer, default=0, nullable=False, server_default='0')
+    matched_abs_id = Column(String(255), nullable=True)
+    hidden = Column(Boolean, default=False, nullable=False, server_default='0')
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __init__(self, bookfusion_id: str, title: str = None, authors: str = None,
+                 filename: str = None, frontmatter: str = None, tags: str = None,
+                 series: str = None, highlight_count: int = 0,
+                 matched_abs_id: str = None, hidden: bool = False):
+        self.bookfusion_id = bookfusion_id
+        self.title = title
+        self.authors = authors
+        self.filename = filename
+        self.frontmatter = frontmatter
+        self.tags = tags
+        self.series = series
+        self.highlight_count = highlight_count
+        self.matched_abs_id = matched_abs_id
+        self.hidden = hidden
+        self.fetched_at = datetime.utcnow()
+        self.last_updated = datetime.utcnow()
+
+    def __repr__(self):
+        return f"<BookfusionBook(id={self.id}, title='{self.title}')>"
+
+
 class BookloreBook(Base):
     """
     Model for caching Booklore search results, replacing local JSON cache.
     """
     __tablename__ = 'booklore_books'
-    __table_args__ = (
-        sa.UniqueConstraint('filename', 'source', name='uq_booklore_books_filename_source'),
-    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    filename = Column(String(500), index=True, nullable=False)
-    source = Column(String(50), default='booklore')
+    filename = Column(String(500), nullable=False, unique=True)
     title = Column(String(500))
     authors = Column(String(500))
     raw_metadata = Column(Text)  # JSON blob of full booklore response
@@ -367,12 +443,11 @@ class BookloreBook(Base):
             return {}
 
     def __init__(self, filename: str, title: str | None = None, authors: str | None = None,
-                 raw_metadata: str | None = None, source: str = 'booklore'):
+                 raw_metadata: str | None = None):
         self.filename = filename
         self.title = title
         self.authors = authors
         self.raw_metadata = raw_metadata
-        self.source = source
 
 
 # Database configuration

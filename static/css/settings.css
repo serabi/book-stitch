@@ -198,13 +198,6 @@
 
 .form-group input:not([type="checkbox"]):not([type="hidden"]),
 .form-group select {
-  padding: 10px 14px;
-  background: var(--color-bg-input);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text);
-  font-size: 14px;
-  font-family: var(--font-body);
   width: 100%;
   transition: border-color var(--transition-smooth), box-shadow var(--transition-smooth);
 }
@@ -508,6 +501,42 @@ input:checked + .slider:before {
   display: none !important;
 }
 
+/* ─── Sidebar Version ─── */
+.sidebar-version {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: auto;
+  padding: 16px 24px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.sidebar-version-text {
+  font-size: 11px;
+  color: var(--color-text-faint);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  font-family: monospace;
+}
+
+.sidebar-update-link {
+  font-size: 11px;
+  color: var(--color-primary-hover);
+  text-decoration: none;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  transition: all 0.2s;
+  font-weight: 600;
+}
+
+.sidebar-update-link:hover {
+  background: var(--color-surface-hover);
+}
+
 /* ─── Responsive: Tablet ─── */
 @media (max-width: 1024px) {
   .settings-content {
@@ -539,6 +568,15 @@ input:checked + .slider:before {
 
   .sidebar-label {
     display: none;
+  }
+
+  .sidebar-version {
+    margin-top: 0;
+    padding: 4px 14px;
+    border-top: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
   }
 
   .sidebar-tab {

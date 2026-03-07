@@ -6,9 +6,11 @@ import threading
 import time
 from pathlib import Path
 
+import nh3
 import schedule
 from dependency_injector import providers
-from flask import Flask
+from flask import Flask, request
+from markupsafe import Markup
 
 from src.api.hardcover_routes import hardcover_bp, init_hardcover_routes
 from src.api.kosync_server import init_kosync_server, kosync_admin_bp, kosync_sync_bp
@@ -120,6 +122,10 @@ def apply_settings(app):
         _reconcile_socket_listener(app)
     except Exception as e:
         errors.append(f"socket listener reconciliation failed: {e}")
+
+    # 4. Refresh config values that blueprints read from app.config
+    app.config['ABS_COLLECTION_NAME'] = os.environ.get('ABS_COLLECTION_NAME', 'Synced with KOReader')
+    app.config['SUGGESTIONS_ENABLED'] = os.environ.get('SUGGESTIONS_ENABLED', 'false').lower() == 'true'
 
     if errors:
         error_message = "; ".join(errors)
@@ -281,6 +287,8 @@ def setup_dependencies(app, test_container=None):
     app.config['DATA_DIR'] = DATA_DIR
     app.config['EBOOK_DIR'] = EBOOK_DIR
     app.config['COVERS_DIR'] = COVERS_DIR
+    app.config['ABS_COLLECTION_NAME'] = os.environ.get('ABS_COLLECTION_NAME', 'Synced with KOReader')
+    app.config['SUGGESTIONS_ENABLED'] = os.environ.get('SUGGESTIONS_ENABLED', 'false').lower() == 'true'
 
     # Register KoSync Blueprint and initialize with dependencies
     init_kosync_server(database_service, container, manager, EBOOK_DIR)
@@ -342,6 +350,7 @@ def inject_global_vars():
             'HARDCOVER_ENABLED': 'false',
             'TELEGRAM_ENABLED': 'false',
             'SUGGESTIONS_ENABLED': 'false',
+            'BOOKFUSION_ENABLED': 'false',
             'REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT': 'true'
         }
         if key in DEFAULTS: return DEFAULTS[key]
@@ -360,11 +369,27 @@ def inject_global_vars():
         val = get_val(key, 'false')
         return val.lower() in ('true', '1', 'yes', 'on')
 
+    def get_header_service_url(service_name):
+        from src.blueprints.helpers import get_service_web_url
+        prefix = service_name.upper()
+        if not get_bool(f'{prefix}_ENABLED'):
+            return ''
+        return get_service_web_url(prefix)
+
+    def is_active_path(path):
+        req_path = request.path.rstrip('/') or '/'
+        target_path = path.rstrip('/') or '/'
+        if target_path == '/':
+            return req_path == '/'
+        return req_path == target_path or req_path.startswith(f'{target_path}/')
+
     return dict(
         abs_server=os.environ.get("ABS_SERVER", ""),
         booklore_server=os.environ.get("BOOKLORE_SERVER", ""),
         get_val=get_val,
-        get_bool=get_bool
+        get_bool=get_bool,
+        get_header_service_url=get_header_service_url,
+        is_active_path=is_active_path,
     )
 
 
@@ -454,6 +479,17 @@ def _log_security_warnings():
         logger.info("Tip: Set KOSYNC_PUBLIC_URL in settings if you expose KOSync through a reverse proxy")
 
 
+_ALLOWED_HTML_TAGS = {'p', 'br', 'b', 'i', 'em', 'strong', 'ul', 'ol', 'li'}
+
+
+def _sanitize_html(value):
+    """Allow only safe formatting tags and strip all attributes/protocols."""
+    if not value:
+        return ''
+    cleaned = nh3.clean(str(value), tags=_ALLOWED_HTML_TAGS, attributes={})
+    return Markup(cleaned)
+
+
 # --- Application Factory ---
 def create_app(test_container=None):
     STATIC_DIR = os.environ.get('STATIC_DIR', '/app/static')
@@ -467,6 +503,7 @@ def create_app(test_container=None):
     # Register context processors, jinja globals
     app.context_processor(inject_global_vars)
     app.jinja_env.globals['safe_folder_name'] = safe_folder_name
+    app.jinja_env.filters['sanitize_html'] = _sanitize_html
 
     # Register all application blueprints
     register_blueprints(app)

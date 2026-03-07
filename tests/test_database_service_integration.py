@@ -579,7 +579,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.db_service.save_pending_suggestion(s2)
 
         # Verify initial state
-        all_suggestions = self.db_service.get_all_pending_suggestions()
+        all_suggestions = self.db_service.get_all_actionable_suggestions()
         self.assertEqual(len(all_suggestions), 2)
 
         # 3. Clear Stale Suggestions
@@ -587,9 +587,38 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertEqual(cleared_count, 1)
 
         # 4. Verify Final State
-        remaining = self.db_service.get_all_pending_suggestions()
+        remaining = self.db_service.get_all_actionable_suggestions()
         self.assertEqual(len(remaining), 1)
         self.assertEqual(remaining[0].source_id, active_id)
+
+    def test_hide_unhide_and_resolve_suggestion(self):
+        """Test suggestion status transitions for hide, unhide, and resolve."""
+        from src.db.models import PendingSuggestion
+
+        suggestion = PendingSuggestion(
+            source_id='suggestion-123',
+            title='Test Suggestion',
+            author='Author',
+            matches_json='[]'
+        )
+        self.db_service.save_pending_suggestion(suggestion)
+
+        actionable = self.db_service.get_all_actionable_suggestions()
+        self.assertEqual(len(actionable), 1)
+        self.assertEqual(actionable[0].status, 'pending')
+
+        self.assertTrue(self.db_service.hide_suggestion('suggestion-123'))
+        hidden = self.db_service.get_hidden_suggestions()
+        self.assertEqual(len(hidden), 1)
+        self.assertEqual(hidden[0].status, 'hidden')
+
+        self.assertTrue(self.db_service.unhide_suggestion('suggestion-123'))
+        pending = self.db_service.get_all_pending_suggestions()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].status, 'pending')
+
+        self.assertTrue(self.db_service.resolve_suggestion('suggestion-123'))
+        self.assertEqual(self.db_service.get_all_actionable_suggestions(), [])
 
     def test_migration_partial_data(self):
         """Test migration with partial/missing data scenarios."""

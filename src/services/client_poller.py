@@ -22,7 +22,6 @@ class ClientPoller:
     _POLLABLE = [
         ('Storyteller', 'STORYTELLER'),
         ('BookLore', 'BOOKLORE'),
-        ('BookLore2', 'BOOKLORE_2'),
     ]
 
     def __init__(self, database_service, sync_manager, sync_clients_dict: dict):
@@ -123,7 +122,7 @@ class ClientPoller:
                     )
                 elif abs(current_pct - last_pct) > 0.001:
                     # Check write-suppression before acting
-                    if is_own_write(client_name, book.abs_id):
+                    if is_own_write(client_name, book.abs_id, state=current_state.current):
                         logger.debug(
                             f"{client_name} poll: Ignoring self-triggered change for '{book.abs_title}'"
                         )

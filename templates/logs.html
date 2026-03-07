@@ -28,7 +28,7 @@
         <div class="controls">
             <div class="control-group">
                 <label for="logLevel">Min Log Level:</label>
-                <select id="logLevel">
+                <select id="logLevel" class="input-compact">
                     <option value="DEBUG">DEBUG</option>
                     <option value="INFO" selected>INFO</option>
                     <option value="WARNING">WARNING</option>
@@ -39,12 +39,12 @@
 
             <div class="control-group">
                 <label for="searchInput">Filter by text:</label>
-                <input type="text" id="searchInput" class="search-input" placeholder="Search logs...">
+                <input type="text" id="searchInput" class="search-input input-compact" placeholder="Search logs...">
             </div>
 
             <div class="control-group">
                 <label for="linesCount">Lines to show:</label>
-                <select id="linesCount">
+                <select id="linesCount" class="input-compact">
                     <option value="100">100</option>
                     <option value="500">500</option>
                     <option value="1000" selected>1000</option>
@@ -155,12 +155,18 @@
                 return data;
             } catch (error) {
                 console.error('Error fetching logs:', error);
-                logContent.innerHTML = `
-                    <div class="log-line">
-                        <span class="log-level ERROR">ERROR</span>
-                        <span class="log-message">Failed to fetch logs: ${error.message}</span>
-                    </div>
-                `;
+                logContent.textContent = '';
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                const level = document.createElement('span');
+                level.className = 'log-level ERROR';
+                level.textContent = 'ERROR';
+                const msg = document.createElement('span');
+                msg.className = 'log-message';
+                msg.textContent = `Failed to fetch logs: ${error.message}`;
+                line.appendChild(level);
+                line.appendChild(msg);
+                logContent.appendChild(line);
             }
         }
 

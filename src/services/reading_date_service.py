@@ -101,14 +101,13 @@ def _push_completion_to_clients(book, container, database_service):
 
 
 def _push_booklore_read_status(book, container, status):
-    """Push a read status (READING, READ, etc.) to all configured Booklore instances."""
-    for attr in ('booklore_client', 'booklore_client_2'):
-        try:
-            bl_client = getattr(container, attr)()
-            if bl_client.is_configured():
-                bl_client.update_read_status(book.ebook_filename, status)
-        except Exception as e:
-            logger.debug(f"Could not push Booklore status '{status}' via {attr}: {e}")
+    """Push a read status (READING, READ, etc.) to Booklore."""
+    try:
+        bl_client = container.booklore_client()
+        if bl_client.is_configured():
+            bl_client.update_read_status(book.ebook_filename, status)
+    except Exception as e:
+        logger.debug(f"Could not push Booklore status '{status}': {e}")
 
 
 def _mark_completed(book, dates, database_service, stats, reason, container=None,
@@ -187,7 +186,7 @@ def sync_reading_dates(database_service, container):
     stats = {'updated': 0, 'completed': 0, 'errors': 0}
 
     for book in books:
-        if book.status in ('pending', 'processing', 'failed_retry_later', 'failed_permanent'):
+        if book.status in ('pending', 'processing', 'failed_retry_later', 'failed_permanent', 'not_started'):
             continue
 
         needs_started = not book.started_at and book.status in ('active', 'paused', 'completed', 'dnf')
@@ -227,9 +226,16 @@ def sync_reading_dates(database_service, container):
                     continue
 
             # Fill in missing dates for books that don't need completion
+            # For active books, only set started_at if there's real progress (>1%).
+            # ABS/Hardcover auto-set startedAt on first sync even at 0% — unreliable.
             updates = {}
             if needs_started and dates.get('started_at'):
-                updates['started_at'] = dates['started_at']
+                if book.status == 'active':
+                    local_pct = _max_state_progress(book.abs_id, database_service)
+                    if local_pct > 0.01:
+                        updates['started_at'] = dates['started_at']
+                else:
+                    updates['started_at'] = dates['started_at']
             if needs_finished and dates.get('finished_at'):
                 updates['finished_at'] = dates['finished_at']
 

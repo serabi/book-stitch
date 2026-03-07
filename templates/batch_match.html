@@ -15,262 +15,405 @@
 
 <body>
     {% include 'partials/navbar.html' %}
+    {% set queue_summary = queue_summary|default({
+        'total_count': queue|length if queue is defined else 0,
+        'ready_count': queue|length if queue is defined else 0,
+        'audio_only_count': 0,
+        'incomplete_count': 0
+    }) %}
+    {% set queue = queue|default([]) %}
 
-    <!-- Main Container -->
     <div class="container">
         <div class="page-header">
-            <h2>Batch Match Queue System</h2>
-            <p class="subtitle">Select multiple audiobook/ebook pairs and process them all at once</p>
+            <h2>Batch Match</h2>
+            <p class="subtitle">Build mappings quickly, review them in one place, then process the batch.</p>
         </div>
 
-        <div class="layout">
-            <!-- Selection Area -->
-            <div class="selection-area">
-                <form method="GET" action="/batch-match">
-                    <input type="text" name="search" placeholder="🔍 Search by title, author, or filename..."
-                        class="search-box" value="{{ search }}" autofocus>
-                    <button type="submit" class="btn btn-primary">Search</button>
+        <section class="search-section batch-search-section">
+            <form method="GET" action="/batch-match" class="batch-search-form">
+                <input type="text" name="search" placeholder="Search by title, author, or filename..."
+                    class="search-box" value="{{ search }}" autofocus>
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </section>
+
+        <section class="batch-summary-bar">
+            <div class="batch-summary-metrics">
+                <div class="batch-summary-card">
+                    <span class="batch-summary-label">Queue</span>
+                    <strong class="batch-summary-value">{{ queue_summary.total_count }}</strong>
+                    <span class="batch-summary-meta">items</span>
+                </div>
+                <div class="batch-summary-card">
+                    <span class="batch-summary-label">Ready</span>
+                    <strong class="batch-summary-value">{{ queue_summary.ready_count }}</strong>
+                    <span class="batch-summary-meta">processable now</span>
+                </div>
+                <div class="batch-summary-card">
+                    <span class="batch-summary-label">Audio Only</span>
+                    <strong class="batch-summary-value">{{ queue_summary.audio_only_count }}</strong>
+                    <span class="batch-summary-meta">without ebook</span>
+                </div>
+            </div>
+            <div class="batch-summary-actions">
+                <form method="POST" action="/batch-match">
+                    <input type="hidden" name="action" value="process_queue">
+                    <button type="submit" class="btn btn-success" {% if not queue_summary.total_count %}disabled{% endif %}>
+                        Process Ready
+                    </button>
                 </form>
-
-                <form method="POST" action="/batch-match" id="addToQueueForm">
-                    <input type="hidden" name="action" value="add_to_queue">
-                    <input type="hidden" name="search" value="{{ search }}">
-                    <input type="hidden" name="audiobook_id" id="selected_audiobook_id">
-                    <input type="hidden" name="ebook_filename" id="selected_ebook_filename">
-                    <input type="hidden" name="ebook_display_name" id="selected_ebook_display_name" value="">
-                    <input type="hidden" name="storyteller_uuid" id="selected_storyteller_uuid" value="">
-
-                    {% set single_ab_match = audiobooks|length == 1 %}
-                    <div class="section">
-                        <h3><span class="section-number">1</span>Audiobook</h3>
-                        <p class="section-hint">Select an audiobook from your ABS library</p>
-                        <div class="media-grid">
-                            {% for ab in audiobooks %}
-                            <div class="audiobook-option {% if single_ab_match %}selected{% endif %}" data-value="{{ ab.id }}"
-                                onclick="selectAudiobook(this, '{{ ab.id }}', '{{ get_title(ab) }}')">
-                                <div class="audiobook-cover-container">
-                                    {% if ab.cover_url %}
-                                    <img src="{{ ab.cover_url }}" alt="Cover" class="audiobook-cover"
-                                        onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
-                                    <div class="audiobook-cover-placeholder hidden"></div>
-                                    {% else %}
-                                    <div class="audiobook-cover-placeholder"></div>
-                                    {% endif %}
-                                </div>
-                                <div class="audiobook-info">
-                                    <div class="audiobook-title">{{ get_title(ab) }}</div>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    {% if storyteller_books %}
-                    {% set single_st_match = storyteller_books|length == 1 %}
-                    <div class="section">
-                        <h3><span class="section-number">2</span>Storyteller</h3>
-                        <p class="section-hint">Sync with Storyteller for narrated ebooks</p>
-                        <div class="resource-grid">
-                            <div class="resource-card st-card ghost-card {% if not single_st_match %}selected{% endif %}"
-                                id="st-none-card" data-value="" onclick="selectStoryteller(this, '')">
-                                <div class="resource-icon"></div>
-                                <div class="resource-title">None / Skip</div>
-                            </div>
-                        {% for st in storyteller_books %}
-                        <div class="resource-card st-card {% if single_st_match %}selected{% endif %}"
-                            data-value="{{ st.uuid }}" onclick="selectStoryteller(this, '{{ st.uuid }}')">
-                            <div class="resource-icon"></div>
-                            <div class="resource-title" title="{{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}">
-                                {{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}
-                            </div>
-                            {% if st.authors %}
-                            <div class="resource-subtitle">{{ st.authors|join(', ') }}</div>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    {% set single_eb_match = ebooks|length == 1 %}
-                    <div class="section">
-                        <h3><span class="section-number">{% if storyteller_books %}3{% else %}2{% endif %}</span>eBook Source</h3>
-                        <p class="section-hint">Select an ebook to sync reading progress</p>
-                    {% if ebooks %}
-                    <div class="resource-grid" id="ebook-card-grid">
-                        {% for eb in ebooks %}
-                        <div class="resource-card eb-card {% if single_eb_match %}selected{% endif %}"
-                            data-value="{{ eb.name }}"
-                            data-display-name="{{ eb.display_name | replace("'", "\\'") }}"
-                            onclick="selectEbookCard(this, '{{ eb.name }}', '{{ eb.display_name | replace("'", "\\'") }}')">
-                            {% if eb.cover_url %}
-                            <div class="resource-cover-container">
-                                <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
-                                    onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
-                                <div class="resource-icon hidden"></div>
-                            </div>
-                            {% else %}
-                            <div class="resource-icon"></div>
-                            {% endif %}
-                            <div class="resource-title" title="{{ eb.display_name }}">
-                                {{ eb.title }}{% if eb.subtitle %}: {{ eb.subtitle }}{% endif %}
-                            </div>
-                            {% if eb.authors %}
-                            <div class="resource-subtitle">{{ eb.authors }}</div>
-                            {% endif %}
-                            {% if eb.source %}
-                            {% set badge_cls = eb.source.lower().replace(' ', '') %}
-                            <span class="source-badge {{ badge_cls }}">{{ eb.source }}</span>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <div class="empty-state">
-                        <div class="empty-state-icon"></div>
-                        <h3>No ebooks found</h3>
-                        <p>Try a different search term</p>
-                    </div>
-                    {% endif %}
-                    </div>
-
-                    <button type="submit" class="btn btn-success add-to-queue-btn" id="addToQueueBtn" disabled>
-                        Add to Queue
+                <form method="POST" action="/batch-match">
+                    <input type="hidden" name="action" value="clear_queue">
+                    <button type="submit" class="btn btn-danger"
+                        onclick="return confirm('Clear entire queue?')" {% if not queue_summary.total_count %}disabled{% endif %}>
+                        Clear All
                     </button>
                 </form>
             </div>
+        </section>
 
-            <!-- Queue Area -->
-            <div class="queue-area">
-                <div class="queue-header">
-                    <h3>Queue</h3>
-                    <span class="queue-count">{{ queue|length }} items</span>
-                </div>
+        <form method="POST" action="/batch-match" id="addToQueueForm">
+            <input type="hidden" name="action" value="add_to_queue">
+            <input type="hidden" name="search" value="{{ search }}">
+            <input type="hidden" name="audiobook_id" id="selected_audiobook_id">
+            <input type="hidden" name="ebook_filename" id="selected_ebook_filename">
+            <input type="hidden" name="ebook_display_name" id="selected_ebook_display_name" value="">
+            <input type="hidden" name="storyteller_uuid" id="selected_storyteller_uuid" value="">
 
-                {% if queue %}
-                <div class="queue-items">
-                    {% for item in queue %}
-                    <div class="queue-item">
-                        <img src="{{ item.cover_url }}" alt="" class="queue-item-cover"
-                            onerror="this.style.display='none';">
-                        <div class="queue-item-info">
-                            <p class="queue-item-title" title="{{ item.abs_title }}">{{ item.abs_title }}</p>
-                            {% if item.get('audio_only') %}
-                            <p class="queue-item-ebook">
-                                <span class="queue-item-label-audio">Audio Only</span>
-                            </p>
-                            {% elif item.storyteller_uuid %}
-                            <p class="queue-item-ebook">
-                                <span class="queue-item-label-storyteller">Storyteller</span>{% if item.ebook_display_name %} + {{ item.ebook_display_name }}{% endif %}
-                            </p>
+            {% set single_ab_match = audiobooks|length == 1 %}
+            {% set single_st_match = storyteller_books|length == 1 %}
+            {% set single_eb_match = ebooks|length == 1 %}
+
+            <section class="batch-selection-workspace">
+                <div class="batch-selection-grid">
+                    <div class="batch-selection-column">
+                        <div class="batch-selection-header">
+                            <h3><span class="section-number">1</span>Audiobooks</h3>
+                            <p class="section-hint">Choose one audiobook from your ABS library.</p>
+                        </div>
+                        <div class="batch-selection-panel">
+                            {% if audiobooks %}
+                            <div class="media-grid">
+                                {% for ab in audiobooks %}
+                                <button type="button"
+                                    class="audiobook-option batch-select-card {% if single_ab_match %}selected{% endif %}"
+                                    data-select-group="audiobook"
+                                    data-value="{{ ab.id }}"
+                                    data-target-input="selected_audiobook_id">
+                                    <div class="audiobook-cover-container">
+                                        {% if ab.cover_url %}
+                                        <img src="{{ ab.cover_url }}" alt="Cover" class="audiobook-cover"
+                                            onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                                        <div class="audiobook-cover-placeholder hidden"></div>
+                                        {% else %}
+                                        <div class="audiobook-cover-placeholder"></div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="audiobook-info">
+                                        <div class="audiobook-title">{{ get_title(ab) }}</div>
+                                    </div>
+                                </button>
+                                {% endfor %}
+                            </div>
                             {% else %}
-                            <p class="queue-item-ebook" title="{{ item.ebook_filename }}">
-                                {{ item.ebook_display_name or item.ebook_filename }}
-                            </p>
+                            <div class="empty-state batch-empty-state">
+                                <div class="empty-state-icon"></div>
+                                <h3>No audiobooks found</h3>
+                                <p>Search to load audiobook matches.</p>
+                            </div>
                             {% endif %}
                         </div>
-                        <form method="POST" action="/batch-match" class="d-inline">
-                            <input type="hidden" name="action" value="remove_from_queue">
-                            <input type="hidden" name="abs_id" value="{{ item.abs_id }}">
-                            <button type="submit" class="queue-item-remove">&times;</button>
-                        </form>
                     </div>
-                    {% endfor %}
+
+                    <div class="batch-selection-column">
+                        <div class="batch-selection-header">
+                            <h3><span class="section-number">2</span>Storyteller</h3>
+                            <p class="section-hint">Optional narrated ebook sync source.</p>
+                        </div>
+                        <div class="batch-selection-panel">
+                            <div class="resource-grid">
+                                <button type="button"
+                                    class="resource-card st-card ghost-card batch-select-card {% if not storyteller_books or not single_st_match %}selected{% endif %}"
+                                    data-select-group="storyteller"
+                                    data-value=""
+                                    data-target-input="selected_storyteller_uuid">
+                                    <div class="resource-icon"></div>
+                                    <div class="resource-title">None / Skip</div>
+                                </button>
+                                {% for st in storyteller_books %}
+                                <button type="button"
+                                    class="resource-card st-card batch-select-card {% if single_st_match %}selected{% endif %}"
+                                    data-select-group="storyteller"
+                                    data-value="{{ st.uuid }}"
+                                    data-target-input="selected_storyteller_uuid">
+                                    <div class="resource-icon"></div>
+                                    <div class="resource-title" title="{{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}">
+                                        {{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}
+                                    </div>
+                                    {% if st.authors %}
+                                    <div class="resource-subtitle">{{ st.authors|join(', ') }}</div>
+                                    {% endif %}
+                                </button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="batch-selection-column">
+                        <div class="batch-selection-header">
+                            <h3><span class="section-number">3</span>eBooks</h3>
+                            <p class="section-hint">Optional ebook source for progress sync.</p>
+                        </div>
+                        <div class="batch-selection-panel">
+                            {% if ebooks %}
+                            <div class="resource-grid" id="ebook-card-grid">
+                                {% for eb in ebooks %}
+                                <button type="button"
+                                    class="resource-card eb-card batch-select-card {% if single_eb_match %}selected{% endif %}"
+                                    data-select-group="ebook"
+                                    data-value="{{ eb.name }}"
+                                    data-display-name="{{ eb.display_name }}"
+                                    data-target-input="selected_ebook_filename"
+                                    data-display-input="selected_ebook_display_name">
+                                    {% if eb.cover_url %}
+                                    <div class="resource-cover-container">
+                                        <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
+                                            onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                                        <div class="resource-icon hidden"></div>
+                                    </div>
+                                    {% else %}
+                                    <div class="resource-icon"></div>
+                                    {% endif %}
+                                    <div class="resource-title" title="{{ eb.display_name }}">
+                                        {{ eb.title }}{% if eb.subtitle %}: {{ eb.subtitle }}{% endif %}
+                                    </div>
+                                    {% if eb.authors %}
+                                    <div class="resource-subtitle">{{ eb.authors }}</div>
+                                    {% endif %}
+                                    {% if eb.source %}
+                                    {% set badge_cls = eb.source.lower().replace(' ', '') %}
+                                    <span class="source-badge {{ badge_cls }}">{{ eb.source }}</span>
+                                    {% endif %}
+                                </button>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="empty-state batch-empty-state">
+                                <div class="empty-state-icon"></div>
+                                <h3>No ebooks found</h3>
+                                <p>You can still queue an audio-only mapping.</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
 
-                <div class="queue-footer">
-                    <form method="POST" action="/batch-match">
-                        <input type="hidden" name="action" value="process_queue">
-                        <button type="submit" class="btn btn-success w-100">
-                            Process All ({{ queue|length }})
-                        </button>
-                    </form>
+                <div class="batch-selection-footer">
+                    <div class="batch-selection-status" id="selectionStatus">
+                        Select an audiobook to enable queueing.
+                    </div>
+                    <button type="submit" class="btn btn-success add-to-queue-btn" id="addToQueueBtn" disabled>
+                        Add to Queue
+                    </button>
+                </div>
+            </section>
+        </form>
 
-                    <form method="POST" action="/batch-match">
-                        <input type="hidden" name="action" value="clear_queue">
-                        <button type="submit" class="btn btn-danger w-100"
-                            onclick="return confirm('Clear entire queue?')">
-                            Clear Queue
-                        </button>
-                    </form>
-                </div>
-                {% else %}
-                <div class="empty-state">
-                    <div class="empty-state-icon"></div>
-                    <h3>Queue is empty</h3>
-                    <p>Add items to get started</p>
-                </div>
-                {% endif %}
+        <section class="batch-queue-section">
+            <div class="batch-section-heading">
+                <h3>Queue Builder</h3>
+                <p>Review each mapping before processing the batch.</p>
             </div>
-        </div>
+
+            {% if queue %}
+            <div class="batch-queue-table-wrap">
+                <table class="batch-queue-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Audiobook</th>
+                            <th>Storyteller</th>
+                            <th>eBook</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in queue %}
+                        <tr>
+                            <td class="batch-row-index">{{ loop.index }}</td>
+                            <td>
+                                <div class="batch-queue-book">
+                                    {% if item.cover_url %}
+                                    <img src="{{ item.cover_url }}" alt="" class="batch-queue-cover"
+                                        onerror="this.style.display='none';">
+                                    {% else %}
+                                    <div class="batch-queue-cover batch-queue-cover-placeholder"></div>
+                                    {% endif %}
+                                    <div class="batch-queue-book-copy">
+                                        <div class="batch-queue-title" title="{{ item.abs_title }}">{{ item.abs_title }}</div>
+                                        <div class="batch-queue-subtitle">{{ item.abs_id }}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="batch-queue-cell {% if item.storyteller_selected %}has-value{% endif %}">
+                                    {{ item.storyteller_label }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="batch-queue-cell {% if item.ebook_filename %}has-value{% endif %}">
+                                    {{ item.ebook_label }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="batch-status-pill {{ item.status_kind }}">{{ item.status_label }}</span>
+                            </td>
+                            <td class="batch-queue-actions-cell">
+                                <form method="POST" action="/batch-match" class="d-inline">
+                                    <input type="hidden" name="action" value="remove_from_queue">
+                                    <input type="hidden" name="abs_id" value="{{ item.abs_id }}">
+                                    <button type="submit" class="queue-item-remove batch-row-remove">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state batch-empty-state batch-queue-empty">
+                <div class="empty-state-icon"></div>
+                <h3>Queue is empty</h3>
+                <p>Build a few mappings above, then process them together.</p>
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="batch-validation-section">
+            <div class="batch-section-heading">
+                <h3>Validation</h3>
+                <p>Quick checks before you process the queue.</p>
+            </div>
+            <div class="batch-validation-list">
+                <div class="batch-validation-item">
+                    <span class="batch-validation-label">Ready items</span>
+                    <strong>{{ queue_summary.ready_count }}</strong>
+                </div>
+                <div class="batch-validation-item">
+                    <span class="batch-validation-label">Audio-only items</span>
+                    <strong>{{ queue_summary.audio_only_count }}</strong>
+                </div>
+                <div class="batch-validation-item">
+                    <span class="batch-validation-label">Incomplete items</span>
+                    <strong>{{ queue_summary.incomplete_count }}</strong>
+                </div>
+            </div>
+        </section>
     </div>
 
     <script>
-        let selectedAudiobookId = null;
-        let selectedEbookFilename = null;
-        let selectedStorytellerUuid = null;
+        const selectionState = {
+            audiobook: null,
+            storyteller: null,
+            ebook: null,
+            ebookDisplayName: '',
+        };
 
-        // Initialise from server-side auto-selects (single-match logic)
-        (function init() {
-            const preSelectedAb = document.querySelector('.audiobook-option.selected');
-            if (preSelectedAb) {
-                selectedAudiobookId = preSelectedAb.dataset.value;
-                document.getElementById('selected_audiobook_id').value = selectedAudiobookId;
+        function applySelection(card) {
+            const group = card.dataset.selectGroup;
+            const value = card.dataset.value || '';
+            const targetInputId = card.dataset.targetInput;
+            const targetInput = document.getElementById(targetInputId);
+
+            document.querySelectorAll(`[data-select-group="${group}"]`).forEach((el) => {
+                el.classList.remove('selected');
+            });
+
+            card.classList.add('selected');
+            targetInput.value = value;
+
+            if (group === 'audiobook') {
+                selectionState.audiobook = value || null;
+            } else if (group === 'storyteller') {
+                selectionState.storyteller = value || null;
+            } else if (group === 'ebook') {
+                selectionState.ebook = value || null;
+                selectionState.ebookDisplayName = card.dataset.displayName || value;
+                const displayInput = document.getElementById(card.dataset.displayInput);
+                if (displayInput) {
+                    displayInput.value = selectionState.ebookDisplayName;
+                }
             }
-            const preSelectedEb = document.querySelector('.eb-card.selected');
-            if (preSelectedEb) {
-                selectedEbookFilename = preSelectedEb.dataset.value;
-                document.getElementById('selected_ebook_filename').value = selectedEbookFilename;
-                document.getElementById('selected_ebook_display_name').value = preSelectedEb.dataset.displayName || selectedEbookFilename;
+
+            if (group !== 'ebook' && !selectionState.ebook) {
+                document.getElementById('selected_ebook_display_name').value = '';
             }
-            const preSelectedSt = document.querySelector('.st-card.selected');
-            if (preSelectedSt) {
-                selectedStorytellerUuid = preSelectedSt.dataset.value || '';
-                document.getElementById('selected_storyteller_uuid').value = selectedStorytellerUuid;
+
+            updateBatchActionState();
+        }
+
+        function updateBatchActionState() {
+            const addButton = document.getElementById('addToQueueBtn');
+            const statusLabel = document.getElementById('selectionStatus');
+            const hasAudiobook = Boolean(selectionState.audiobook);
+            const hasLinkedSource = Boolean(selectionState.storyteller || selectionState.ebook);
+
+            addButton.disabled = !hasAudiobook;
+            addButton.textContent = hasAudiobook && !hasLinkedSource
+                ? 'Add Audio Only to Queue'
+                : 'Add to Queue';
+
+            if (!hasAudiobook) {
+                statusLabel.textContent = 'Select an audiobook to enable queueing.';
+                return;
             }
-            updateAddButton();
+
+            if (!hasLinkedSource) {
+                statusLabel.textContent = 'Queue will be created as audio-only.';
+                return;
+            }
+
+            if (selectionState.storyteller && selectionState.ebook) {
+                statusLabel.textContent = 'Queue will include both Storyteller and ebook.';
+                return;
+            }
+
+            if (selectionState.storyteller) {
+                statusLabel.textContent = 'Queue will use Storyteller as the linked source.';
+                return;
+            }
+
+            statusLabel.textContent = 'Queue will use the selected ebook source.';
+        }
+
+        (function initBatchMatch() {
+            document.querySelectorAll('.batch-select-card').forEach((card) => {
+                card.addEventListener('click', () => applySelection(card));
+            });
+
+            const preselectedAudiobook = document.querySelector('[data-select-group="audiobook"].selected');
+            if (preselectedAudiobook) {
+                selectionState.audiobook = preselectedAudiobook.dataset.value || null;
+                document.getElementById('selected_audiobook_id').value = selectionState.audiobook || '';
+            }
+
+            const preselectedStoryteller = document.querySelector('[data-select-group="storyteller"].selected');
+            if (preselectedStoryteller) {
+                selectionState.storyteller = preselectedStoryteller.dataset.value || null;
+                document.getElementById('selected_storyteller_uuid').value = preselectedStoryteller.dataset.value || '';
+            }
+
+            const preselectedEbook = document.querySelector('[data-select-group="ebook"].selected');
+            if (preselectedEbook) {
+                selectionState.ebook = preselectedEbook.dataset.value || null;
+                selectionState.ebookDisplayName = preselectedEbook.dataset.displayName || selectionState.ebook || '';
+                document.getElementById('selected_ebook_filename').value = selectionState.ebook || '';
+                document.getElementById('selected_ebook_display_name').value = selectionState.ebookDisplayName;
+            }
+
+            updateBatchActionState();
         })();
-
-        function selectAudiobook(element, id, title) {
-            document.querySelectorAll('.audiobook-option').forEach(el => {
-                el.classList.remove('selected');
-            });
-            element.classList.add('selected');
-            selectedAudiobookId = id;
-            document.getElementById('selected_audiobook_id').value = id;
-            updateAddButton();
-        }
-
-        function selectEbookCard(element, filename, display_name) {
-            document.querySelectorAll('.eb-card').forEach(el => {
-                el.classList.remove('selected');
-            });
-            element.classList.add('selected');
-            selectedEbookFilename = filename;
-            document.getElementById('selected_ebook_filename').value = filename;
-            document.getElementById('selected_ebook_display_name').value = display_name || filename;
-            updateAddButton();
-        }
-
-        function selectStoryteller(element, uuid) {
-            document.querySelectorAll('.st-card').forEach(el => {
-                el.classList.remove('selected');
-            });
-            element.classList.add('selected');
-            selectedStorytellerUuid = uuid;
-            document.getElementById('selected_storyteller_uuid').value = uuid;
-            updateAddButton();
-        }
-
-        function updateAddButton() {
-            const btn = document.getElementById('addToQueueBtn');
-            // Valid if: audiobook selected (ebook/storyteller optional — audio-only allowed)
-            if (selectedAudiobookId) {
-                btn.disabled = false;
-            } else {
-                btn.disabled = true;
-            }
-        }
     </script>
 </body>
 

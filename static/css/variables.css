@@ -1,15 +1,15 @@
 /* PageKeeper Design System - Color Tokens & Variables */
 :root {
   /* Primary palette (from PageKeeper design system) */
-  --color-primary: #6B21A8;
-  --color-primary-hover: #7C3AED;
-  --color-primary-light: rgba(124, 58, 237, 0.15);
-  --color-primary-border: rgba(124, 58, 237, 0.3);
-  --color-primary-glow: rgba(124, 58, 237, 0.4);
+  --color-primary: #0D9488;
+  --color-primary-hover: #14B8A6;
+  --color-primary-light: rgba(20, 184, 166, 0.15);
+  --color-primary-border: rgba(20, 184, 166, 0.3);
+  --color-primary-glow: rgba(20, 184, 166, 0.4);
 
   /* Gradient */
-  --gradient-primary: linear-gradient(135deg, #7C3AED 0%, #6B21A8 100%);
-  --gradient-primary-hover: linear-gradient(135deg, #6D28D9 0%, #581C87 100%);
+  --gradient-primary: linear-gradient(135deg, #14B8A6 0%, #0D9488 100%);
+  --gradient-primary-hover: linear-gradient(135deg, #2DD4BF 0%, #0F766E 100%);
 
   /* Semantic colors */
   --color-success: #0D9488;
@@ -50,6 +50,7 @@
   --color-booklore: #0D9488;
   --color-hardcover: #F59E0B;
   --color-cwa: #FB923C;
+  --color-bookfusion: #3B82F6;
   --color-localfile: #C084FC;
 
   /* Status colors */

@@ -46,34 +46,54 @@ def get_abs_service():
     return current_app.config['abs_service']
 
 
-# --------------- Booklore multi-instance helpers ---------------
+# --------------- Service URL helpers ---------------
 
-def get_booklore_clients():
-    """Return a list of configured (or all) BookloreClient instances from the container."""
-    container = get_container()
-    clients = [container.booklore_client()]
-    try:
-        clients.append(container.booklore_client_2())
-    except AttributeError:
-        pass
-    except Exception as e:
-        logger.debug(f"Failed to resolve booklore_client_2: {e}")
-    return clients
+def get_service_web_url(service_prefix):
+    """Return the preferred web URL for a service based on its URL mode setting.
+
+    Reads {PREFIX}_HEADER_URL_MODE (default: 'external') and returns the
+    internal or external URL accordingly, with fallbacks to legacy server URLs.
+    """
+    prefix = service_prefix.upper()
+    mode = os.environ.get(f'{prefix}_HEADER_URL_MODE', 'external').lower()
+
+    legacy_fallbacks = {
+        'ABS': os.environ.get('ABS_SERVER', ''),
+        'BOOKLORE': os.environ.get('BOOKLORE_SERVER', ''),
+        'STORYTELLER': os.environ.get('STORYTELLER_API_URL', ''),
+        'CWA': os.environ.get('CWA_SERVER', ''),
+    }
+    internal_url = os.environ.get(f'{prefix}_WEB_URL_INTERNAL', '') or legacy_fallbacks.get(prefix, '')
+    external_url = os.environ.get(f'{prefix}_WEB_URL_EXTERNAL', '') or os.environ.get(f'{prefix}_WEB_URL', '')
+
+    if prefix == 'HARDCOVER' and not external_url:
+        external_url = 'https://hardcover.app'
+
+    if mode == 'internal':
+        return (internal_url or external_url).rstrip('/')
+    return (external_url or internal_url).rstrip('/')
+
+
+# --------------- Booklore helpers ---------------
+
+def get_booklore_client():
+    """Return the configured Booklore client from the container."""
+    return get_container().booklore_client()
 
 
 def find_in_booklore(filename):
-    """Search both Booklore instances, return (book_info, client) or (None, None)."""
-    for client in get_booklore_clients():
-        if client.is_configured():
-            book = client.find_book_by_filename(filename)
-            if book:
-                return book, client
+    """Search Booklore for a book by filename, return (book_info, client) or (None, None)."""
+    client = get_booklore_client()
+    if client.is_configured():
+        book = client.find_book_by_filename(filename)
+        if book:
+            return book, client
     return None, None
 
 
 def any_booklore_configured():
-    """Return True if any Booklore instance is configured."""
-    return any(c.is_configured() for c in get_booklore_clients())
+    """Return True if Booklore is configured."""
+    return get_booklore_client().is_configured()
 
 
 # --------------- Helper functions ---------------
@@ -140,7 +160,7 @@ def get_kosync_id_for_ebook(ebook_filename, booklore_id=None, original_filename=
                     logger.debug(f"Computed KOSync ID from Booklore download: '{kosync_id}'")
                     return kosync_id
         except Exception as e:
-            logger.warning(f"Failed to get KOSync ID from Booklore ({bl_client.source_tag}): {e}")
+            logger.warning(f"Failed to get KOSync ID from Booklore: {e}")
 
     # Fall back to filesystem
     ebook_path = find_ebook_file(ebook_filename)
@@ -280,12 +300,11 @@ def get_searchable_ebooks(search_term):
     found_filenames = set()
     found_stems = set()
 
-    # 1. Booklore (all instances)
-    for bl_client in get_booklore_clients():
-        if not bl_client.is_configured():
-            continue
+    # 1. Booklore
+    bl_client = get_booklore_client()
+    if bl_client.is_configured():
         try:
-            label = os.environ.get(f"{bl_client.config_prefix}_LABEL", "Booklore")
+            label = os.environ.get("BOOKLORE_LABEL", "Booklore")
             books = bl_client.search_books(search_term)
             if books:
                 for b in books:
@@ -296,7 +315,7 @@ def get_searchable_ebooks(search_term):
                         found_filenames.add(fname.lower())
                         found_stems.add(Path(fname).stem.lower())
                         bl_id = b.get('id')
-                        cover = f"/api/cover-proxy/booklore/{bl_client.source_tag}/{bl_id}" if bl_id else None
+                        cover = f"/api/cover-proxy/booklore/{bl_id}" if bl_id else None
                         results.append(EbookResult(
                             name=fname,
                             title=b.get('title'),
@@ -307,7 +326,7 @@ def get_searchable_ebooks(search_term):
                             cover_url=cover
                         ))
         except Exception as e:
-            logger.warning(f"Booklore ({bl_client.source_tag}) search failed: {e}")
+            logger.warning(f"Booklore search failed: {e}")
 
     # 2. ABS ebook libraries
     if search_term:
@@ -450,12 +469,12 @@ def cleanup_mapping_resources(book):
 
     if book.ebook_filename:
         shelf_filename = book.original_ebook_filename or book.ebook_filename
-        for bl_client in get_booklore_clients():
-            if bl_client.is_configured():
-                try:
-                    bl_client.remove_from_shelf(shelf_filename)
-                except Exception as e:
-                    logger.warning(f"Failed to remove from Booklore ({bl_client.source_tag}) shelf: {e}")
+        bl_client = get_booklore_client()
+        if bl_client.is_configured():
+            try:
+                bl_client.remove_from_shelf(shelf_filename)
+            except Exception as e:
+                logger.warning(f"Failed to remove from Booklore shelf: {e}")
 
 
 def restart_server():

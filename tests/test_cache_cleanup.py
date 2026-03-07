@@ -53,7 +53,7 @@ def run_test():
         suggestion1.matches = [{"filename": valid_file2}]
 
         db_service.get_all_books.return_value = [book1]
-        db_service.get_all_pending_suggestions.return_value = [suggestion1]
+        db_service.get_all_actionable_suggestions.return_value = [suggestion1]
 
         # Mock other required methods for __init__
         db_service.get_books_by_status.return_value = []

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Reading Log - PageKeeper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/reading.css">
+</head>
+
+{% macro book_cover(book) %}
+{% if book.cover_url %}
+<img src="{{ book.cover_url|e }}" alt="" loading="lazy" class="r-cover-img"
+    {% if book.kosync_doc_id %}data-fallback-id="{{ book.kosync_doc_id|e }}"{% endif %}>
+<div class="r-cover-placeholder hidden"></div>
+{% elif book.kosync_doc_id %}
+<img src="/covers/{{ book.kosync_doc_id|urlencode }}.jpg" alt="" loading="lazy" class="r-cover-img">
+<div class="r-cover-placeholder hidden"></div>
+{% else %}
+<div class="r-cover-placeholder"></div>
+{% endif %}
+{% endmacro %}
+
+{% macro star_rating(rating) %}
+{% if rating %}
+<span class="r-stars" title="{{ rating }} / 5">
+    {% for i in range(1, 6) %}<span class="r-star {% if i <= rating %}filled{% elif i - 0.5 <= rating %}half{% endif %}">&#9733;</span>{% endfor %}
+</span>
+{% endif %}
+{% endmacro %}
+
+{% macro book_card(book, section_id) %}
+{% set recent_activity = book.finished_at or book.started_at or '' %}
+<a href="/reading/book/{{ book.abs_id }}"
+   class="r-book-card"
+   data-title="{{ book.abs_title|e }}"
+   data-author="{{ book.abs_author|e }}"
+   data-status="{{ book.display_status }}"
+   data-section="{{ section_id }}"
+   data-progress="{{ book.unified_progress }}"
+   data-rating="{{ book.rating or 0 }}"
+   data-started="{{ book.started_at or '' }}"
+   data-finished="{{ book.finished_at or '' }}"
+   data-activity="{{ recent_activity }}"
+   data-year="{{ book.finished_at[:4] if book.finished_at else '' }}">
+    <div class="r-card-cover">
+        {{ book_cover(book) }}
+    </div>
+    <div class="r-card-body">
+        <div class="r-card-main">
+            <div class="r-card-head">
+                <span class="r-card-title">{{ book.abs_title|e }}</span>
+                {% if book.abs_author %}
+                <span class="r-card-author">{{ book.abs_author|e }}</span>
+                {% endif %}
+            </div>
+            <div class="r-card-status-line">
+                {% if book.display_status == 'reading' %}
+                <span class="r-card-status-copy">Reading {{ book.unified_progress|round(0)|int }}%</span>
+                {% elif book.display_status == 'finished' and book.finished_at %}
+                <span class="r-card-status-copy">Finished {{ book.finished_at }}</span>
+                {% elif book.display_status == 'paused' %}
+                <span class="r-card-status-copy">Paused{% if book.unified_progress > 0 %} at {{ book.unified_progress|round(0)|int }}%{% endif %}</span>
+                {% elif book.display_status == 'dnf' %}
+                <span class="r-card-status-copy">Stopped reading{% if book.unified_progress > 0 %} at {{ book.unified_progress|round(0)|int }}%{% endif %}</span>
+                {% else %}
+                <span class="r-card-status-copy">Not started</span>
+                {% endif %}
+            </div>
+            {% if book.display_status == 'reading' %}
+            <div class="r-card-progress">
+                <div class="r-card-progress-bar">
+                    <span class="r-card-progress-fill" style="width: {{ book.unified_progress }}%;"></span>
+                </div>
+                <span class="r-card-progress-text">{{ book.unified_progress|round(0)|int }}%</span>
+            </div>
+            {% endif %}
+        </div>
+        <div class="r-card-meta-row">
+            <span class="status-badge status-{{ book.display_status }}">{{ book.display_status|replace('_', ' ')|title }}</span>
+            {% if book.rating %}
+            <span class="r-meta-chip">{{ star_rating(book.rating) }}</span>
+            {% endif %}
+            {% if book.started_at and book.display_status != 'finished' %}
+            <span class="r-meta-chip">Started {{ book.started_at }}</span>
+            {% endif %}
+            {% if book.read_count and book.read_count > 1 %}
+            <span class="r-meta-chip">Read {{ book.read_count }} times</span>
+            {% endif %}
+        </div>
+    </div>
+</a>
+{% endmacro %}
+
+<body>
+    {% include 'partials/navbar.html' %}
+
+    <div class="container">
+        <div class="r-page-header">
+            <div class="r-header-left">
+                <p class="r-page-kicker">Reading Overview</p>
+                <h2 class="r-page-title">Reading Log</h2>
+                <div class="r-quick-stats">
+                    <span class="r-qs-item"><strong>{{ stats.currently_reading|default(0) }}</strong> reading now</span>
+                    <span class="r-qs-sep"></span>
+                    <span class="r-qs-item"><strong>{{ stats.books_finished|default(0) }}</strong> finished in {{ current_year }}</span>
+                    <span class="r-qs-sep"></span>
+                    <span class="r-qs-item"><strong>{{ stats.total_tracked|default(0) }}</strong> tracked</span>
+                </div>
+            </div>
+            <button class="r-goal-widget" id="goal-card" type="button">
+                {% if goal %}
+                {% set goal_pct = (((stats.books_finished|default(0)) / goal.target_books * 100)|round(0))|int if goal.target_books > 0 else 0 %}
+                <svg class="r-goal-ring" viewBox="0 0 48 48" aria-hidden="true">
+                    <circle cx="24" cy="24" r="20" fill="none" stroke="var(--color-border)" stroke-width="3"/>
+                    <circle cx="24" cy="24" r="20" fill="none" stroke="var(--color-success)" stroke-width="3"
+                        stroke-dasharray="{{ [goal_pct * 1.257, 125.7]|min }} 125.7"
+                        stroke-linecap="round" transform="rotate(-90 24 24)"/>
+                </svg>
+                <div class="r-goal-text">
+                    <span class="r-goal-count">{{ stats.books_finished|default(0) }}/{{ goal.target_books }}</span>
+                    <span class="r-goal-label">{{ current_year }} goal</span>
+                </div>
+                {% else %}
+                <div class="r-goal-text r-goal-unset">
+                    <span class="r-goal-count">+</span>
+                    <span class="r-goal-label">Set goal</span>
+                </div>
+                {% endif %}
+            </button>
+        </div>
+
+        {% if total_books == 0 %}
+        <div class="empty-state">
+            <div class="empty-state-icon"></div>
+            <h2>No books being tracked</h2>
+            <p>Books will appear here once they are syncing on the dashboard</p>
+            <a href="/" class="btn btn-primary">Go to Dashboard</a>
+        </div>
+        {% else %}
+
+        <div class="r-toolbar" id="reading-toolbar">
+            <div class="r-toolbar-top">
+                <div class="r-filter-bar" role="tablist" aria-label="Reading status filters">
+                    <button class="r-filter-chip active" data-filter="all" type="button" role="tab" aria-selected="true">All <span>{{ total_books }}</span></button>
+                    <button class="r-filter-chip" data-filter="reading" type="button" role="tab" aria-selected="false">Reading <span>{{ section_counts.reading|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="finished" type="button" role="tab" aria-selected="false">Finished <span>{{ section_counts.finished|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="paused" type="button" role="tab" aria-selected="false">Paused <span>{{ section_counts.paused|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="dnf" type="button" role="tab" aria-selected="false">DNF <span>{{ section_counts.dnf|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="not_started" type="button" role="tab" aria-selected="false">Backlog <span>{{ section_counts.not_started|default(0) }}</span></button>
+                </div>
+                <div class="r-toolbar-actions">
+                    <button class="r-mobile-control-btn" id="reading-controls-open" type="button">
+                        Search / Sort
+                    </button>
+                    <div class="r-desktop-controls">
+                        <input type="text" id="reading-search" placeholder="Search title or author..." class="search-box">
+                        <select id="reading-sort" class="r-sort-select">
+                            <option value="activity-desc">Recent activity</option>
+                            <option value="title-asc">Title</option>
+                            <option value="progress-desc">Progress</option>
+                            <option value="finished-desc">Finish date</option>
+                        </select>
+                        <div class="r-view-toggle">
+                            <button class="r-view-btn" data-view="grid" title="Grid view" type="button">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+                            </button>
+                            <button class="r-view-btn active" data-view="list" title="List view" type="button">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="r-results-info" id="results-info" hidden>
+                <span id="results-text"></span>
+            </div>
+        </div>
+
+        <div class="r-mobile-controls-modal modal-backdrop" id="reading-controls-modal" style="display: none;">
+            <div class="modal-content r-mobile-controls-panel">
+                <div class="modal-header">
+                    <h3>Browse Reading Log</h3>
+                    <button class="modal-close" id="reading-controls-close" type="button">&times;</button>
+                </div>
+                <div class="modal-body r-mobile-controls-body">
+                    <label class="r-control-field">
+                        <span>Search</span>
+                        <input type="text" id="reading-search-mobile" placeholder="Search title or author..." class="search-box">
+                    </label>
+                    <label class="r-control-field">
+                        <span>Sort</span>
+                        <select id="reading-sort-mobile" class="r-sort-select">
+                            <option value="activity-desc">Recent activity</option>
+                            <option value="title-asc">Title</option>
+                            <option value="progress-desc">Progress</option>
+                            <option value="finished-desc">Finish date</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="r-sections" id="reading-sections">
+            {% for section in reading_sections %}
+            <section class="r-section" data-section="{{ section.id }}">
+                <div class="r-section-header">
+                    <div>
+                        <h3 class="r-section-title">{{ section.title }}</h3>
+                        <p class="r-section-description">{{ section.description }}</p>
+                    </div>
+                    <span class="r-section-count">{{ section.books|length }}</span>
+                </div>
+
+                <div class="r-section-empty" {% if section.books|length > 0 %}hidden{% endif %}>
+                    No books in this section right now.
+                </div>
+
+                {% if section.group_by_year %}
+                    {% set year_state = namespace(current='') %}
+                    {% for book in section.books %}
+                        {% set book_year = book.finished_at[:4] if book.finished_at else 'Unknown' %}
+                        {% if book_year != year_state.current %}
+                        {% set year_state.current = book_year %}
+                        <div class="r-year-group" data-year-group="{{ book_year }}">
+                            <div class="r-year-heading">
+                                <span>{{ book_year }}</span>
+                            </div>
+                            <div class="r-book-stack">
+                        {% endif %}
+                                {{ book_card(book, section.id) }}
+                        {% if loop.last or (section.books[loop.index].finished_at[:4] if section.books[loop.index].finished_at else 'Unknown') != book_year %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                <div class="r-book-stack">
+                    {% for book in section.books %}
+                    {{ book_card(book, section.id) }}
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </section>
+            {% endfor %}
+        </div>
+
+        <div class="r-empty-tab" id="empty-tab" hidden>
+            <p>No books match the current filters.</p>
+        </div>
+
+        {% endif %}
+    </div>
+
+    <div id="goal-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>{{ current_year }} Reading Goal</h3>
+                <button class="modal-close" id="goal-modal-close" type="button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--color-text-muted); margin-bottom: 16px;">How many books do you want to finish this year?</p>
+                <input type="number" id="goal-input" min="1" max="999" value="{{ goal.target_books if goal else 12 }}" style="width: 100%;">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="goal-cancel" type="button">Cancel</button>
+                <button class="btn btn-primary" id="goal-save" type="button">Save Goal</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/reading.js?v=4"></script>
+    <script>
+        initReadingPage({{ current_year }});
+    </script>
+</body>
+</html>

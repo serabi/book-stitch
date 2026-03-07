@@ -1,5 +1,8 @@
 # Hardcover Routes - Flask Blueprint for Hardcover API endpoints
+import ipaddress
 import logging
+import socket
+from urllib.parse import urlparse
 
 from flask import Blueprint, flash, jsonify, redirect, request, url_for
 
@@ -34,6 +37,43 @@ def _get_dependencies():
             ),
         )
     return _database_service, _container, None
+
+
+def _validate_custom_cover_url(raw_url):
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in {'http', 'https'}:
+        return "Custom cover URL must start with http:// or https://"
+    if not parsed.netloc or not parsed.hostname:
+        return "Custom cover URL must include a valid host"
+
+    hostname = parsed.hostname.strip().lower()
+    if hostname == 'localhost':
+        return "Custom cover URL cannot use a local address"
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+            return "Custom cover URL cannot use a local or private address"
+        return None
+    except ValueError:
+        if '.' not in hostname:
+            return "Custom cover URL must use a fully qualified public hostname"
+
+    try:
+        resolved = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return "Custom cover URL host could not be resolved"
+
+    for _family, _socktype, _proto, _canonname, sockaddr in resolved:
+        address = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+            return "Custom cover URL cannot use a local or private address"
+
+    return None
 
 
 @hardcover_bp.route("/api/hardcover/resolve", methods=["GET"])
@@ -233,3 +273,122 @@ def link_hardcover(abs_id):
         flash("Database update failed", "error")
 
     return redirect(url_for("dashboard.index"))
+
+
+@hardcover_bp.route("/api/hardcover/cover-search", methods=["GET"])
+def api_cover_search():
+    """Search Hardcover for books with cover images (cover picker)."""
+    database_service, container, error_response = _get_dependencies()
+    if error_response:
+        return error_response
+
+    query = request.args.get("query", "").strip()
+    if not query:
+        return jsonify({"results": []}), 400
+
+    hardcover_client = container.hardcover_client()
+    if not hardcover_client.is_configured():
+        return jsonify({"results": [], "error": "Hardcover not configured"}), 200
+
+    results = hardcover_client.search_books_with_covers(query)
+    return jsonify({"results": results})
+
+
+@hardcover_bp.route("/api/book/<abs_id>/cover", methods=["POST"])
+def set_book_cover(abs_id):
+    """Set or update a book's cover image from Hardcover or a custom URL."""
+    from src.db.models import HardcoverDetails
+
+    database_service, container, error_response = _get_dependencies()
+    if error_response:
+        return error_response
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"error": "Book not found"}), 404
+
+    source = data.get("source")
+    cover_url = None
+
+    if source == "hardcover":
+        cached_image = data.get("cached_image", "")
+        book_id = data.get("book_id")
+        slug = data.get("slug")
+
+        if not cached_image:
+            return jsonify({"error": "No image URL provided"}), 400
+
+        cover_url = cached_image
+
+        # Update or create HardcoverDetails with the cover URL
+        existing = database_service.get_hardcover_details(abs_id)
+        if existing:
+            existing.hardcover_cover_url = cover_url
+            if book_id:
+                existing.hardcover_book_id = str(book_id)
+            if slug:
+                existing.hardcover_slug = slug
+            database_service.save_hardcover_details(existing)
+        else:
+            details = HardcoverDetails(
+                abs_id=abs_id,
+                hardcover_book_id=str(book_id) if book_id else None,
+                hardcover_slug=slug,
+                hardcover_cover_url=cover_url,
+                matched_by="cover_picker",
+            )
+            database_service.save_hardcover_details(details)
+
+        # Clear custom_cover_url when picking a Hardcover cover
+        if book.custom_cover_url:
+            book.custom_cover_url = None
+            database_service.save_book(book)
+
+    elif source == "custom":
+        url = (data.get("url") or "").strip()
+        if not url:
+            return jsonify({"error": "No URL provided"}), 400
+        validation_error = _validate_custom_cover_url(url)
+        if validation_error:
+            return jsonify({"error": validation_error}), 400
+        book.custom_cover_url = url
+        database_service.save_book(book)
+        cover_url = url
+
+        # Clear hardcover_cover_url when picking a custom cover
+        hc_details = database_service.get_hardcover_details(abs_id)
+        if hc_details and hc_details.hardcover_cover_url:
+            hc_details.hardcover_cover_url = None
+            database_service.save_hardcover_details(hc_details)
+
+    else:
+        return jsonify({"error": "Invalid source"}), 400
+
+    return jsonify({"success": True, "cover_url": cover_url})
+
+
+@hardcover_bp.route("/api/book/<abs_id>/cover", methods=["DELETE"])
+def delete_book_cover(abs_id):
+    """Clear custom and Hardcover cover URLs for a book."""
+    database_service, container, error_response = _get_dependencies()
+    if error_response:
+        return error_response
+
+    book = database_service.get_book(abs_id)
+    if not book:
+        return jsonify({"error": "Book not found"}), 404
+
+    if book.custom_cover_url:
+        book.custom_cover_url = None
+        database_service.save_book(book)
+
+    hc_details = database_service.get_hardcover_details(abs_id)
+    if hc_details and hc_details.hardcover_cover_url:
+        hc_details.hardcover_cover_url = None
+        database_service.save_hardcover_details(hc_details)
+
+    return jsonify({"success": True})
