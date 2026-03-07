@@ -676,7 +676,7 @@ class HardcoverClient:
                 variables = {
                     "id": read_id,
                     "seconds": progress_seconds,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -698,7 +698,7 @@ class HardcoverClient:
                 variables = {
                     "id": read_id,
                     "pages": page,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -737,7 +737,7 @@ class HardcoverClient:
                 variables = {
                     "id": user_book_id,
                     "seconds": progress_seconds,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -759,7 +759,7 @@ class HardcoverClient:
                 variables = {
                     "id": user_book_id,
                     "pages": page,
-                    "editionId": int(edition_id),
+                    "editionId": int(edition_id) if edition_id else None,
                     "startedAt": started_at_val,
                     "finishedAt": finished_at_val,
                 }
@@ -941,8 +941,14 @@ class HardcoverClient:
         if not book_result or not book_result.get("books"):
             return []
 
+        # Create lookup for quick access
+        books_by_id = {book["id"]: book for book in book_result["books"]}
+
         results = []
-        for book in book_result["books"]:
+        for book_id in book_ids:
+            book = books_by_id.get(book_id)
+            if not book:
+                continue
             authors = self._extract_authors_from_cached(book.get("cached_contributors"))
             results.append({
                 "book_id": book["id"],
@@ -951,5 +957,4 @@ class HardcoverClient:
                 "cached_image": self._extract_cover_url(book.get("cached_image")),
                 "slug": book.get("slug"),
             })
-
         return results

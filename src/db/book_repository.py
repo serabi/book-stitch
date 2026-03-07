@@ -97,10 +97,13 @@ class BookRepository(BaseRepository):
                 try:
                     session.query(BookAlignment).filter(
                         BookAlignment.abs_id == old_abs_id).delete(synchronize_session=False)
+                except ProgrammingError as e:
+                    logger.warning(f"BookAlignment table missing during migration cleanup for '{old_abs_id}': {e}")
+                try:
                     session.query(HardcoverDetails).filter(
                         HardcoverDetails.abs_id == old_abs_id).delete(synchronize_session=False)
                 except ProgrammingError as e:
-                    logger.warning(f"Table missing during migration cleanup for '{old_abs_id}': {e}")
+                    logger.warning(f"HardcoverDetails table missing during migration cleanup for '{old_abs_id}': {e}")
 
                 logger.info(f"Migrated data from '{old_abs_id}' to '{new_abs_id}'")
             except Exception as e:

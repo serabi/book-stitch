@@ -316,6 +316,12 @@ def set_book_cover(abs_id):
         database_service.save_book(book)
         cover_url = url
 
+        # Clear hardcover_cover_url when picking a custom cover
+        hc_details = database_service.get_hardcover_details(abs_id)
+        if hc_details and hc_details.hardcover_cover_url:
+            hc_details.hardcover_cover_url = None
+            database_service.save_hardcover_details(hc_details)
+
     else:
         return jsonify({"error": "Invalid source"}), 400
 

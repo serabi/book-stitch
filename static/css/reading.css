@@ -110,8 +110,8 @@
   border: 1px solid var(--color-border-light);
   background:
     linear-gradient(135deg, rgba(76, 110, 245, 0.12) 0%, rgba(33, 30, 49, 0.96) 35%, rgba(33, 30, 49, 0.96) 100%);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .r-toolbar-top {
@@ -1031,7 +1031,7 @@
   margin-bottom: 28px;
 }
 
-.r-section-title {
+.r-detail-section .r-section-title {
   font-family: var(--font-heading);
   font-size: 15px;
   font-weight: 700;
@@ -1623,7 +1623,10 @@ a.r-service-row-name:hover { text-decoration: underline; }
   transition: all var(--transition);
 }
 
-.r-tl-item:hover .r-tl-delete {
+.r-tl-item:hover .r-tl-delete,
+.r-tl-item:focus-within .r-tl-delete,
+.r-tl-delete:focus,
+.r-tl-delete:focus-visible {
   opacity: 1;
 }
 

@@ -225,7 +225,8 @@ def api_booklore_search():
         if not client.is_configured():
             continue
         try:
-            label = os.environ.get(f"{client.config_prefix}_LABEL", "Booklore")
+            config_key = f"{client.config_prefix}_LABEL"
+            label = current_app.config.get(config_key, "Booklore")
             books = client.search_books(query)
             for b in (books or []):
                 results.append({

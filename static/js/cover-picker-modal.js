@@ -8,6 +8,18 @@ var coverPickerState = {
     currentTitle: ''
 };
 
+async function readJsonResponse(resp) {
+    try {
+        return await resp.json();
+    } catch (err) {
+        return null;
+    }
+}
+
+function toCssUrl(url) {
+    return 'url(' + JSON.stringify(String(url)) + ')';
+}
+
 function openCoverPicker(absId, currentTitle) {
     coverPickerState.absId = absId;
     coverPickerState.currentTitle = currentTitle || '';
@@ -65,14 +77,19 @@ async function searchCovers(query) {
 
     try {
         var resp = await fetch('/api/hardcover/cover-search?query=' + encodeURIComponent(query));
-        var data = await resp.json();
+        var data = await readJsonResponse(resp);
 
-        if (data.error) {
+        if (!resp.ok) {
+            statusEl.textContent = (data && data.error) || 'Search failed. Please try again.';
+            return;
+        }
+
+        if (data && data.error) {
             statusEl.textContent = data.error;
             return;
         }
 
-        var results = data.results || [];
+        var results = (data && data.results) || [];
         if (results.length === 0) {
             statusEl.textContent = 'No results found.';
             return;
@@ -144,7 +161,12 @@ async function selectHardcoverCover(book) {
             })
         });
 
-        var data = await resp.json();
+        var data = await readJsonResponse(resp);
+        if (!resp.ok) {
+            document.getElementById('cp-status').textContent = (data && data.error) || 'Failed to set cover.';
+            return;
+        }
+
         if (data.success) {
             updatePageCover(data.cover_url);
             closeCoverPicker();
@@ -167,7 +189,12 @@ async function submitCustomCoverUrl() {
             body: JSON.stringify({ source: 'custom', url: url })
         });
 
-        var data = await resp.json();
+        var data = await readJsonResponse(resp);
+        if (!resp.ok) {
+            document.getElementById('cp-status').textContent = (data && data.error) || 'Failed to set cover.';
+            return;
+        }
+
         if (data.success) {
             updatePageCover(data.cover_url);
             closeCoverPicker();
@@ -185,7 +212,12 @@ async function removeCover() {
             method: 'DELETE'
         });
 
-        var data = await resp.json();
+        var data = await readJsonResponse(resp);
+        if (!resp.ok) {
+            document.getElementById('cp-status').textContent = (data && data.error) || 'Failed to remove cover.';
+            return;
+        }
+
         if (data.success) {
             // Remove cover from page
             var heroImg = document.querySelector('.r-hero-cover img');
@@ -223,13 +255,13 @@ function updatePageCover(coverUrl) {
     // Update background
     var heroBg = document.querySelector('.r-hero-bg');
     if (heroBg) {
-        heroBg.style.backgroundImage = "url('" + coverUrl + "')";
+        heroBg.style.backgroundImage = toCssUrl(coverUrl);
     } else {
         var hero = document.querySelector('.r-detail-hero');
         if (hero) {
             var bg = document.createElement('div');
             bg.className = 'r-hero-bg';
-            bg.style.backgroundImage = "url('" + coverUrl + "')";
+            bg.style.backgroundImage = toCssUrl(coverUrl);
             hero.insertBefore(bg, hero.firstChild);
         }
     }

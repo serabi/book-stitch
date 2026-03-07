@@ -4,6 +4,8 @@ All values are stored and returned as strings (or None).
 Callers are responsible for type conversion.
 """
 
+from sqlalchemy.dialects.sqlite import insert
+
 from .base_repository import BaseRepository
 from .models import Setting
 
@@ -27,16 +29,18 @@ class SettingsRepository(BaseRepository):
         """Set a setting value. *value* is coerced to str (None stays None)."""
         with self.get_session() as session:
             str_value = str(value) if value is not None else None
-            existing = session.query(Setting).filter(Setting.key == key).first()
-            if existing:
-                existing.value = str_value
-                self._persist_and_detach(session, existing)
-                return existing
-            else:
-                new_setting = Setting(key=key, value=str_value)
-                session.add(new_setting)
-                self._persist_and_detach(session, new_setting)
-                return new_setting
+            stmt = (
+                insert(Setting)
+                .values(key=key, value=str_value)
+                .on_conflict_do_update(
+                    index_elements=[Setting.key],
+                    set_={"value": str_value},
+                )
+            )
+            session.execute(stmt)
+            setting = session.query(Setting).filter(Setting.key == key).one()
+            session.expunge(setting)
+            return setting
 
     def get_all_settings(self):
         """Get all settings as a dictionary."""

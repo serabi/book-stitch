@@ -17,7 +17,7 @@
     {% set has_any_link = abs_url or storyteller_url or booklore_url or cwa_url or hardcover_url or show_bookfusion_icon %}
 
     {% if has_any_link %}
-    <div class="library-links" aria-label="Service shortcuts">
+    <div class="library-links" role="navigation" aria-label="Service shortcuts">
         {% if abs_url %}
         <a href="{{ abs_url }}" class="nav-icon-link" target="_blank" rel="noopener noreferrer" title="Audiobookshelf">
             <img src="/static/audiobookshelf.png" alt="ABS" class="nav-service-icon">

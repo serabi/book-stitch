@@ -70,10 +70,11 @@ class BackgroundJobService:
                     book.status = 'failed_retry_later'
                     self.database_service.save_book(book)
 
+                    existing_job = self.database_service.get_latest_job(book.abs_id)
                     job = Job(
                         abs_id=book.abs_id,
                         last_attempt=time.time(),
-                        retry_count=0,
+                        retry_count=existing_job.retry_count if existing_job else 0,
                         last_error='Interrupted by restart'
                     )
                     self.database_service.save_job(job)

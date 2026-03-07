@@ -36,19 +36,6 @@
   margin-top: 0 !important;
 }
 
-/* Section styling */
-.section {
-  margin: 40px 0;
-}
-
-.section h3 {
-  font-family: var(--font-heading);
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 20px;
-  color: var(--color-text);
-}
-
 .section-number {
   display: inline-block;
   width: 32px;
@@ -234,22 +221,7 @@ input[type="radio"] {
 .section-hint {
   font-size: 13px;
   color: var(--color-text-muted);
-  margin: -12px 0 12px 44px;
-}
-
-/* Submit container */
-.submit-container {
-  text-align: center;
-  margin: 40px 0 20px 0;
-}
-
-/* 3-Column layout (match.html) */
-.selection-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 40px;
-  margin-bottom: 40px;
-  position: relative;
+  margin: -12px 0 0 44px;
 }
 
 /* Scrollable content */
@@ -282,6 +254,56 @@ input[type="radio"] {
   gap: 0;
   width: 100%;
   max-width: 860px;
+}
+
+.match-summary-bar {
+  margin-bottom: 20px;
+}
+
+.match-summary-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.match-summary-metrics--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.match-summary-card[data-state="ready"] {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.1), rgba(255, 255, 255, 0.02));
+}
+
+.match-summary-card[data-state="optional"] {
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.match-summary-actions {
+  align-items: center;
+}
+
+.match-selection-workspace {
+  margin-bottom: 28px;
+}
+
+.match-selection-grid--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.match-selection-footer {
+  justify-content: flex-start;
+}
+
+.match-selection-status {
+  min-height: 22px;
+  font-weight: 500;
+}
+
+.match-selection-status[data-state="ready"] {
+  color: #6ee7b7;
+}
+
+.match-selection-status[data-state="warning"] {
+  color: #fbbf24;
 }
 
 .batch-summary-bar,
@@ -617,11 +639,6 @@ button.batch-select-card {
 
 /* Responsive */
 @media (max-width: 1024px) {
-  .selection-container {
-    grid-template-columns: 1fr;
-    gap: 30px;
-  }
-
   .batch-summary-bar {
     flex-direction: column;
     align-items: stretch;
@@ -637,6 +654,11 @@ button.batch-select-card {
   .batch-selection-footer {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .match-summary-metrics--compact,
+  .match-selection-grid--compact {
+    grid-template-columns: 1fr;
   }
 }
 

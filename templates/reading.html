@@ -151,12 +151,12 @@
         <div class="r-toolbar" id="reading-toolbar">
             <div class="r-toolbar-top">
                 <div class="r-filter-bar" role="tablist" aria-label="Reading status filters">
-                    <button class="r-filter-chip active" data-filter="all" type="button">All <span>{{ total_books }}</span></button>
-                    <button class="r-filter-chip" data-filter="reading" type="button">Reading <span>{{ section_counts.reading|default(0) }}</span></button>
-                    <button class="r-filter-chip" data-filter="finished" type="button">Finished <span>{{ section_counts.finished|default(0) }}</span></button>
-                    <button class="r-filter-chip" data-filter="paused" type="button">Paused <span>{{ section_counts.paused|default(0) }}</span></button>
-                    <button class="r-filter-chip" data-filter="dnf" type="button">DNF <span>{{ section_counts.dnf|default(0) }}</span></button>
-                    <button class="r-filter-chip" data-filter="not_started" type="button">Backlog <span>{{ section_counts.not_started|default(0) }}</span></button>
+                    <button class="r-filter-chip active" data-filter="all" type="button" role="tab" aria-selected="true">All <span>{{ total_books }}</span></button>
+                    <button class="r-filter-chip" data-filter="reading" type="button" role="tab" aria-selected="false">Reading <span>{{ section_counts.reading|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="finished" type="button" role="tab" aria-selected="false">Finished <span>{{ section_counts.finished|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="paused" type="button" role="tab" aria-selected="false">Paused <span>{{ section_counts.paused|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="dnf" type="button" role="tab" aria-selected="false">DNF <span>{{ section_counts.dnf|default(0) }}</span></button>
+                    <button class="r-filter-chip" data-filter="not_started" type="button" role="tab" aria-selected="false">Backlog <span>{{ section_counts.not_started|default(0) }}</span></button>
                 </div>
                 <div class="r-toolbar-actions">
                     <button class="r-mobile-control-btn" id="reading-controls-open" type="button">

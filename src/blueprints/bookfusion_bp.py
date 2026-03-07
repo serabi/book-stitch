@@ -2,11 +2,10 @@
 
 import difflib
 import logging
-import os
 import re
 from collections import defaultdict
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, current_app, jsonify, render_template, request
 
 from src.blueprints.helpers import get_booklore_clients, get_container, get_database_service
 from src.db.models import Book, HardcoverDetails
@@ -37,7 +36,7 @@ def booklore_books():
         if not client.is_configured():
             continue
         try:
-            label = os.environ.get(f"{client.config_prefix}_LABEL", "Booklore")
+            label = current_app.config.get(f"{client.config_prefix}_LABEL", "Booklore")
             books = client.search_books(q) if q else client.get_all_books()
             for b in (books or []):
                 fname = b.get('fileName', '')
@@ -274,7 +273,9 @@ def _estimate_reading_dates(db_service, abs_id: str, bookfusion_ids: list[str], 
     if finished_at:
         updates['finished_at'] = finished_at
     if updates:
-        db_service.update_book_reading_fields(abs_id, **updates)
+        updated_book = db_service.update_book_reading_fields(abs_id, **updates)
+        if updated_book:
+            book = updated_book
 
     # Update status
     if finished_at:

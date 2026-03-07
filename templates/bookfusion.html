@@ -157,7 +157,6 @@
 
     /* ── Upload Tab ── */
     let searchTimer;
-    let _currentSearchBooks = [];
 
     function debounceSearch() {
         clearTimeout(searchTimer);
@@ -181,8 +180,7 @@
                     list.innerHTML = '<div class="bf-empty"><div class="bf-empty-icon">\uD83D\uDCDA</div><div class="bf-empty-heading">No books found</div><div class="bf-empty-desc">Try a different search term</div></div>';
                     return;
                 }
-                _currentSearchBooks = books;
-                list.innerHTML = books.map((b, i) => `
+                list.innerHTML = books.map((b) => `
                     <div class="bf-book-item">
                         <div class="bf-book-info">
                             <div class="bf-book-title">${escapeHtml(b.title || b.fileName)}</div>
@@ -191,7 +189,13 @@
                                 ${escapeHtml(b.fileName)} <span class="bf-source-tag">${escapeHtml(b.source)}</span>
                             </div>
                         </div>
-                        <button class="bf-upload-btn" data-index="${i}" onclick="handleUploadClick(this)">Upload</button>
+                        <button class="bf-upload-btn"
+                            data-book-id="${escapeHtml(b.id)}"
+                            data-source-tag="${escapeHtml(b.source_tag)}"
+                            data-title="${escapeHtml(b.title || '')}"
+                            data-authors="${escapeHtml(b.authors || '')}"
+                            data-file-name="${escapeHtml(b.fileName || '')}"
+                            onclick="handleUploadClick(this)">Upload</button>
                     </div>
                 `).join('');
             })
@@ -201,8 +205,13 @@
     }
 
     function handleUploadClick(btn) {
-        const index = btn.dataset.index;
-        const book = _currentSearchBooks[index];
+        const book = {
+            id: btn.dataset.bookId,
+            source_tag: btn.dataset.sourceTag,
+            title: btn.dataset.title,
+            authors: btn.dataset.authors,
+            fileName: btn.dataset.fileName,
+        };
         uploadBook(btn, book);
     }
 

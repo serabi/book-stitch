@@ -392,7 +392,7 @@ class BookfusionBook(Base):
     frontmatter = Column(Text)
     tags = Column(String(500))
     series = Column(String(500))
-    highlight_count = Column(Integer, default=0, nullable=False)
+    highlight_count = Column(Integer, default=0, nullable=False, server_default='0')
     matched_abs_id = Column(String(255), nullable=True)
     hidden = Column(Boolean, default=False, nullable=False, server_default='0')
     fetched_at = Column(DateTime, default=datetime.utcnow)

@@ -736,11 +736,29 @@
             } else if (action === 'pause') {
                 fetch('/api/pause/' + encodeURIComponent(_rdAbsId), { method: 'POST', headers: {'Content-Type': 'application/json'} })
                 .then(function(r) { return r.json(); })
-                .then(function(d) { if (d.success) location.reload(); });
+                .then(function(d) {
+                    if (d.success) {
+                        location.reload();
+                    } else {
+                        alert(d.error || 'Failed to pause');
+                    }
+                })
+                .catch(function() {
+                    alert('Request failed');
+                });
             } else if (action === 'resume') {
                 fetch('/api/resume/' + encodeURIComponent(_rdAbsId), { method: 'POST', headers: {'Content-Type': 'application/json'} })
                 .then(function(r) { return r.json(); })
-                .then(function(d) { if (d.success) location.reload(); });
+                .then(function(d) {
+                    if (d.success) {
+                        location.reload();
+                    } else {
+                        alert(d.error || 'Failed to resume');
+                    }
+                })
+                .catch(function() {
+                    alert('Request failed');
+                });
             } else if (action === 'dnf') {
                 showRdConfirm('Mark DNF', 'Mark "' + _rdTitle + '" as Did Not Finish? This book will be excluded from syncing.', 'dnf');
             } else if (action === 'complete') {

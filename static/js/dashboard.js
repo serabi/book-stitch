@@ -384,8 +384,7 @@ function updateKoSyncHash(event) {
     if (input !== null) {
         const form = document.createElement('form');
         form.method = 'POST';
-        form.action = `/update-hash/${absId}`;
-
+        form.action = `/update-hash/${encodeURIComponent(absId)}`;
         const inputField = document.createElement('input');
         inputField.type = 'hidden';
         inputField.name = 'new_hash';
@@ -398,11 +397,12 @@ function updateKoSyncHash(event) {
 }
 
 function syncNow(absId, btn) {
+function syncNow(absId, btn) {
     btn.disabled = true;
     const originalText = btn.textContent;
     btn.textContent = "...";
 
-    fetch('/api/sync-now/' + absId, {
+    fetch('/api/sync-now/' + encodeURIComponent(absId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     }).then(response => response.json())
@@ -436,13 +436,12 @@ function syncNow(absId, btn) {
             }, 2000);
         });
 }
-
 function pauseBook(absId, btn) {
     btn.disabled = true;
     const originalText = btn.textContent;
     btn.textContent = "...";
 
-    fetch('/api/pause/' + absId, {
+    fetch('/api/pause/' + encodeURIComponent(absId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     }).then(response => response.json())
@@ -472,7 +471,7 @@ function resumeBook(absId, btn) {
     const originalText = btn.textContent;
     btn.textContent = "...";
 
-    fetch('/api/resume/' + absId, {
+    fetch('/api/resume/' + encodeURIComponent(absId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     }).then(response => response.json())
@@ -555,18 +554,19 @@ function markComplete(absId, title) {
         return;
     }
     window._mcAbsId = absId;
+    window._mcAbsId = absId;
     const modal = document.getElementById('delete-mapping-modal');
     if (modal) modal.style.display = 'flex';
 }
 
 function closeDeleteMappingModal() {
-    document.getElementById('delete-mapping-modal').style.display = 'none';
+    const modal = document.getElementById('delete-mapping-modal');
+    if (modal) modal.style.display = 'none';
     window._mcAbsId = null;
 }
-
 function _dmExecuteFetch(absId, shouldDelete) {
     closeDeleteMappingModal();
-    fetch('/api/mark-complete/' + absId, {
+    fetch('/api/mark-complete/' + encodeURIComponent(absId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delete: shouldDelete })
@@ -695,8 +695,10 @@ document.addEventListener('keydown', function(e) {
 });
 
 function showConfirmModal(title, message, formAction, accentType) {
+function showConfirmModal(title, message, formAction, accentType) {
     closeAllMenus();
     const modal = document.getElementById('confirm-modal');
+    if (!modal) return;
     const iconEl = document.getElementById('confirm-modal-icon');
     const titleEl = document.getElementById('confirm-modal-title');
     const msgEl = document.getElementById('confirm-modal-message');
@@ -725,9 +727,9 @@ function showConfirmModal(title, message, formAction, accentType) {
 }
 
 function closeConfirmModal() {
-    document.getElementById('confirm-modal').style.display = 'none';
+    const modal = document.getElementById('confirm-modal');
+    if (modal) modal.style.display = 'none';
 }
-
 document.addEventListener('click', function(e) {
     const trigger = e.target.closest('.card-menu-trigger');
     if (trigger) {

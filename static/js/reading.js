@@ -64,8 +64,12 @@ function initReadingPage(currentYear) {
 
   filterChips.forEach(chip => {
     chip.addEventListener('click', () => {
-      filterChips.forEach(item => item.classList.remove('active'));
+      filterChips.forEach(item => {
+        item.classList.remove('active');
+        item.setAttribute('aria-selected', 'false');
+      });
       chip.classList.add('active');
+      chip.setAttribute('aria-selected', 'true');
       activeFilter = chip.dataset.filter;
       applyFiltersAndSort();
     });
