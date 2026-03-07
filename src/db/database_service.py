@@ -415,6 +415,9 @@ class DatabaseService:
     def is_bookfusion_linked(self, abs_id):
         return self._integrations.is_bookfusion_linked(abs_id)
 
+    def set_bookfusion_books_hidden(self, bookfusion_ids, hidden):
+        return self._integrations.set_bookfusion_books_hidden(bookfusion_ids, hidden)
+
     def set_bookfusion_book_match(self, bookfusion_id, abs_id):
         return self._integrations.set_bookfusion_book_match(bookfusion_id, abs_id)
 

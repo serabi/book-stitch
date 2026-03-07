@@ -5,7 +5,7 @@ SQLAlchemy ORM models for PageKeeper database.
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 
@@ -388,13 +388,14 @@ class BookfusionBook(Base):
     series = Column(String(500))
     highlight_count = Column(Integer, default=0, nullable=False)
     matched_abs_id = Column(String(255), nullable=True)
+    hidden = Column(Boolean, default=False, nullable=False, server_default='0')
     fetched_at = Column(DateTime, default=datetime.utcnow)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def __init__(self, bookfusion_id: str, title: str = None, authors: str = None,
                  filename: str = None, frontmatter: str = None, tags: str = None,
                  series: str = None, highlight_count: int = 0,
-                 matched_abs_id: str = None):
+                 matched_abs_id: str = None, hidden: bool = False):
         self.bookfusion_id = bookfusion_id
         self.title = title
         self.authors = authors
@@ -404,6 +405,7 @@ class BookfusionBook(Base):
         self.series = series
         self.highlight_count = highlight_count
         self.matched_abs_id = matched_abs_id
+        self.hidden = hidden
         self.fetched_at = datetime.utcnow()
         self.last_updated = datetime.utcnow()
 

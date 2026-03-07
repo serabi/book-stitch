@@ -437,6 +437,9 @@ def get_library():
                 matched_abs_id = bf_abs_id
                 break
 
+        # A group is hidden if any entry in the group is hidden
+        is_hidden = any(b.hidden for b in group)
+
         result.append({
             'bookfusion_id': bookfusion_ids[0],
             'bookfusion_ids': bookfusion_ids,
@@ -449,6 +452,7 @@ def get_library():
             'highlight_count': highlight_count,
             'on_dashboard': matched_abs_id is not None,
             'abs_id': matched_abs_id,
+            'hidden': is_hidden,
         })
 
     return jsonify({'books': result, 'dashboard_books': book_list})
@@ -542,6 +546,27 @@ def match_to_book():
         resp.update(date_info)
 
     return jsonify(resp)
+
+
+@bookfusion_bp.route('/api/bookfusion/hide', methods=['POST'])
+def hide_book():
+    """Hide or unhide a BookFusion library book."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    bookfusion_ids = data.get('bookfusion_ids') or []
+    if not bookfusion_ids:
+        single = data.get('bookfusion_id')
+        if single:
+            bookfusion_ids = [single]
+    if not bookfusion_ids:
+        return jsonify({'error': 'bookfusion_id required'}), 400
+
+    hidden = data.get('hidden', True)
+    db_service = get_database_service()
+    db_service.set_bookfusion_books_hidden(bookfusion_ids, hidden)
+    return jsonify({'success': True})
 
 
 @bookfusion_bp.route('/api/bookfusion/unlink', methods=['POST'])

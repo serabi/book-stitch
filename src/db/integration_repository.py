@@ -239,6 +239,12 @@ class IntegrationRepository(BaseRepository):
             if book:
                 book.matched_abs_id = abs_id
 
+    def set_bookfusion_books_hidden(self, bookfusion_ids, hidden):
+        with self.get_session() as session:
+            session.query(BookfusionBook).filter(
+                BookfusionBook.bookfusion_id.in_(bookfusion_ids)
+            ).update({BookfusionBook.hidden: hidden}, synchronize_session=False)
+
     def get_bookfusion_book(self, bookfusion_id):
         return self._get_one(BookfusionBook, BookfusionBook.bookfusion_id == bookfusion_id)
 
