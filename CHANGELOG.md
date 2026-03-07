@@ -4,7 +4,7 @@
 
 All notable changes to PageKeeper will be documented in this file.
 
-## [0.1.8] - 2026-03-07
+## [0.1.2] - 2026-03-07
 
 ### Added
 

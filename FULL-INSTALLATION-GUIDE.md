@@ -57,7 +57,7 @@ docker build -t pagekeeper .
 To tag with a specific version:
 
 ```bash
-docker build --build-arg APP_VERSION=0.1.8 -t pagekeeper .
+docker build --build-arg APP_VERSION=0.1.2 -t pagekeeper .
 ```
 
 ---
@@ -95,7 +95,7 @@ services:
       context: .
       args:
         INSTALL_GPU: "false"       # Set to "true" for NVIDIA GPU support
-        APP_VERSION: "0.1.8"       # Version shown in dashboard
+        APP_VERSION: "0.1.2"       # Version shown in dashboard
     container_name: pagekeeper
     restart: unless-stopped
 
