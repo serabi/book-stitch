@@ -100,10 +100,7 @@ class ProgressResetService:
             if not acquired:
                 logger.warning(f"Sync lock busy — external clients will be reset on next clear attempt. "
                                f"Local progress already cleared for '{sanitize_log_data(abs_id)}'")
-                with self._pending_clears_lock:
-                    self._pending_clears.discard(abs_id)
-                # Phase 1 is enough — the 0% states with fresh timestamps will prevent
-                # the sync daemon from pulling stale external progress
+                # Keep abs_id in _pending_clears so _process_deferred_clears picks it up
                 return {
                     'book_id': abs_id,
                     'book_title': book.abs_title,
@@ -141,10 +138,9 @@ class ProgressResetService:
         except Exception as e:
             with self._pending_clears_lock:
                 self._pending_clears.discard(abs_id)
-            error_msg = f"Error clearing progress for {abs_id}: {e}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            raise RuntimeError(error_msg) from e
+            logger.error(f"Error clearing progress for {sanitize_log_data(abs_id)}: {type(e).__name__}")
+            logger.debug(traceback.format_exc())
+            raise RuntimeError(f"Failed to clear progress for book {sanitize_log_data(abs_id)}") from e
 
     def _finalize_clear_status(self, abs_id):
         """Handle smart-reset status finalization after clearing progress."""

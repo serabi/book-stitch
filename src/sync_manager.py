@@ -569,9 +569,8 @@ class SyncManager:
         try:
             self._sync_cycle_internal(target_abs_id)
         except Exception as e:
-            logger.error(f"Sync cycle internal error: {e}")
-            # Log traceback for robust debugging
-            logger.error(traceback.format_exc())
+            logger.error(f"Sync cycle internal error: {type(e).__name__}")
+            logger.debug(traceback.format_exc())
         finally:
             self._sync_lock.release()
 
@@ -606,8 +605,8 @@ class SyncManager:
             try:
                 self._sync_single_book(book, bulk_states_per_client)
             except Exception as e:
-                logger.error(traceback.format_exc())
-                logger.error(f"Sync error: {e}")
+                logger.error(f"Sync error for '{abs_id}': {type(e).__name__}")
+                logger.debug(traceback.format_exc())
 
         logger.debug("End of sync cycle for active books")
         self._process_deferred_clears()
@@ -833,10 +832,10 @@ class SyncManager:
                 abs_id=abs_id,
                 client_name=leader.lower(),
                 percentage=leader_current.get('pct'),
-                timestamp=leader_current.get('timestamp'),
+                timestamp=leader_current.get('ts'),
                 xpath=leader_current.get('xpath'),
                 cfi=leader_current.get('cfi'),
-                last_updated=leader_current.get('last_updated'),
+                last_updated=time.time(),
             )
             self.database_service.save_state(state)
             return
@@ -933,7 +932,7 @@ class SyncManager:
                     with self._pending_clears_lock:
                         self._pending_clears.discard(pending_id)
                 except Exception as e:
-                    logger.warning(f"Deferred clear failed for '{pending_id}': {e}")
+                    logger.warning(f"Deferred clear failed for '{sanitize_log_data(pending_id)}': {type(e).__name__}")
 
     # ── Progress reset delegation (implementation in ProgressResetService) ──
 

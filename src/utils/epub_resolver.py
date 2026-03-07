@@ -22,12 +22,21 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, booklore_client=No
     books_search_dir = Path(books_dir) if books_dir else Path("/books")
     epub_cache_dir = Path(epub_cache_dir) if epub_cache_dir else Path("/tmp/epub_cache")
 
+    # Reject filenames with path traversal components
+    if os.sep in ebook_filename or '/' in ebook_filename or '..' in ebook_filename:
+        logger.error(f"Invalid ebook filename rejected: {sanitize_log_data(ebook_filename)}")
+        return None
+
     # First, try to find on filesystem
     escaped_filename = glob.escape(ebook_filename)
+    resolved_search_dir = books_search_dir.resolve()
     filesystem_matches = list(books_search_dir.glob(f"**/{escaped_filename}"))
+    for candidate in filesystem_matches:
+        if candidate.resolve().is_relative_to(resolved_search_dir):
+            logger.info(f"Found EPUB on filesystem: {candidate}")
+            return candidate
     if filesystem_matches:
-        logger.info(f"Found EPUB on filesystem: {filesystem_matches[0]}")
-        return filesystem_matches[0]
+        logger.warning(f"EPUB matches found but all outside search directory, skipping")
 
     # Check persistent EPUB cache
     epub_cache_dir.mkdir(parents=True, exist_ok=True)

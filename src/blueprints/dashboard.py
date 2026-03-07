@@ -304,7 +304,7 @@ def index():
             mapping['cover_url'] = None
 
         # Custom cover URL override (user-pasted) takes precedence over auto-discovered sources
-        if not mapping['cover_url'] and book.custom_cover_url:
+        if book.custom_cover_url:
             mapping['cover_url'] = book.custom_cover_url
 
         # Booklore cover fallback for books without an ABS or custom cover

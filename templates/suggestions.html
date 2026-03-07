@@ -18,29 +18,40 @@
 <body>
     {% include 'partials/navbar.html' %}
 
-    <div class="suggestions-shell">
-        <div class="suggestions-hero">
-            <div>
-                <h2>Pairing Suggestions</h2>
-                <p>Review unmapped audiobook pairings across your indexed ebook sources.</p>
+    <div class="container suggestions-shell">
+        <div class="sg-page-header">
+            <div class="sg-header-copy">
+                <p class="sg-page-kicker">Discovery Queue</p>
+                <h2 class="sg-page-title">Pairing Suggestions</h2>
+                <p class="sg-page-description">Review unmapped audiobook pairings across your indexed ebook sources.</p>
             </div>
             <div class="candidate-actions">
                 <button type="button" class="btn btn-primary" id="rescan-btn" onclick="rescanSuggestions()">Rescan Libraries</button>
             </div>
         </div>
 
-        <div class="suggestions-toolbar">
-            <input type="text" id="suggestion-search" placeholder="Filter by title, author, or candidate..." value="{{ initial_search }}" oninput="renderSuggestions()">
-            <select id="confidence-filter" onchange="renderSuggestions()">
-                <option value="all">All confidence</option>
-                <option value="high">High confidence</option>
-                <option value="medium">High + medium</option>
-            </select>
-            <select id="bookfusion-filter" onchange="renderSuggestions()">
-                <option value="all">All evidence</option>
-                <option value="bookfusion">Has BookFusion evidence</option>
-            </select>
-            <span class="help-note" id="rescan-status"></span>
+        <div class="sg-toolbar" id="suggestions-toolbar">
+            <div class="sg-toolbar-main">
+                <input type="text" id="suggestion-search" class="search-box" placeholder="Filter by title, author, or candidate..." value="{{ initial_search }}" oninput="renderSuggestions()">
+                <select id="confidence-filter" onchange="renderSuggestions()">
+                    <option value="all">All confidence</option>
+                    <option value="high">High confidence</option>
+                    <option value="medium">High + medium</option>
+                </select>
+                <select id="bookfusion-filter" onchange="renderSuggestions()">
+                    <option value="all">All evidence</option>
+                    <option value="bookfusion">Has BookFusion evidence</option>
+                </select>
+                <div class="sg-view-toggle" aria-label="Suggestion view toggle">
+                    <button class="sg-view-btn" data-view="grid" title="Card view" type="button" aria-pressed="false">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+                    </button>
+                    <button class="sg-view-btn active" data-view="list" title="List view" type="button" aria-pressed="true">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+                    </button>
+                </div>
+            </div>
+            <span class="help-note sg-toolbar-status" id="rescan-status"></span>
         </div>
 
         <div class="stats-strip">
@@ -51,7 +62,9 @@
             <div class="stat-pill"><strong>{{ 'enabled' if suggestions_enabled else 'disabled' }}</strong> suggestions status</div>
         </div>
 
-        <div id="suggestion-grid" class="suggestion-grid"></div>
+        <div id="suggestions-results" class="suggestions-results sg-list-view">
+            <div id="suggestion-grid" class="suggestion-grid"></div>
+        </div>
 
         <div id="empty-state" class="empty-state hidden">
             <h3>No Visible Suggestions</h3>
@@ -96,6 +109,8 @@
         const selectedSourceId = {{ selected_source_id|tojson }};
         let rescanPollTimer = null;
         let suggestionConfirmCleanup = null;
+        const desktopMedia = window.matchMedia('(min-width: 961px)');
+        let currentView = 'list';
 
         function escapeHtml(value) {
             return String(value || '')
@@ -212,6 +227,35 @@
                 '</article>';
         }
 
+        function setView(view, persist) {
+            const results = document.getElementById('suggestions-results');
+            const hiddenGrid = document.getElementById('hidden-grid');
+            const viewButtons = document.querySelectorAll('.sg-view-btn');
+            const forcedView = desktopMedia.matches ? view : 'list';
+
+            currentView = forcedView;
+
+            if (results) {
+                results.classList.toggle('sg-grid-view', forcedView === 'grid');
+                results.classList.toggle('sg-list-view', forcedView !== 'grid');
+            }
+
+            if (hiddenGrid) {
+                hiddenGrid.classList.toggle('sg-list-grid', forcedView !== 'grid');
+            }
+
+            viewButtons.forEach(function(btn) {
+                const isActive = btn.dataset.view === forcedView;
+                btn.classList.toggle('active', isActive);
+                btn.disabled = !desktopMedia.matches;
+                btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+
+            if (persist && desktopMedia.matches) {
+                try { localStorage.setItem('pk-suggestions-view', forcedView); } catch (e) {}
+            }
+        }
+
         function renderSuggestions() {
             const filtered = filterSuggestions();
             const visible = filtered.filter(function(item) { return !item.hidden; });
@@ -243,6 +287,33 @@
             } else {
                 empty.classList.add('hidden');
             }
+        }
+
+        document.querySelectorAll('.sg-view-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                setView(btn.dataset.view, true);
+            });
+        });
+
+        try {
+            const savedView = localStorage.getItem('pk-suggestions-view');
+            setView(savedView === 'grid' ? 'grid' : 'list', false);
+        } catch (e) {
+            setView('list', false);
+        }
+
+        if (!currentView) {
+            setView('list', false);
+        }
+
+        function handleViewportChange() {
+            setView(currentView, false);
+        }
+
+        if (desktopMedia.addEventListener) {
+            desktopMedia.addEventListener('change', handleViewportChange);
+        } else if (desktopMedia.addListener) {
+            desktopMedia.addListener(handleViewportChange);
         }
 
         function updateSuggestionState(sourceId, updater) {

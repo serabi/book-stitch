@@ -82,7 +82,7 @@ def _build_batch_queue_item(item):
     if item.get('audio_only'):
         status_label = 'Audio Only'
         status_kind = 'audio-only'
-    elif item.get('abs_id') and (item.get('ebook_filename') or storyteller_selected):
+    elif item.get('abs_id') and item.get('ebook_filename'):
         status_label = 'Ready'
         status_kind = 'ready'
     else:

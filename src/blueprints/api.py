@@ -8,7 +8,7 @@ import logging
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.blueprints.helpers import get_booklore_client, get_container, get_database_service
+from src.blueprints.helpers import find_in_booklore, get_booklore_client, get_container, get_database_service, get_kosync_id_for_ebook
 from src.db.models import Book
 
 logger = logging.getLogger(__name__)
@@ -349,10 +349,21 @@ def api_booklore_link(abs_id):
     if not filename:
         logger.info(f"Unlinking Booklore for '{book.abs_title}'")
         book.ebook_filename = None
+        book.original_ebook_filename = None
+        book.kosync_doc_id = None
         database_service.save_book(book)
         return jsonify({"success": True, "message": "Booklore unlinked"})
 
     book.ebook_filename = filename
+    # Recompute KOSync ID for the new ebook file
+    booklore_id = None
+    bl_book, bl_client = find_in_booklore(filename)
+    if bl_book:
+        booklore_id = bl_book.get('id')
+    kosync_doc_id = get_kosync_id_for_ebook(filename, booklore_id, bl_client=bl_client)
+    if kosync_doc_id:
+        book.kosync_doc_id = kosync_doc_id
+    book.original_ebook_filename = book.original_ebook_filename or filename
     database_service.save_book(book)
     logger.info(f"Linked Booklore file '{filename}' to '{book.abs_title}'")
     return jsonify({"success": True, "message": "Linked successfully"})

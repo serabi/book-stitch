@@ -192,7 +192,7 @@ class TestClearProgressMethod(unittest.TestCase):
         with self.assertRaises(RuntimeError) as context:
             self.sync_manager.clear_progress('nonexistent-book-456')
 
-        self.assertIn('Book not found: nonexistent-book-456', str(context.exception))
+        self.assertIn('Failed to clear progress for book nonexistent-book-456', str(context.exception))
 
     def test_clear_progress_with_client_failures(self):
         """Test clearing progress when some clients fail to reset."""
