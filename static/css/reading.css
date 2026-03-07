@@ -706,6 +706,10 @@
   font-weight: 600;
   color: var(--color-success);
   flex-shrink: 0;
+  background: rgba(255,255,255,0.08);
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
 }
 
 .r-detail-reread {
@@ -720,6 +724,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  max-width: 55%;
 }
 
 .r-detail-progress .progress-bar {
@@ -949,8 +954,8 @@
 
 /* Hero action buttons */
 .r-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 
@@ -963,6 +968,7 @@
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
+  text-align: center;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 
@@ -1305,8 +1311,8 @@ a.r-service-row-name:hover { text-decoration: underline; }
   }
 
   .r-hero-actions {
+    grid-template-columns: repeat(3, 1fr);
     gap: 4px;
-    justify-content: center;
   }
 
   .r-journal-form {

@@ -77,7 +77,8 @@
                         {% endif %}
                     </div>
 
-                    {# Progress bar + inline percentage #}
+                    {# Progress bar + percentage chip + manual input #}
+                    {% set show_manual = has_bookfusion_link or (book.book_type == 'ebook-only') %}
                     {% if book.unified_progress > 0 %}
                     <div class="r-detail-progress" id="progress-section">
                         <div class="progress-bar">
@@ -86,17 +87,25 @@
                                  style="width: {{ book.unified_progress }}%"></div>
                         </div>
                         <span class="r-detail-pct" id="progress-pct">{{ '%.0f' | format(book.unified_progress) }}%</span>
+                        {% if show_manual %}
+                        <div class="r-inline-progress">
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" id="manual-pct-input"
+                                   value="{{ '%.0f' | format(book.unified_progress) }}"
+                                   class="r-inline-pct-input" maxlength="3">
+                            <span class="r-inline-pct-symbol">%</span>
+                            <button class="r-inline-pct-save" onclick="setManualProgress()" title="Save">&#10003;</button>
+                        </div>
+                        {% endif %}
                     </div>
-                    {% endif %}
-
-                    {# Inline manual progress input #}
-                    {% if has_bookfusion_link or (book.book_type == 'ebook-only') %}
-                    <div class="r-inline-progress">
-                        <input type="text" inputmode="numeric" pattern="[0-9]*" id="manual-pct-input"
-                               value="{{ '%.0f' | format(book.unified_progress) }}"
-                               class="r-inline-pct-input" maxlength="3">
-                        <span class="r-inline-pct-symbol">%</span>
-                        <button class="r-inline-pct-save" onclick="setManualProgress()" title="Save">&#10003;</button>
+                    {% elif show_manual %}
+                    <div class="r-detail-progress" id="progress-section">
+                        <div class="r-inline-progress">
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" id="manual-pct-input"
+                                   value="0"
+                                   class="r-inline-pct-input" maxlength="3">
+                            <span class="r-inline-pct-symbol">%</span>
+                            <button class="r-inline-pct-save" onclick="setManualProgress()" title="Save">&#10003;</button>
+                        </div>
                     </div>
                     {% endif %}
 
