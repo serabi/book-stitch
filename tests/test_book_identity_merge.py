@@ -10,7 +10,16 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from src.db.database_service import DatabaseService
-from src.db.models import Book, Job, KosyncDocument, ReadingJournal, State, StorytellerSubmission
+from src.db.models import (
+    Book,
+    BookAlignment,
+    HardcoverDetails,
+    Job,
+    KosyncDocument,
+    ReadingJournal,
+    State,
+    StorytellerSubmission,
+)
 
 sys.modules.setdefault("nh3", SimpleNamespace(clean=lambda value, tags=None, attributes=None: value))
 
@@ -305,6 +314,105 @@ class TestBookIdentityMerge(unittest.TestCase):
                 self.assertEqual(state.abs_id, "abs-route-audiobook")
         finally:
             src.db.migration_utils.initialize_database = original_initialize_database
+
+    def test_merge_backfills_unique_children_when_both_books_have_rows(self):
+        source = self.db.save_book(
+            Book(
+                abs_id="ebook-both-children",
+                title="Both Children EPUB",
+                ebook_filename="both.epub",
+                kosync_doc_id="d" * 32,
+                status="active",
+                sync_mode="ebook_only",
+            )
+        )
+        target = self.db.save_book(
+            Book(
+                abs_id="abs-both-children",
+                title="Both Children Audiobook",
+                author="Both Author",
+                ebook_filename=source.ebook_filename,
+                kosync_doc_id=source.kosync_doc_id,
+                status="active",
+                duration=3600,
+                sync_mode="audiobook",
+            )
+        )
+
+        # Canonical Hardcover row: identity set, isbn left NULL.
+        self.db.save_hardcover_details(
+            HardcoverDetails(
+                book_id=source.id,
+                abs_id=source.abs_id,
+                hardcover_book_id="canonical-hc",
+                isbn=None,
+            )
+        )
+        # Target Hardcover row: conflicting identity (must lose) + isbn to backfill.
+        self.db.save_hardcover_details(
+            HardcoverDetails(
+                book_id=target.id,
+                abs_id=target.abs_id,
+                hardcover_book_id="target-hc",
+                isbn="9781234567890",
+            )
+        )
+
+        # Canonical alignment: map present, source NULL. Target: different map + source.
+        with self.db.get_session() as session:
+            session.add(
+                BookAlignment(
+                    book_id=source.id,
+                    abs_id=source.abs_id,
+                    alignment_map_json='{"canonical": true}',
+                    source=None,
+                )
+            )
+            session.add(
+                BookAlignment(
+                    book_id=target.id,
+                    abs_id=target.abs_id,
+                    alignment_map_json='{"target": true}',
+                    source="storyteller",
+                )
+            )
+
+        with self.db.get_session() as session:
+            original_alignment_ts = (
+                session.query(BookAlignment).filter(BookAlignment.book_id == source.id).one().last_updated
+            )
+
+        self.db.migrate_book_data(source.abs_id, target.abs_id)
+
+        with self.db.get_session() as session:
+            self.assertEqual(len(session.query(Book).all()), 1)
+
+            hc_rows = session.query(HardcoverDetails).all()
+            self.assertEqual(len(hc_rows), 1)
+            hc = hc_rows[0]
+            self.assertEqual(hc.book_id, source.id)
+            self.assertEqual(hc.abs_id, target.abs_id)
+            # Canonical identity wins on conflict; null isbn backfilled from target.
+            self.assertEqual(hc.hardcover_book_id, "canonical-hc")
+            self.assertEqual(hc.isbn, "9781234567890")
+            self.assertEqual(
+                session.query(HardcoverDetails).filter(HardcoverDetails.book_id == target.id).count(), 0
+            )
+
+            align_rows = session.query(BookAlignment).all()
+            self.assertEqual(len(align_rows), 1)
+            align = align_rows[0]
+            self.assertEqual(align.book_id, source.id)
+            self.assertEqual(align.abs_id, target.abs_id)
+            # NOT-NULL canonical map wins; nullable source backfilled from target.
+            self.assertEqual(align.alignment_map_json, '{"canonical": true}')
+            self.assertEqual(align.source, "storyteller")
+            # last_updated is an onupdate column: the merge touches the row, so it
+            # advances to merge time rather than being copied from the target.
+            self.assertGreaterEqual(align.last_updated, original_alignment_ts)
+            self.assertEqual(
+                session.query(BookAlignment).filter(BookAlignment.book_id == target.id).count(), 0
+            )
 
 
 if __name__ == "__main__":
