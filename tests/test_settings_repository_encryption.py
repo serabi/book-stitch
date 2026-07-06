@@ -158,6 +158,15 @@ class TestPreEncryptionBackup:
         # Live DB is now encrypted.
         assert SettingsCrypto.is_encrypted(_raw_value(db_service, "ABS_KEY"))
 
+    def test_backup_is_owner_read_write_only(self, encryption_key, db_service):
+        # The backup contains plaintext secrets: it must be 0600 (owner rw only).
+        self._seed_plaintext(db_service, "ABS_KEY", "dummy-abs-key")
+
+        assert db_service.encrypt_plaintext_secrets() == 1
+
+        (backup,) = self._backups(db_service)
+        assert os.stat(backup).st_mode & 0o777 == 0o600
+
     def test_no_plaintext_means_no_backup(self, encryption_key, db_service):
         # Already-encrypted secret only — nothing pending.
         db_service.set_setting("ABS_KEY", "dummy-abs-key")

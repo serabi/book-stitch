@@ -9,6 +9,7 @@ and returned verbatim.
 """
 
 import logging
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -169,10 +170,22 @@ class SettingsRepository(BaseRepository):
         sitting in the ``-wal`` file are folded into the backup, so the result
         is a standalone ``database.db`` with no companion ``-wal``/``-shm``
         files required to restore it.
+
+        The backup holds plaintext secrets, so the file is pre-created with
+        owner-only (0600) permissions before SQLite writes a single byte to
+        it: SQLite adopts an existing empty file as the database, so the
+        snapshot is never readable by group/other, even transiently.
         """
         db_path = Path(self.db_manager.db_path)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_path = db_path.with_name(f"{db_path.name}.{BACKUP_SUFFIX}-{timestamp}")
+
+        fd = os.open(str(backup_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            # os.open's mode is masked by umask; fchmod pins it to exactly 0600.
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
 
         source = sqlite3.connect(str(db_path))
         try:
