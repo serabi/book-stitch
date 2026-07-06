@@ -2029,7 +2029,7 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
 
             # Step 2: app startup must fully recover, not continue degraded
             db_service = DatabaseService(db_path)
-            self.assertFalse(db_service._migration_failed)
+            self.assertEqual(db_service.startup_ready(), (True, "ok"))
             book = db_service.get_book_by_abs_id("legacy-book-1")
             db_service.db_manager.close()
             self.assertIsNotNone(book, "Pre-existing legacy book was lost during recovery")
