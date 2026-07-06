@@ -38,10 +38,12 @@ class SuggestionRepository(BaseRepository):
         )
 
     def save_pending_suggestion(self, suggestion):
-        """Upsert a suggestion, preserving hidden status if already hidden."""
-        existing = self.get_suggestion(suggestion.source_id, suggestion.source)
-        if existing and existing.status == "hidden" and suggestion.status == "pending":
-            suggestion.status = "hidden"
+        """Upsert a suggestion, preserving hidden status if already hidden.
+
+        Hidden preservation runs against the existing row inside the upsert
+        transaction so a hide landing after any earlier read cannot be
+        clobbered back to pending.
+        """
         return self._upsert(
             PendingSuggestion,
             [
@@ -50,7 +52,13 @@ class SuggestionRepository(BaseRepository):
             ],
             suggestion,
             ["title", "author", "cover_url", "matches_json", "status"],
+            normalize=self._preserve_hidden_status,
         )
+
+    @staticmethod
+    def _preserve_hidden_status(suggestion, existing):
+        if existing.status == "hidden" and suggestion.status == "pending":
+            suggestion.status = "hidden"
 
     def get_pending_suggestion_count(self):
         return self._count(PendingSuggestion, PendingSuggestion.status == "pending")

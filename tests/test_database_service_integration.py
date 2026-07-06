@@ -2428,6 +2428,91 @@ class TestSuggestionSourceScoping(unittest.TestCase):
         self.assertEqual(kosync_saved.status, "pending")
         self.assertEqual(self.db_service.get_suggestion("id1", source="abs").status, "hidden")
 
+    def test_save_pending_suggestion_preserves_hidden_from_row_inside_upsert(self):
+        """Regression: hidden preservation must be decided by the row found inside
+        the upsert transaction, not an earlier pre-read.
+
+        Simulates the race the old code lost: a pre-read sees no hidden row, then a
+        concurrent hide lands before the update transaction runs. The pre-read is
+        simulated as returning None to prove preservation no longer depends on it."""
+        from unittest.mock import patch
+
+        from src.db.suggestion_repository import SuggestionRepository
+
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="race-hide", title="Title", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("race-hide", source="abs"))
+
+        # Pre-read returns None: the concurrent hide had not yet landed when an
+        # earlier-design caller would have read. The fix must not rely on it.
+        with patch.object(SuggestionRepository, "get_suggestion", return_value=None):
+            saved = self.db_service._suggestions.save_pending_suggestion(
+                self.PendingSuggestion(source_id="race-hide", title="Updated", status="pending", source="abs")
+            )
+
+        self.assertEqual(saved.status, "hidden")
+        fetched = self.db_service.get_suggestion("race-hide", source="abs")
+        self.assertEqual(fetched.status, "hidden")
+        self.assertEqual(fetched.title, "Updated")
+
+    def test_save_pending_suggestion_preserves_hidden_in_integrity_error_recovery(self):
+        """Regression: the IntegrityError race-recovery branch of _upsert must also
+        preserve hidden status.
+
+        Forces _upsert down its insert path (initial lookup returns None) and makes
+        the insert flush raise IntegrityError, as a concurrent insert of the same
+        (source_id, source) does under the unique index. Recovery re-finds the
+        hidden row and preservation must run against it."""
+        from sqlalchemy.exc import IntegrityError
+        from sqlalchemy.orm import Query, Session
+
+        from src.db.models import PendingSuggestion
+
+        repo = self.db_service._suggestions
+
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="race-integrity", title="Existing", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("race-integrity", source="abs"))
+
+        real_first = Query.first
+        real_flush = Session.flush
+        state = {"first_calls": 0, "flush_calls": 0}
+
+        def fake_first(query_self):
+            # Only intercept the very first lookup inside _upsert for this model.
+            if (
+                state["first_calls"] == 0
+                and query_self.column_descriptions
+                and query_self.column_descriptions[0]["type"] is PendingSuggestion
+            ):
+                state["first_calls"] += 1
+                return None
+            return real_first(query_self)
+
+        def fake_flush(session_self, *args, **kwargs):
+            # Only the insert flush fails, simulating a lost concurrent-insert race.
+            state["flush_calls"] += 1
+            if state["flush_calls"] == 1:
+                raise IntegrityError("INSERT", {}, Exception("simulated unique violation"))
+            return real_flush(session_self, *args, **kwargs)
+
+        Query.first = fake_first
+        Session.flush = fake_flush
+        try:
+            saved = repo.save_pending_suggestion(
+                self.PendingSuggestion(source_id="race-integrity", title="Updated", status="pending", source="abs")
+            )
+        finally:
+            Query.first = real_first
+            Session.flush = real_flush
+
+        self.assertEqual(saved.status, "hidden")
+        fetched = self.db_service.get_suggestion("race-integrity", source="abs")
+        self.assertEqual(fetched.status, "hidden")
+        self.assertEqual(fetched.title, "Updated")
+
     def test_pending_suggestion_count_empty_database_returns_zero(self):
         """get_pending_suggestion_count returns 0 when no suggestions exist."""
         self.assertEqual(self.db_service.get_pending_suggestion_count(), 0)
