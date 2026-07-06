@@ -2346,6 +2346,44 @@ class TestSuggestionSourceScoping(unittest.TestCase):
             )
         self.assertEqual(count, 1)
 
+    def test_fresh_db_enforces_suggestion_source_uniqueness(self):
+        """A fresh DB created via create_all must have the unique (source_id, source) index.
+
+        Fresh databases are created with Base.metadata.create_all + stamp head,
+        skipping migrations. The unique index added by revision p6q7r8s9t0u1
+        must therefore also exist in the ORM metadata, or fresh installs would
+        silently allow duplicate suggestions that migrated installs reject.
+        """
+        import sqlite3
+
+        conn = sqlite3.connect(self.test_db_path)
+        try:
+            indexes = conn.execute("PRAGMA index_list(pending_suggestions)").fetchall()
+            unique_by_name = {row[1]: row[2] for row in indexes}
+            self.assertIn("ix_pending_suggestions_source_id_source", unique_by_name)
+            self.assertEqual(unique_by_name["ix_pending_suggestions_source_id_source"], 1,
+                             "Index exists but is not UNIQUE")
+
+            columns = [
+                row[2]
+                for row in conn.execute(
+                    "PRAGMA index_info(ix_pending_suggestions_source_id_source)"
+                ).fetchall()
+            ]
+            self.assertEqual(columns, ["source_id", "source"])
+
+            conn.execute(
+                "INSERT INTO pending_suggestions (source, source_id, title, status)"
+                " VALUES ('abs', 'dup-id', 'First', 'pending')"
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO pending_suggestions (source, source_id, title, status)"
+                    " VALUES ('abs', 'dup-id', 'Second', 'pending')"
+                )
+        finally:
+            conn.close()
+
     def test_save_pending_suggestion_hidden_stays_hidden_when_incoming_pending(self):
         """A hidden suggestion must remain hidden when re-saved as pending."""
         self.db_service.save_pending_suggestion(
