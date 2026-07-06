@@ -1987,6 +1987,114 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
 
             conn.close()
 
+    def test_startup_script_delegates_migrations_to_app(self):
+        """start.sh must not run Alembic directly. On a pre-Alembic DB a direct
+        `alembic upgrade head` fails with 'table books already exists' and
+        leaves an empty alembic_version table behind, which used to poison the
+        app's legacy recovery path. DatabaseService is the single migration
+        authority for container startup.
+        """
+        start_sh = (Path(__file__).parent.parent / "start.sh").read_text()
+        command_lines = [line for line in start_sh.splitlines() if not line.lstrip().startswith("#")]
+        self.assertNotIn("alembic", "\n".join(command_lines))
+
+    def test_legacy_db_poisoned_by_direct_alembic_recovers_on_startup(self):
+        """Simulates the released container startup path against a pre-Alembic DB:
+        start.sh used to run `alembic upgrade head` before the app started. That
+        fails on 'table books already exists' and leaves an EMPTY alembic_version
+        table. DatabaseService startup must recover that exact state instead of
+        failing and continuing on the old schema.
+        """
+        import sqlite3
+
+        from sqlalchemy.exc import OperationalError
+
+        from alembic import command
+        from src.db.database_service import DatabaseService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "poisoned.db")
+            self._make_legacy_db(db_path)
+
+            # Step 1: what start.sh's direct `alembic upgrade head` did
+            with self.assertRaises(OperationalError):
+                command.upgrade(self._alembic_config(db_path), "head")
+
+            # Precondition: poisoned state — empty alembic_version + legacy schema
+            conn = sqlite3.connect(db_path)
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            self.assertIn("alembic_version", tables)
+            self.assertEqual(conn.execute("SELECT count(*) FROM alembic_version").fetchone()[0], 0)
+            conn.close()
+
+            # Step 2: app startup must fully recover, not continue degraded
+            db_service = DatabaseService(db_path)
+            self.assertFalse(db_service._migration_failed)
+            book = db_service.get_book_by_abs_id("legacy-book-1")
+            db_service.db_manager.close()
+            self.assertIsNotNone(book, "Pre-existing legacy book was lost during recovery")
+            self.assertEqual(book.title, "My Legacy Book")
+
+            conn = sqlite3.connect(db_path)
+            version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+            self.assertIsNotNone(version, "alembic_version still empty after recovery")
+            books_cols = {row[1] for row in conn.execute("PRAGMA table_info(books)").fetchall()}
+            self.assertIn("title", books_cols, "abs_title→title migration did not run during recovery")
+            states_cols = {row[1] for row in conn.execute("PRAGMA table_info(states)").fetchall()}
+            self.assertIn("book_id", states_cols, "states.book_id not added during recovery")
+            conn.close()
+
+    def test_empty_alembic_version_on_unknown_db_fails_closed(self):
+        """A populated DB with an empty alembic_version table that does NOT match
+        the pre-Alembic baseline is an interrupted migration we cannot resume.
+        Startup must abort loudly instead of stamping or patching the schema.
+        """
+        import sqlite3
+
+        from src.db.database_service import DatabaseService, DatabaseSchemaError
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "unknown.db")
+            conn = sqlite3.connect(db_path)
+            conn.executescript("""
+                CREATE TABLE books (abs_id TEXT PRIMARY KEY, abs_title TEXT);
+                CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL);
+            """)
+            conn.execute("INSERT INTO books (abs_id, abs_title) VALUES ('b1', 'Book')")
+            conn.commit()
+            conn.close()
+
+            with self.assertRaises(DatabaseSchemaError):
+                DatabaseService(db_path)
+
+            # The DB must not have been stamped or mutated
+            conn = sqlite3.connect(db_path)
+            self.assertEqual(conn.execute("SELECT count(*) FROM alembic_version").fetchone()[0], 0)
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            conn.close()
+            self.assertEqual(tables, {"books", "alembic_version"})
+
+    def test_interrupted_migration_recovery_failure_fails_closed(self):
+        """If baseline-stamp recovery itself fails, startup must abort rather than
+        continue with a partially migrated schema.
+        """
+        import sqlite3
+        from unittest.mock import patch
+
+        from src.db.database_service import DatabaseService, DatabaseSchemaError
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "broken_recovery.db")
+            self._make_legacy_db(db_path)
+            conn = sqlite3.connect(db_path)
+            conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+            conn.commit()
+            conn.close()
+
+            with patch("alembic.command.upgrade", side_effect=RuntimeError("boom")):
+                with self.assertRaises(DatabaseSchemaError):
+                    DatabaseService(db_path)
+
     def test_state_uniqueness_migration_dedupes_before_index(self):
         """Duplicate states from the previous head are collapsed before adding uniqueness."""
         import sqlite3
