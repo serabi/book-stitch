@@ -2189,6 +2189,230 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
             self.assertTrue(Path(db_path).exists(), "Database file was not created")
 
 
+class TestUnsafeSchemaFailsClosed(unittest.TestCase):
+    """
+    Populated databases that cannot be verified as a known upgrade path must
+    fail closed: DatabaseService must raise DatabaseSchemaError without
+    stamping alembic_version or mutating the schema. Silently stamping or
+    patching such databases can permanently corrupt user data.
+    """
+
+    LEGACY_TABLE_DDL = {
+        "books": """
+            CREATE TABLE books (
+                abs_id TEXT PRIMARY KEY,
+                abs_title TEXT,
+                ebook_filename TEXT,
+                kosync_doc_id TEXT,
+                transcript_file TEXT,
+                status TEXT DEFAULT 'active',
+                duration REAL
+            );
+        """,
+        "hardcover_details": """
+            CREATE TABLE hardcover_details (
+                abs_id TEXT PRIMARY KEY,
+                hardcover_book_id TEXT,
+                hardcover_edition_id TEXT,
+                hardcover_pages INTEGER,
+                isbn TEXT,
+                asin TEXT,
+                matched_by TEXT
+            );
+        """,
+        "states": """
+            CREATE TABLE states (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                abs_id TEXT NOT NULL,
+                client_name TEXT NOT NULL,
+                last_updated REAL,
+                percentage REAL,
+                timestamp REAL,
+                xpath TEXT,
+                cfi TEXT
+            );
+        """,
+        "jobs": """
+            CREATE TABLE jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                abs_id TEXT NOT NULL,
+                last_attempt REAL,
+                retry_count INTEGER DEFAULT 0,
+                last_error TEXT
+            );
+        """,
+    }
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = str(Path(self.temp_dir) / "unsafe.db")
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _make_db(self, tables, with_empty_alembic_version=False):
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        for table in tables:
+            conn.executescript(self.LEGACY_TABLE_DDL[table])
+        if "books" in tables:
+            conn.execute("INSERT INTO books (abs_id, abs_title) VALUES ('user-book-1', 'Precious Data')")
+        if with_empty_alembic_version:
+            conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+    def _table_names(self):
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        conn.close()
+        return tables
+
+    def _assert_fails_closed(self, expected_tables):
+        """DatabaseService must raise and leave the database untouched."""
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        tables = self._table_names()
+        self.assertEqual(
+            tables - {"sqlite_sequence"},
+            expected_tables,
+            "Fail-closed startup must not create or drop tables",
+        )
+        self.assertNotIn("alembic_version", tables, "Unsafe database must not be stamped")
+
+    def test_partial_legacy_books_and_states_only_fails_closed(self):
+        """A legacy DB missing hardcover_details and jobs must not be baseline-stamped:
+        replaying migrations on it fails midway and leaves a half-upgraded schema."""
+        self._make_db(["books", "states"])
+        self._assert_fails_closed({"books", "states"})
+
+    def test_partial_legacy_missing_hardcover_details_fails_closed(self):
+        self._make_db(["books", "states", "jobs"])
+        self._assert_fails_closed({"books", "states", "jobs"})
+
+    def test_partial_legacy_missing_jobs_fails_closed(self):
+        self._make_db(["books", "states", "hardcover_details"])
+        self._assert_fails_closed({"books", "states", "hardcover_details"})
+
+    def test_unknown_populated_books_only_fails_closed(self):
+        """An unknown populated schema must never be stamped at head."""
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TABLE books (abs_id TEXT, abs_title TEXT)")
+        conn.execute("INSERT INTO books VALUES ('user-book-1', 'Precious Data')")
+        conn.commit()
+        conn.close()
+
+        self._assert_fails_closed({"books"})
+
+    def test_baseline_table_missing_column_fails_closed(self):
+        """All four tables present but a baseline column missing must not be stamped."""
+        import sqlite3
+
+        self._make_db(["states", "hardcover_details", "jobs"])
+        conn = sqlite3.connect(self.db_path)
+        # books without abs_title — e.g. a manually repaired or renamed schema
+        conn.execute("CREATE TABLE books (abs_id TEXT PRIMARY KEY, title TEXT)")
+        conn.commit()
+        conn.close()
+
+        self._assert_fails_closed({"books", "states", "hardcover_details", "jobs"})
+
+    def test_empty_alembic_version_with_verified_baseline_recovers(self):
+        """An empty alembic_version table (left by an interrupted direct
+        `alembic upgrade head`) on a fully verified baseline must recover:
+        baseline-stamp, upgrade to head, and preserve data."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseService
+
+        self._make_db(["books", "states", "hardcover_details", "jobs"], with_empty_alembic_version=True)
+
+        db_service = DatabaseService(self.db_path)
+        book = db_service.get_book_by_abs_id("user-book-1")
+        db_service.db_manager.close()
+
+        self.assertIsNotNone(book, "Pre-existing book was lost during recovery")
+        self.assertEqual(book.title, "Precious Data")
+
+        conn = sqlite3.connect(self.db_path)
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        books_cols = {r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()}
+        conn.close()
+        self.assertIsNotNone(version, "alembic_version was not stamped during recovery")
+        self.assertIn("id", books_cols, "Later migrations did not run after recovery stamp")
+
+    def test_empty_alembic_version_with_unknown_schema_fails_closed(self):
+        """An empty alembic_version table on an unverified schema must not be stamped."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        self._make_db(["books"], with_empty_alembic_version=True)
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        conn = sqlite3.connect(self.db_path)
+        versions = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+        conn.close()
+        self.assertEqual(versions, [], "Unverified database must not be stamped")
+
+    def test_stale_alembic_version_fails_closed(self):
+        """A revision unknown to the migration history must abort startup unchanged."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        db_service = DatabaseService(self.db_path)
+        db_service.db_manager.close()
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("UPDATE alembic_version SET version_num = 'deadbeef12345'")
+        conn.commit()
+        conn.close()
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        conn = sqlite3.connect(self.db_path)
+        versions = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+        conn.close()
+        self.assertEqual(versions, [("deadbeef12345",)], "Stale revision must be left untouched")
+
+    def test_missing_model_column_after_migrations_fails_closed(self):
+        """A model column missing from an up-to-date DB must abort startup instead
+        of being patched in with a raw ALTER TABLE (the previous behavior)."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        db_service = DatabaseService(self.db_path)
+        db_service.db_manager.close()
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("ALTER TABLE books DROP COLUMN subtitle")
+        conn.commit()
+        conn.close()
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        conn = sqlite3.connect(self.db_path)
+        books_cols = {r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()}
+        conn.close()
+        self.assertNotIn("subtitle", books_cols, "Missing model column must not be silently patched in")
+
+
 class TestSuggestionSourceScoping(unittest.TestCase):
     """Tests that suggestion operations are scoped by (source_id, source)."""
 
