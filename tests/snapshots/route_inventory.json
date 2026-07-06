@@ -827,6 +827,14 @@
     "kind": "page"
   },
   {
+    "rule": "/readyz",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.readyz",
+    "kind": "api"
+  },
+  {
     "rule": "/settings",
     "methods": [
       "GET",

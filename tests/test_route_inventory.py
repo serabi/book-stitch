@@ -67,7 +67,8 @@ def _classify(rule):
     """
     # The KOSync admin dashboard routes live under /api/ and are UI JSON, not
     # the device-facing protocol — classify by path first so they read as "api".
-    if rule.startswith("/api/"):
+    # /readyz is the Docker HEALTHCHECK readiness probe, also JSON.
+    if rule.startswith("/api/") or rule == "/readyz":
         return "api"
     # Device-facing KOSync protocol routes: the /koreader/* forms plus the bare
     # forms KOReader speaks. Matched by path so UI shells like /kosync-documents

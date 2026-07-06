@@ -54,7 +54,9 @@ USER appuser
 
 EXPOSE 4477
 
+# /readyz is 503 until DB migrations/schema are known safe; /healthcheck stays
+# an unconditional KOSync liveness probe for KOReader devices.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:4477/healthcheck || exit 1
+    CMD curl -f http://localhost:4477/readyz || exit 1
 
 CMD ["/app/start.sh"]

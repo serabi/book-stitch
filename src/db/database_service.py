@@ -273,6 +273,16 @@ class DatabaseService:
         except Exception as e:
             logger.warning("Schema health check could not run: %s", e)
 
+    def startup_ready(self) -> tuple[bool, str]:
+        """Report whether the constructed service is safe to receive traffic.
+
+        Migration and schema verification failures are fatal during construction,
+        so a live DatabaseService instance has already passed the startup gates.
+        The /readyz route still calls this method so tests and future runtime
+        checks have a single readiness contract.
+        """
+        return True, "ok"
+
     def _verify_model_columns(self):
         """Fail closed if any existing table is missing model columns.
 
