@@ -2051,7 +2051,7 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
         """
         import sqlite3
 
-        from src.db.database_service import DatabaseService, DatabaseSchemaError
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "unknown.db")
@@ -2081,7 +2081,7 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
         import sqlite3
         from unittest.mock import patch
 
-        from src.db.database_service import DatabaseService, DatabaseSchemaError
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "broken_recovery.db")
