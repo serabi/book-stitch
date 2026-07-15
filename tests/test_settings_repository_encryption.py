@@ -167,6 +167,44 @@ class TestPreEncryptionBackup:
         (backup,) = self._backups(db_service)
         assert os.stat(backup).st_mode & 0o777 == 0o600
 
+    def test_existing_plaintext_backups_are_hardened_without_new_migration(self, encryption_key, db_service):
+        db_path = Path(db_service.db_manager.db_path)
+        backup = db_path.with_name(f"{db_path.name}.pre-settings-encryption-legacy")
+        backup.write_bytes(b"plaintext backup")
+        backup.chmod(0o644)
+
+        assert db_service.encrypt_plaintext_secrets() == 0
+        assert backup.stat().st_mode & 0o777 == 0o600
+
+    def test_existing_backup_symlink_is_rejected(self, encryption_key, db_service, tmp_path):
+        db_path = Path(db_service.db_manager.db_path)
+        target = tmp_path / "unrelated"
+        target.write_bytes(b"not a backup")
+        target.chmod(0o644)
+        backup = db_path.with_name(f"{db_path.name}.pre-settings-encryption-symlink")
+        backup.symlink_to(target)
+
+        with pytest.raises(OSError):
+            db_service.encrypt_plaintext_secrets()
+
+        assert target.stat().st_mode & 0o777 != 0o600
+
+    def test_backups_created_in_same_second_do_not_collide(self, encryption_key, db_service, monkeypatch):
+        from src.db import settings_repository
+
+        real_datetime = settings_repository.datetime
+
+        class FixedDatetime:
+            @staticmethod
+            def now():
+                return real_datetime(2026, 7, 15, 12, 0, 0)
+
+        monkeypatch.setattr(settings_repository, "datetime", FixedDatetime)
+
+        first = db_service._settings._backup_database_before_encryption()
+        second = db_service._settings._backup_database_before_encryption()
+        assert first != second
+
     def test_no_plaintext_means_no_backup(self, encryption_key, db_service):
         # Already-encrypted secret only — nothing pending.
         db_service.set_setting("ABS_KEY", "dummy-abs-key")

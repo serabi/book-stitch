@@ -9,6 +9,7 @@ instead of the unconditional KOSync ``/healthcheck`` liveness endpoint.
 
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -58,6 +59,98 @@ def test_database_service_raises_when_alembic_revision_is_unknown(tmp_path):
 
     with pytest.raises(DatabaseSchemaError):
         DatabaseService(str(db_path))
+
+
+def test_database_service_rejects_missing_table_at_head(tmp_path):
+    """An up-to-date but damaged DB must not have missing tables recreated."""
+    from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+    db_path = tmp_path / "database.db"
+    service = DatabaseService(str(db_path))
+    service.db_manager.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP TABLE pending_suggestions")
+
+    with pytest.raises(DatabaseSchemaError):
+        DatabaseService(str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "pending_suggestions" not in tables
+
+
+def test_database_service_rejects_missing_correctness_index(tmp_path):
+    """The suggestion upsert requires its unique index to recover races safely."""
+    from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+    db_path = tmp_path / "database.db"
+    service = DatabaseService(str(db_path))
+    service.db_manager.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP INDEX ix_pending_suggestions_source_id_source")
+
+    with pytest.raises(DatabaseSchemaError):
+        DatabaseService(str(db_path))
+
+
+def test_database_service_raises_when_alembic_config_is_missing(tmp_path):
+    from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+    original_exists = Path.exists
+
+    def exists(path):
+        return False if path.name == "alembic.ini" else original_exists(path)
+
+    with patch.object(Path, "exists", exists), pytest.raises(DatabaseSchemaError):
+        DatabaseService(str(tmp_path / "database.db"))
+
+
+def test_startup_ready_reports_live_database_failure(tmp_path, monkeypatch):
+    from src.db.database_service import DatabaseService
+
+    service = DatabaseService(str(tmp_path / "database.db"))
+    try:
+
+        def fail_connect():
+            raise OSError("database unavailable")
+
+        monkeypatch.setattr(service.db_manager.engine, "connect", fail_connect)
+        ready, reason = service.startup_ready()
+        assert ready is False
+        assert reason == "database unavailable"
+    finally:
+        service.db_manager.close()
+
+
+def test_author_subtitle_downgrade_preserves_legacy_data(tmp_path):
+    """The guarded migration must not drop columns it may not have created."""
+    from alembic.config import Config
+
+    from alembic import command
+    from src.db.database_service import DatabaseService
+
+    db_path = tmp_path / "database.db"
+    service = DatabaseService(str(db_path))
+    service.db_manager.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO books (abs_id, title, author, subtitle) VALUES (?, ?, ?, ?)",
+            ("legacy-book", "Legacy", "Legacy Author", "Legacy Subtitle"),
+        )
+
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    command.downgrade(config, "w3x4y5z6a7b8")
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        author, subtitle = conn.execute("SELECT author, subtitle FROM books WHERE abs_id = 'legacy-book'").fetchone()
+    assert {"author", "subtitle"}.issubset(columns)
+    assert (author, subtitle) == ("Legacy Author", "Legacy Subtitle")
 
 
 # ── /readyz endpoint ───────────────────────────────────────────────

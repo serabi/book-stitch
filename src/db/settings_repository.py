@@ -11,6 +11,8 @@ and returned verbatim.
 import logging
 import os
 import sqlite3
+import stat
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -135,6 +137,7 @@ class SettingsRepository(BaseRepository):
         from src.utils.secret_settings import SECRET_SETTING_KEYS
         from src.utils.settings_crypto import SettingsCrypto
 
+        self._secure_existing_plaintext_backups()
         crypto = get_settings_crypto()
         with self.get_session() as session:
             rows = session.query(Setting).filter(Setting.key.in_(SECRET_SETTING_KEYS)).all()
@@ -178,11 +181,12 @@ class SettingsRepository(BaseRepository):
         """
         db_path = Path(self.db_manager.db_path)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = db_path.with_name(f"{db_path.name}.{BACKUP_SUFFIX}-{timestamp}")
-
-        fd = os.open(str(backup_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        fd, backup_name = tempfile.mkstemp(
+            prefix=f"{db_path.name}.{BACKUP_SUFFIX}-{timestamp}-",
+            dir=db_path.parent,
+        )
+        backup_path = Path(backup_name)
         try:
-            # os.open's mode is masked by umask; fchmod pins it to exactly 0600.
             os.fchmod(fd, 0o600)
         finally:
             os.close(fd)
@@ -197,3 +201,15 @@ class SettingsRepository(BaseRepository):
         finally:
             source.close()
         return str(backup_path)
+
+    def _secure_existing_plaintext_backups(self) -> None:
+        """Restrict backups created by older releases before reading settings."""
+        db_path = Path(self.db_manager.db_path)
+        for backup_path in db_path.parent.glob(f"{db_path.name}.{BACKUP_SUFFIX}-*"):
+            fd = os.open(backup_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise OSError(f"Unsafe pre-encryption backup path: {backup_path}")
+                os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)

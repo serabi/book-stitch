@@ -115,10 +115,19 @@ Existing plaintext secrets are migrated to encrypted form automatically on the
 next startup — no manual steps are needed, and the migration is idempotent.
 Before that one-way migration encrypts the first secret, PageKeeper writes a
 timestamped backup of the database next to it
-(`database.db.pre-settings-encryption-YYYYMMDD-HHMMSS`). If the backup cannot be
+(`database.db.pre-settings-encryption-YYYYMMDD-HHMMSS-*`). Backups are created
+with owner-only (`0600`) permissions, and older matching backups are tightened
+to `0600` on the next settings migration check. If the backup cannot be
 written the migration is skipped and your plaintext secrets are left untouched,
 so an upgrade never encrypts without leaving a recovery point. The backup is
 only created when there is at least one plaintext secret to migrate.
+
+Database upgrades fail closed when migration history or required schema is
+missing. Pre-Alembic databases are upgraded automatically only when all four
+original baseline tables (`books`, `hardcover_details`, `states`, and `jobs`)
+and their baseline columns are present. Partial or manually altered legacy
+schemas must be restored from backup or repaired before PageKeeper will start;
+they are never stamped as current automatically.
 
 Setting a dedicated `PAGEKEEPER_SETTINGS_ENCRYPTION_KEY` is **strongly
 recommended**: it keeps your encryption key independent of the Flask session

@@ -33,11 +33,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    inspector = inspect(bind)
-    book_cols = {col["name"] for col in inspector.get_columns("books")}
-
-    if "subtitle" in book_cols:
-        op.drop_column("books", "subtitle")
-    if "author" in book_cols:
-        op.drop_column("books", "author")
+    # Older PageKeeper releases may have created and populated these columns
+    # outside Alembic. Their origin cannot be recovered, so preserve user data.
+    pass

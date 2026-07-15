@@ -105,10 +105,8 @@ class DatabaseService:
         # half-migrated schema.
         self._run_alembic_migrations()
 
-        # Ensure all tables exist (covers new models not yet in migrations)
-        Base.metadata.create_all(self.db_manager.engine)
-
-        # Fail closed if existing tables are missing model columns
+        # Fresh databases are created in _run_alembic_migrations. Existing
+        # databases must never be silently repaired with create_all().
         self._verify_model_columns()
 
         # Initialize domain repositories
@@ -141,9 +139,8 @@ class DatabaseService:
             alembic_dir = Path(__file__).parent.parent.parent / "alembic"
             alembic_ini = alembic_dir.parent / "alembic.ini"
 
-            if not alembic_ini.exists():
-                logger.debug("alembic.ini not found, skipping migrations")
-                return
+            if not alembic_ini.exists() or not alembic_dir.is_dir():
+                raise DatabaseSchemaError("Alembic configuration is missing; refusing to start without migrations")
 
             alembic_cfg = Config(str(alembic_ini))
             alembic_cfg.set_main_option("script_location", str(alembic_dir))
@@ -274,14 +271,13 @@ class DatabaseService:
             logger.warning("Schema health check could not run: %s", e)
 
     def startup_ready(self) -> tuple[bool, str]:
-        """Report whether the constructed service is safe to receive traffic.
-
-        Migration and schema verification failures are fatal during construction,
-        so a live DatabaseService instance has already passed the startup gates.
-        The /readyz route still calls this method so tests and future runtime
-        checks have a single readiness contract.
-        """
-        return True, "ok"
+        """Report whether the constructed service can still reach its database."""
+        try:
+            with self.db_manager.engine.connect() as conn:
+                conn.exec_driver_sql("SELECT 1")
+            return True, "ok"
+        except Exception:
+            return False, "database unavailable"
 
     def _verify_model_columns(self):
         """Fail closed if any existing table is missing model columns.
@@ -298,13 +294,26 @@ class DatabaseService:
         missing = []
         for table_name, model in Base.metadata.tables.items():
             if table_name not in existing_tables:
+                missing.append(f"table '{table_name}'")
                 continue
+
             existing_cols = {c["name"] for c in inspector.get_columns(table_name)}
             missing.extend(f"{table_name}.{col.name}" for col in model.columns if col.name not in existing_cols)
 
+            expected_pk = {col.name for col in model.primary_key.columns}
+            actual_pk = set(inspector.get_pk_constraint(table_name).get("constrained_columns") or [])
+            if expected_pk != actual_pk:
+                missing.append(f"{table_name} primary key {sorted(expected_pk)}")
+
+            if table_name == "pending_suggestions":
+                indexes = {index["name"]: index for index in inspector.get_indexes(table_name)}
+                suggestion_index = indexes.get("ix_pending_suggestions_source_id_source")
+                if not suggestion_index or not suggestion_index.get("unique"):
+                    missing.append("pending_suggestions unique index ['source_id', 'source']")
+
         if missing:
             raise DatabaseSchemaError(
-                f"Database schema is missing model columns after migrations: {', '.join(sorted(missing))}. "
+                f"Database schema is incomplete after migrations: {', '.join(sorted(missing))}. "
                 "A migration is missing or failed; refusing to start. Restore "
                 "from a backup or repair the schema manually before starting PageKeeper."
             )
