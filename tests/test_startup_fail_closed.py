@@ -124,6 +124,20 @@ def test_startup_ready_reports_live_database_failure(tmp_path, monkeypatch):
         service.db_manager.close()
 
 
+def test_startup_ready_reports_missing_required_table(tmp_path):
+    from src.db.database_service import DatabaseService
+
+    db_path = tmp_path / "database.db"
+    service = DatabaseService(str(db_path))
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("DROP TABLE books")
+
+        assert service.startup_ready() == (False, "database unavailable")
+    finally:
+        service.db_manager.close()
+
+
 def test_author_subtitle_downgrade_preserves_legacy_data(tmp_path):
     """The guarded migration must not drop columns it may not have created."""
     from alembic.config import Config

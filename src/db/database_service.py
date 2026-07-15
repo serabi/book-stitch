@@ -274,7 +274,7 @@ class DatabaseService:
         """Report whether the constructed service can still reach its database."""
         try:
             with self.db_manager.engine.connect() as conn:
-                conn.exec_driver_sql("SELECT 1")
+                conn.exec_driver_sql("SELECT 1 FROM books LIMIT 1")
             return True, "ok"
         except Exception:
             return False, "database unavailable"
