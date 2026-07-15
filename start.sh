@@ -19,10 +19,11 @@ HOST_KOSYNC_PORT="${HOST_KOSYNC_PORT:-${KOSYNC_PORT:-4477}}"
 echo "Starting PageKeeper (${PAGEKEEPER_ENV_LABEL^^} Integrated Mode)..."
 echo ""
 
-echo "Running Database Migrations..."
-alembic upgrade head
-echo "Database Migrations Completed"
-echo ""
+# Database migrations run inside the app (DatabaseService) — the single
+# migration authority that safely handles pre-Alembic/legacy databases.
+# Do not run `alembic upgrade` here: on a pre-Alembic DB it fails with
+# "table books already exists" and leaves an empty alembic_version table
+# that poisons the app's legacy recovery path.
 
 # Main Supervisor Loop
 while true; do

@@ -268,8 +268,65 @@ def get_settings_previous_secret() -> str:
     return get_str("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY_PREVIOUS", "").strip()
 
 
+# Stable, non-secret labels for the source of the settings-encryption master
+# secret. These describe *where* the key comes from, never its value.
+KEY_SOURCE_EXPLICIT = "PAGEKEEPER_SETTINGS_ENCRYPTION_KEY"
+KEY_SOURCE_FLASK_ENV = "FLASK_SECRET_KEY"
+KEY_SOURCE_FLASK_FILE = "persistent /data/.flask_secret_key file"
+KEY_SOURCE_NONE = "unavailable (no key source resolvable)"
+
+
+def get_settings_key_source() -> str:
+    """Return a non-secret label for which master-secret source is active.
+
+    Mirrors the discovery order in :func:`get_settings_master_secret` and
+    returns only the *class* of the key source, never the key material, so
+    it is safe to log. Helps users diagnose wrong-key startup errors (e.g.
+    "decryption fails and the source is the file fallback, not the env var
+    I thought I set").
+    """
+    if get_str("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY", "").strip():
+        return KEY_SOURCE_EXPLICIT
+    if get_str("FLASK_SECRET_KEY", "").strip():
+        return KEY_SOURCE_FLASK_ENV
+    try:
+        get_or_create_secret_key(persist_only=True)
+        return KEY_SOURCE_FLASK_FILE
+    except EphemeralSecretKeyError:
+        return KEY_SOURCE_NONE
+
+
+_key_source_logged = False
+
+
+def log_settings_key_source() -> None:
+    """Log the active settings-encryption key source once, without its value.
+
+    Logged at most once per process to avoid repeating the line on every
+    settings reload. When the explicit dedicated key is not in use, the log
+    nudges toward setting ``PAGEKEEPER_SETTINGS_ENCRYPTION_KEY``.
+    """
+    global _key_source_logged
+    if _key_source_logged:
+        return
+    _key_source_logged = True
+
+    source = get_settings_key_source()
+    if source == KEY_SOURCE_EXPLICIT:
+        logger.info("Settings encryption key source: %s", source)
+    else:
+        logger.warning(
+            "Settings encryption key source: %s. Setting a dedicated "
+            "PAGEKEEPER_SETTINGS_ENCRYPTION_KEY is strongly recommended so the "
+            "key survives changes to the Flask session secret.",
+            source,
+        )
+
+
 def log_security_warnings():
     """Log warnings for common security misconfigurations at startup."""
+    log_settings_key_source()
+
     kosync_user = get_str("KOSYNC_USER", "")
     kosync_key = get_str("KOSYNC_KEY", "")
     kosync_port = get_str("KOSYNC_PORT", "")

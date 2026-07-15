@@ -31,7 +31,56 @@ from .tbr_repository import TbrRepository
 logger = logging.getLogger(__name__)
 
 LEGACY_BASELINE_REVISION = "76886bc89d6e"
-LEGACY_BASELINE_TABLES = {"books", "states"}
+
+# Tables and columns created by the initial Alembic revision (76886bc89d6e).
+# Later migrations ALTER every one of these tables, so a database may only be
+# stamped at the baseline revision when all of them are present. Extra tables
+# or columns are tolerated — pre-Alembic installs evolved manually.
+LEGACY_BASELINE_SCHEMA = {
+    "books": {
+        "abs_id",
+        "abs_title",
+        "ebook_filename",
+        "kosync_doc_id",
+        "transcript_file",
+        "status",
+        "duration",
+    },
+    "hardcover_details": {
+        "abs_id",
+        "hardcover_book_id",
+        "hardcover_edition_id",
+        "hardcover_pages",
+        "isbn",
+        "asin",
+        "matched_by",
+    },
+    "states": {
+        "id",
+        "abs_id",
+        "client_name",
+        "last_updated",
+        "percentage",
+        "timestamp",
+        "xpath",
+        "cfi",
+    },
+    "jobs": {
+        "id",
+        "abs_id",
+        "last_attempt",
+        "retry_count",
+        "last_error",
+    },
+}
+
+
+class DatabaseSchemaError(RuntimeError):
+    """Raised when the database schema cannot be safely migrated or verified.
+
+    Startup must fail closed on this error: proceeding would risk writing to a
+    half-migrated or unknown schema and corrupting user data.
+    """
 
 
 class DatabaseService:
@@ -51,19 +100,14 @@ class DatabaseService:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_manager = DatabaseManager(str(self.db_path))
 
-        # Run Alembic migrations to ensure schema is up to date
-        self._migration_failed = False
+        # Run Alembic migrations; failure raises DatabaseSchemaError so
+        # repositories, cleanup, sync, and web writes never touch a
+        # half-migrated schema.
         self._run_alembic_migrations()
 
-        # Ensure all tables exist (covers new models not yet in migrations)
-        if not self._migration_failed:
-            Base.metadata.create_all(self.db_manager.engine)
-
-        # Safety net: add any model columns missing from existing tables
-        # Skip if migrations failed — adding columns without constraints would
-        # mask the real problem (missing FKs, NOT NULL, indexes).
-        if not self._migration_failed:
-            self._ensure_model_columns()
+        # Fresh databases are created in _run_alembic_migrations. Existing
+        # databases must never be silently repaired with create_all().
+        self._verify_model_columns()
 
         # Initialize domain repositories
         self._settings = SettingsRepository(self.db_manager)
@@ -95,9 +139,8 @@ class DatabaseService:
             alembic_dir = Path(__file__).parent.parent.parent / "alembic"
             alembic_ini = alembic_dir.parent / "alembic.ini"
 
-            if not alembic_ini.exists():
-                logger.debug("alembic.ini not found, skipping migrations")
-                return
+            if not alembic_ini.exists() or not alembic_dir.is_dir():
+                raise DatabaseSchemaError("Alembic configuration is missing; refusing to start without migrations")
 
             alembic_cfg = Config(str(alembic_ini))
             alembic_cfg.set_main_option("script_location", str(alembic_dir))
@@ -114,37 +157,27 @@ class DatabaseService:
                 tables = inspector.get_table_names()
 
                 if tables and "alembic_version" not in tables:
-                    if self._looks_like_pre_alembic_database(set(tables)):
-                        # Pre-Alembic databases already contain the original schema.
-                        # Stamp them at the initial revision, then replay the real
-                        # migration chain on top so skipped-version upgrades still
-                        # execute the later transformations.
-                        logger.info(
-                            "Legacy database detected — stamping at initial Alembic revision %s "
-                            "before upgrading to head",
-                            LEGACY_BASELINE_REVISION,
-                        )
-                        alembic_command.stamp(alembic_cfg, LEGACY_BASELINE_REVISION)
-                        alembic_command.upgrade(alembic_cfg, "head")
-                    else:
-                        # Unknown populated schema with no revision history. We keep the
-                        # previous safety behavior here because we cannot infer a correct
-                        # baseline revision automatically.
-                        logger.warning(
-                            "Populated database has no alembic_version table but does not "
-                            "match the known pre-Alembic schema; stamping at head"
-                        )
-                        alembic_command.stamp(alembic_cfg, "head")
+                    # Populated database with no revision history. Only a fully
+                    # verified pre-Alembic baseline may be stamped and upgraded;
+                    # anything else fails closed.
+                    self._stamp_verified_baseline_and_upgrade(alembic_cfg, inspector)
                 else:
                     # Normal migration path
                     with engine.connect() as conn:
                         context = MigrationContext.configure(conn)
                         current_rev = context.get_current_revision()
 
-                    if current_rev is None and not tables:
+                    data_tables = [t for t in tables if t != "alembic_version"]
+                    if current_rev is None and not data_tables:
                         # Fresh database — will be created by create_all, then stamp
                         Base.metadata.create_all(engine)
                         alembic_command.stamp(alembic_cfg, "head")
+                    elif current_rev is None:
+                        # Populated database with an empty alembic_version table,
+                        # typically left behind by an interrupted direct
+                        # `alembic upgrade head`. Recover only through the
+                        # verified baseline path.
+                        self._stamp_verified_baseline_and_upgrade(alembic_cfg, inspector)
                     else:
                         alembic_command.upgrade(alembic_cfg, "head")
 
@@ -152,28 +185,54 @@ class DatabaseService:
             finally:
                 engine.dispose()
 
+        except DatabaseSchemaError:
+            raise
         except Exception as e:
-            self._migration_failed = True
-            logger.error(
-                "Alembic migration failed — database schema may be incomplete. Check logs above for details. Error: %s",
-                e,
+            raise DatabaseSchemaError(
+                f"Alembic migration failed — refusing to start with a possibly incomplete schema. Error: {e}"
+            ) from e
+
+    def _stamp_verified_baseline_and_upgrade(self, alembic_cfg, inspector):
+        """Stamp a verified pre-Alembic database at the baseline, then upgrade.
+
+        Pre-Alembic databases already contain the original schema, so replaying
+        the initial revision would fail with "table already exists". Stamping at
+        the baseline revision lets later migrations run normally. Stamping is
+        only safe when every baseline table and column exists — later migrations
+        ALTER them all — so any mismatch raises instead of stamping.
+        """
+        import alembic.command as alembic_command
+
+        problems = self._pre_alembic_baseline_problems(inspector)
+        if problems:
+            raise DatabaseSchemaError(
+                "Populated database has no Alembic revision and does not match "
+                f"the verified pre-Alembic baseline schema: {'; '.join(problems)}. "
+                "Refusing to stamp or migrate. Restore from a backup or repair "
+                "the schema manually before starting PageKeeper."
             )
 
+        logger.info(
+            "Legacy database detected — stamping at initial Alembic revision %s before upgrading to head",
+            LEGACY_BASELINE_REVISION,
+        )
+        alembic_command.stamp(alembic_cfg, LEGACY_BASELINE_REVISION)
+        alembic_command.upgrade(alembic_cfg, "head")
+
     @staticmethod
-    def _looks_like_pre_alembic_database(tables: set[str]) -> bool:
-        """Detect the original legacy schema that existed before Alembic.
-
-        Those databases already have the core tables created manually by older
-        versions of PageKeeper, so replaying the initial Alembic revision would
-        fail with "table already exists". Stamping at the baseline revision lets
-        later migrations run normally, which is what we need for users who skip
-        multiple releases before upgrading.
-
-        Only requires 'books' and 'states' — these two tables existed from day
-        one. Earlier checks also required 'hardcover_details' and 'jobs', but
-        being less strict is safer for extremely early pre-Alembic databases.
-        """
-        return "books" in tables and LEGACY_BASELINE_TABLES.issubset(tables)
+    def _pre_alembic_baseline_problems(inspector) -> list[str]:
+        """Return problems preventing a safe baseline stamp (empty = verified)."""
+        tables = set(inspector.get_table_names())
+        problems = []
+        for table, baseline_cols in LEGACY_BASELINE_SCHEMA.items():
+            if table not in tables:
+                problems.append(f"missing table '{table}'")
+                continue
+            cols = {c["name"] for c in inspector.get_columns(table)}
+            missing = sorted(baseline_cols - cols)
+            if missing:
+                problems.append(f"table '{table}' missing columns {missing}")
+        return problems
 
     def _verify_schema_health(self):
         """Post-startup check that critical columns exist after migrations.
@@ -211,49 +270,53 @@ class DatabaseService:
         except Exception as e:
             logger.warning("Schema health check could not run: %s", e)
 
-    def _ensure_model_columns(self):
-        """Safety net: add any model columns missing from existing tables."""
-        from sqlalchemy import inspect as sa_inspect
-        from sqlalchemy import text
-
+    def startup_ready(self) -> tuple[bool, str]:
+        """Report whether the constructed service can still reach its database."""
         try:
-            inspector = sa_inspect(self.db_manager.engine)
-            for table_name, model in Base.metadata.tables.items():
-                if table_name not in inspector.get_table_names():
-                    continue
-                existing_cols = {c["name"] for c in inspector.get_columns(table_name)}
-                for col in model.columns:
-                    if col.name not in existing_cols:
-                        try:
-                            col_type = col.type.compile(self.db_manager.engine.dialect)
-                            default_clause = ""
-                            if col.default is not None:
-                                default_val = col.default.arg
-                                if callable(default_val):
-                                    try:
-                                        default_val = default_val()
-                                    except TypeError:
-                                        try:
-                                            default_val = default_val(None)
-                                        except Exception:
-                                            default_val = None
-                                if isinstance(default_val, bool):
-                                    default_clause = f" DEFAULT {'TRUE' if default_val else 'FALSE'}"
-                                elif isinstance(default_val, str):
-                                    escaped = default_val.replace("'", "''")
-                                    default_clause = f" DEFAULT '{escaped}'"
-                                elif isinstance(default_val, (int, float)):
-                                    default_clause = f" DEFAULT {default_val}"
+            with self.db_manager.engine.connect() as conn:
+                conn.exec_driver_sql("SELECT 1 FROM books LIMIT 1")
+            return True, "ok"
+        except Exception:
+            return False, "database unavailable"
 
-                            alter = f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}{default_clause}"
-                            with self.db_manager.engine.connect() as conn:
-                                conn.execute(text(alter))
-                                conn.commit()
-                            logger.info(f"Added missing column: {table_name}.{col.name}")
-                        except Exception as e:
-                            logger.warning("Could not add column %s.%s: %s", table_name, col.name, e)
-        except Exception as e:
-            logger.warning(f"Column check failed (non-fatal): {e}")
+    def _verify_model_columns(self):
+        """Fail closed if any existing table is missing model columns.
+
+        The previous behavior patched missing columns in with raw ALTER TABLE,
+        which produced columns without PK/FK/index/nullability semantics. A
+        mismatch here means a migration is missing, so refuse to start rather
+        than write to a schema the ORM's assumptions do not hold for.
+        """
+        from sqlalchemy import inspect as sa_inspect
+
+        inspector = sa_inspect(self.db_manager.engine)
+        existing_tables = set(inspector.get_table_names())
+        missing = []
+        for table_name, model in Base.metadata.tables.items():
+            if table_name not in existing_tables:
+                missing.append(f"table '{table_name}'")
+                continue
+
+            existing_cols = {c["name"] for c in inspector.get_columns(table_name)}
+            missing.extend(f"{table_name}.{col.name}" for col in model.columns if col.name not in existing_cols)
+
+            expected_pk = {col.name for col in model.primary_key.columns}
+            actual_pk = set(inspector.get_pk_constraint(table_name).get("constrained_columns") or [])
+            if expected_pk != actual_pk:
+                missing.append(f"{table_name} primary key {sorted(expected_pk)}")
+
+            if table_name == "pending_suggestions":
+                indexes = {index["name"]: index for index in inspector.get_indexes(table_name)}
+                suggestion_index = indexes.get("ix_pending_suggestions_source_id_source")
+                if not suggestion_index or not suggestion_index.get("unique"):
+                    missing.append("pending_suggestions unique index ['source_id', 'source']")
+
+        if missing:
+            raise DatabaseSchemaError(
+                f"Database schema is incomplete after migrations: {', '.join(sorted(missing))}. "
+                "A migration is missing or failed; refusing to start. Restore "
+                "from a backup or repair the schema manually before starting PageKeeper."
+            )
 
     def _cleanup_bookfusion_md_titles(self):
         """One-time cleanup: strip .md suffix from BookFusion titles."""

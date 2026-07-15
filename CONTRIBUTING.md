@@ -70,7 +70,7 @@ DATA_DIR="$PWD/.tmp/test-data" ./.venv/bin/python -m pytest tests/test_app_runti
 
 ### Docker Tests
 
-Tests run inside Docker. From the project root:
+Tests run inside an isolated Docker test container with no `/data` volume mounted, so they can never touch a real PageKeeper database. From the project root:
 
 ```bash
 # Run the full test suite
@@ -85,11 +85,30 @@ Tests run inside Docker. From the project root:
 
 The test container handles all dependencies (epubcfi, ffmpeg, etc.), so there's nothing extra to install locally.
 
+To run tests inside an already-running `pagekeeper` container instead (not recommended — that container's `/data` volume may hold a real database), set `PAGEKEEPER_TEST_IN_CONTAINER=1`:
+
+```bash
+PAGEKEEPER_TEST_IN_CONTAINER=1 ./run-tests.sh
+```
+
 For a direct Docker compose invocation:
 
 ```bash
 docker compose -f docker-compose.test.yml run --rm test tests/test_app_runtime.py
 ```
+
+### Continuous Integration
+
+CI runs two separate jobs on pushes and pull requests:
+
+- **Ruff** (`.github/workflows/lint.yml`) — `ruff check src/ tests/ alembic/ scripts/`
+- **pytest** (`.github/workflows/test.yml`) — runs the full suite in the Docker test container with the same command you can run locally:
+
+  ```bash
+  docker compose -f docker-compose.test.yml run --rm test tests/
+  ```
+
+Both jobs must be green before a PR is merged.
 
 ### Dev App Smoke Test
 

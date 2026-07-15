@@ -9,6 +9,13 @@ docker-compose.yml*
 *.json
 epub_cache/
 
+# Behavior-freeze test snapshots are checked-in golden files (Cleanup Stage 01),
+# so they must override the blanket *.json ignore above.
+!tests/snapshots/*.json
+
+# Local test fixtures (database.db, .flask_secret_key) used by cleanup planning
+test_data/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -66,5 +73,6 @@ CLAUDE.md
 # Agent scratch directories
 .agent-prompts/
 .agent-reports/
+.opencode/
 .worktrees/
 .playwright-mcp/

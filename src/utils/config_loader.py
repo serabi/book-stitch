@@ -239,6 +239,36 @@ class ConfigLoader:
             logger.error("Error encrypting plaintext secrets: %s", e)
 
     @staticmethod
+    def _warn_undecryptable_secrets(db_service: DatabaseService):
+        """Log an actionable warning when stored secrets cannot be decrypted.
+
+        Surfaces the wrong/lost-key case as an aggregate, names-only warning
+        (never values). The affected rows are left intact and fail closed —
+        this only makes the condition visible so users can fix the key
+        instead of silently re-entering credentials over good ciphertext.
+        """
+        try:
+            undecryptable = db_service.get_undecryptable_secret_keys()
+        except Exception as exc:
+            logger.debug("Could not check for undecryptable secrets: %s", exc)
+            return
+
+        if not undecryptable:
+            return
+
+        from src.app_runtime import get_settings_key_source
+
+        logger.warning(
+            "%d encrypted secret setting(s) could not be decrypted with the current key "
+            "(source: %s): %s. The stored values are preserved, not overwritten. Restore the "
+            "correct PAGEKEEPER_SETTINGS_ENCRYPTION_KEY (or set *_PREVIOUS for rotation), or "
+            "re-enter these secrets in Settings.",
+            len(undecryptable),
+            get_settings_key_source(),
+            ", ".join(sorted(undecryptable)),
+        )
+
+    @staticmethod
     def load_settings(db_service: DatabaseService):
         """
         Load all settings from database and update os.environ.
@@ -247,6 +277,8 @@ class ConfigLoader:
             db_service: Initialized DatabaseService instance
         """
         try:
+            ConfigLoader._warn_undecryptable_secrets(db_service)
+
             settings = db_service.get_all_settings()
             count = 0
 

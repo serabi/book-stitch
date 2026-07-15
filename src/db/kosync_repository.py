@@ -11,13 +11,8 @@ class KoSyncRepository(BaseRepository):
         return self._get_one(KosyncDocument, KosyncDocument.document_hash == document_hash)
 
     def save_kosync_document(self, doc):
-        with self.get_session() as session:
-            doc.last_updated = datetime.now(UTC)
-            merged = session.merge(doc)
-            session.flush()
-            session.refresh(merged)
-            session.expunge(merged)
-            return merged
+        doc.last_updated = datetime.now(UTC)
+        return self._merge_save(doc)
 
     def get_all_kosync_documents(self):
         return self._get_all(KosyncDocument, order_by=KosyncDocument.last_updated.desc())
@@ -29,25 +24,22 @@ class KoSyncRepository(BaseRepository):
             order_by=KosyncDocument.last_updated.desc(),
         )
 
-    def link_kosync_document(self, document_hash, book_id, abs_id=None):
+    def _mutate_kosync_link(self, document_hash, *, linked_book_id, linked_abs_id):
+        """Set link fields on an existing document. Returns True if it existed."""
         with self.get_session() as session:
             doc = session.query(KosyncDocument).filter(KosyncDocument.document_hash == document_hash).first()
             if doc:
-                doc.linked_book_id = book_id
-                doc.linked_abs_id = abs_id
+                doc.linked_book_id = linked_book_id
+                doc.linked_abs_id = linked_abs_id
                 doc.last_updated = datetime.now(UTC)
                 return True
             return False
 
+    def link_kosync_document(self, document_hash, book_id, abs_id=None):
+        return self._mutate_kosync_link(document_hash, linked_book_id=book_id, linked_abs_id=abs_id)
+
     def unlink_kosync_document(self, document_hash):
-        with self.get_session() as session:
-            doc = session.query(KosyncDocument).filter(KosyncDocument.document_hash == document_hash).first()
-            if doc:
-                doc.linked_abs_id = None
-                doc.linked_book_id = None
-                doc.last_updated = datetime.now(UTC)
-                return True
-            return False
+        return self._mutate_kosync_link(document_hash, linked_book_id=None, linked_abs_id=None)
 
     def delete_kosync_document(self, document_hash):
         return self._delete_one(KosyncDocument, KosyncDocument.document_hash == document_hash)
@@ -69,7 +61,5 @@ class KoSyncRepository(BaseRepository):
         """Get books with kosync_doc_id set but no matching KosyncDocument."""
         with self.get_session() as session:
             subq = session.query(KosyncDocument.document_hash)
-            results = session.query(Book).filter(Book.kosync_doc_id != None).filter(~Book.kosync_doc_id.in_(subq)).all()
-            for r in results:
-                session.expunge(r)
-            return results
+            query = session.query(Book).filter(Book.kosync_doc_id != None).filter(~Book.kosync_doc_id.in_(subq))
+            return self._query_and_expunge(session, query, one=False)

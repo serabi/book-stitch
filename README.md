@@ -113,10 +113,35 @@ environment:
 
 Existing plaintext secrets are migrated to encrypted form automatically on the
 next startup — no manual steps are needed, and the migration is idempotent.
+Before that one-way migration encrypts the first secret, PageKeeper writes a
+timestamped backup of the database next to it
+(`database.db.pre-settings-encryption-YYYYMMDD-HHMMSS-*`). Backups are created
+with owner-only (`0600`) permissions, and older matching backups are tightened
+to `0600` on the next settings migration check. If the backup cannot be
+written the migration is skipped and your plaintext secrets are left untouched,
+so an upgrade never encrypts without leaving a recovery point. The backup is
+only created when there is at least one plaintext secret to migrate.
 
-**Key loss is unrecoverable.** If you lose the master secret, encrypted secrets
-cannot be decrypted and must be re-entered in **Settings**. Back the key up
-alongside your `data/` directory.
+Database upgrades fail closed when migration history or required schema is
+missing. Pre-Alembic databases are upgraded automatically only when all four
+original baseline tables (`books`, `hardcover_details`, `states`, and `jobs`)
+and their baseline columns are present. Partial or manually altered legacy
+schemas must be restored from backup or repaired before PageKeeper will start;
+they are never stamped as current automatically.
+
+Setting a dedicated `PAGEKEEPER_SETTINGS_ENCRYPTION_KEY` is **strongly
+recommended**: it keeps your encryption key independent of the Flask session
+secret, so rotating or regenerating the session secret never strands your stored
+secrets. The active key source is logged at startup (the source class only,
+never the key value) to help diagnose wrong-key errors.
+
+**Key loss still means re-entering secrets.** If you lose the master secret,
+encrypted secret *values* cannot be decrypted and must be re-entered in
+**Settings**. The pre-encryption backup gives you an upgrade recovery path (the
+pre-migration plaintext), but it is not a substitute for backing the key up
+alongside your `data/` directory. PageKeeper preserves undecryptable secret rows
+rather than overwriting them, and logs which secrets could not be decrypted (by
+name only) so the condition is visible.
 
 **Key rotation:** to rotate the master secret, move the old value to
 `PAGEKEEPER_SETTINGS_ENCRYPTION_KEY_PREVIOUS` and set the new value in

@@ -1,0 +1,51 @@
+{
+  "mappings": [
+    {
+      "abs_id": "str",
+      "abs_pct": "float",
+      "abs_ts": "int",
+      "duration": "int",
+      "ebook_filename": "str",
+      "grimmory_pct": "float",
+      "grimmory_xpath": "null",
+      "id": "int",
+      "kosync_doc_id": "str",
+      "kosync_pct": "float",
+      "kosync_xpath": "null",
+      "states": {
+        "abs": {
+          "last_updated": "int",
+          "percentage": "float",
+          "timestamp": "int",
+          "xpath": "null"
+        },
+        "grimmory": {
+          "last_updated": "int",
+          "percentage": "float",
+          "timestamp": "int",
+          "xpath": "null"
+        },
+        "kosync": {
+          "last_updated": "int",
+          "percentage": "float",
+          "timestamp": "int",
+          "xpath": "null"
+        },
+        "storyteller": {
+          "last_updated": "int",
+          "percentage": "float",
+          "timestamp": "int",
+          "xpath": "null"
+        }
+      },
+      "status": "str",
+      "storyteller_pct": "float",
+      "storyteller_uuid": "null",
+      "storyteller_xpath": "null",
+      "sync_mode": "str",
+      "title": "str",
+      "transcript_file": "null",
+      "unified_progress": "float"
+    }
+  ]
+}

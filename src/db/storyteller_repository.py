@@ -31,18 +31,15 @@ class StorytellerRepository(BaseRepository):
 
     def get_active_storyteller_submission_by_book_id(self, book_id):
         with self.get_session() as session:
-            sub = (
+            query = (
                 session.query(StorytellerSubmission)
                 .filter(
                     StorytellerSubmission.book_id == book_id,
                     StorytellerSubmission.status.in_(["queued", "processing"]),
                 )
                 .order_by(StorytellerSubmission.submitted_at.desc())
-                .first()
             )
-            if sub:
-                session.expunge(sub)
-            return sub
+            return self._query_and_expunge(session, query, one=True)
 
     def update_storyteller_submission_status(
         self, submission_id, status, last_checked_at=None, storyteller_uuid=None, submission_dir=None
@@ -61,15 +58,12 @@ class StorytellerRepository(BaseRepository):
 
     def get_storyteller_submission_by_book_id(self, book_id):
         with self.get_session() as session:
-            sub = (
+            query = (
                 session.query(StorytellerSubmission)
                 .filter(StorytellerSubmission.book_id == book_id)
                 .order_by(StorytellerSubmission.submitted_at.desc())
-                .first()
             )
-            if sub:
-                session.expunge(sub)
-            return sub
+            return self._query_and_expunge(session, query, one=True)
 
     def get_all_storyteller_submissions_latest(self):
         """Get the most recent submission per book (for dashboard bulk display).
@@ -87,18 +81,17 @@ class StorytellerRepository(BaseRepository):
                 .subquery()
             )
 
-            rows = (
+            query = (
                 session.query(StorytellerSubmission)
                 .join(
                     latest,
                     (StorytellerSubmission.book_id == latest.c.book_id)
                     & (StorytellerSubmission.submitted_at == latest.c.max_ts),
                 )
-                .all()
             )
+            rows = self._query_and_expunge(session, query, one=False)
 
             result = {}
             for sub in rows:
-                session.expunge(sub)
                 result[sub.book_id] = sub
             return result

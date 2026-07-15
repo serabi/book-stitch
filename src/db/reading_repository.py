@@ -12,6 +12,22 @@ BOOKFUSION_CHAPTER_PREFIX = re.compile(r"^#{1,6}\s*")
 
 
 class ReadingRepository(BaseRepository):
+    def _mutate_and_detach(self, model, *filters, mutate):
+        """Look up a single row by ``filters``, apply ``mutate``, and return it detached.
+
+        Returns None when no row matches. On a match, runs ``mutate(obj)`` then the
+        shared flush/refresh/expunge finalization so callers get a detached object.
+        """
+        with self.get_session() as session:
+            obj = session.query(model).filter(*filters).first()
+            if not obj:
+                return None
+            mutate(obj)
+            session.flush()
+            session.refresh(obj)
+            session.expunge(obj)
+            return obj
+
     def update_book_reading_fields(self, book_id, **kwargs):
         """Update reading-specific fields on a book (started_at, finished_at, rating, read_count)."""
         allowed = {"started_at", "finished_at", "rating", "read_count"}
@@ -21,17 +37,13 @@ class ReadingRepository(BaseRepository):
         read_count = kwargs.get("read_count")
         if read_count is not None and read_count < 1:
             raise ValueError("read_count must be >= 1")
-        with self.get_session() as session:
-            book = session.query(Book).filter(Book.id == book_id).first()
-            if not book:
-                return None
+
+        def _apply(book):
             for key, value in kwargs.items():
                 if key in allowed:
                     setattr(book, key, value)
-            session.flush()
-            session.refresh(book)
-            session.expunge(book)
-            return book
+
+        return self._mutate_and_detach(Book, Book.id == book_id, mutate=_apply)
 
     def get_reading_journals(self, book_id):
         return self._get_all(
@@ -46,10 +58,8 @@ class ReadingRepository(BaseRepository):
             query = session.query(ReadingJournal).filter(ReadingJournal.book_id == book_id)
             if event:
                 query = query.filter(ReadingJournal.event == event)
-            journals = query.order_by(ReadingJournal.created_at.desc()).all()
-            for j in journals:
-                session.expunge(j)
-            return journals
+            query = query.order_by(ReadingJournal.created_at.desc())
+            return self._query_and_expunge(session, query, one=False)
 
     def get_reading_journal(self, journal_id):
         return self._get_one(ReadingJournal, ReadingJournal.id == journal_id)
@@ -72,34 +82,26 @@ class ReadingRepository(BaseRepository):
         )
 
     def update_reading_journal(self, journal_id, *, entry=None, created_at=None):
-        with self.get_session() as session:
-            journal = session.query(ReadingJournal).filter(ReadingJournal.id == journal_id).first()
-            if not journal:
-                return None
+        def _apply(journal):
             if entry is not None:
                 journal.entry = entry
             if created_at is not None:
                 journal.created_at = created_at
-            session.flush()
-            session.refresh(journal)
-            session.expunge(journal)
-            return journal
+
+        return self._mutate_and_detach(ReadingJournal, ReadingJournal.id == journal_id, mutate=_apply)
 
     def find_journal_by_event(self, book_id, event):
         """Find the most recent journal entry for a book with a given event type."""
         with self.get_session() as session:
-            journal = (
+            query = (
                 session.query(ReadingJournal)
                 .filter(
                     ReadingJournal.book_id == book_id,
                     ReadingJournal.event == event,
                 )
                 .order_by(ReadingJournal.created_at.desc())
-                .first()
             )
-            if journal:
-                session.expunge(journal)
-            return journal
+            return self._query_and_expunge(session, query, one=True)
 
     def cleanup_bookfusion_import_notes(self, book_id=None):
         """Strip the legacy emoji prefix and backfill timestamps when a cached highlight matches."""
@@ -197,21 +199,12 @@ class ReadingRepository(BaseRepository):
             raise ValueError("target_books must be a non-negative integer")
         if target_books < 0:
             raise ValueError("target_books must be a non-negative integer")
-        with self.get_session() as session:
-            existing = session.query(ReadingGoal).filter(ReadingGoal.year == year).first()
-            if existing:
-                existing.target_books = target_books
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                goal = ReadingGoal(year=year, target_books=target_books)
-                session.add(goal)
-                session.flush()
-                session.refresh(goal)
-                session.expunge(goal)
-                return goal
+        return self._upsert(
+            ReadingGoal,
+            [ReadingGoal.year == year],
+            ReadingGoal(year=year, target_books=target_books),
+            ["target_books"],
+        )
 
     def get_reading_stats(self, year):
         """Backward-compatible lightweight stats summary."""

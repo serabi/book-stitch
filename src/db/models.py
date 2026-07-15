@@ -503,6 +503,14 @@ class PendingSuggestion(Base):
     """
 
     __tablename__ = "pending_suggestions"
+    __table_args__ = (
+        sa.Index(
+            "ix_pending_suggestions_source_id_source",
+            "source_id",
+            "source",
+            unique=True,
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source = Column(String(50), default="abs")
