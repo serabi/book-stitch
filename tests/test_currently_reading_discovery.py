@@ -51,6 +51,31 @@ def test_storyteller_only_detection_survives_abs_and_grimmory_failures():
     assert detected.source_updated_at == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
 
 
+def test_storyteller_activity_surfaces_exact_abs_audiobook_candidate():
+    db = _db()
+    storyteller = Mock()
+    storyteller.is_configured.return_value = True
+    storyteller.get_all_positions_bulk.return_value = {
+        "shared work": {"uuid": "st-shared", "pct": 0.42, "ts": 1_700_000_000_000}
+    }
+    abs_client = Mock()
+    abs_client.get_all_audiobooks.return_value = [
+        {"id": "abs-shared", "media": {"metadata": {"title": "Shared Work", "authorName": ""}}}
+    ]
+
+    _service(db, abs_client=abs_client, storyteller=storyteller).check_for_suggestions({}, [])
+
+    detected = next(
+        call.args[0]
+        for call in db.save_detected_book.call_args_list
+        if call.args[0].source == "storyteller"
+    )
+    assert detected.media_format == "ebook"
+    assert [(match["source_key"], match["media_format"]) for match in detected.matches] == [
+        ("abs:abs-shared", "audiobook")
+    ]
+
+
 def test_scheduled_discovery_runs_without_abs_bulk_state():
     manager = object.__new__(SyncManager)
     manager.database_service = Mock()
@@ -124,6 +149,91 @@ def test_grimmory_instances_with_same_filename_keep_separate_identity_and_progre
     ]
     first.get_progress.assert_called_once_with("same.epub")
     second.get_progress.assert_called_once_with("same.epub")
+
+
+def test_grimmory_audiobook_detection_uses_exact_book_and_file_identity():
+    db = _db()
+    grimmory = Mock()
+    grimmory.is_configured.return_value = True
+    grimmory.get_all_books.return_value = [
+        {
+            "id": 10,
+            "bookFileId": 99,
+            "bookType": "M4B",
+            "title": "Audio Work",
+            "fileName": "audio-work.m4b",
+            "_instance_id": "2",
+        }
+    ]
+    grimmory.get_audiobook_progress.return_value = (0.4, None)
+
+    _service(db, grimmory=grimmory)._check_cross_ebook_suggestions()
+
+    detected = db.save_detected_book.call_args.args[0]
+    assert detected.source_id == "2:10:99"
+    assert detected.media_format == "audiobook"
+    assert detected.ebook_filename is None
+    grimmory.get_audiobook_progress.assert_called_once_with("2:10:99")
+    grimmory.get_progress.assert_not_called()
+
+
+def test_mapped_grimmory_audio_identity_is_not_detected_again():
+    db = _db()
+    db.get_all_books.return_value = [
+        SimpleNamespace(
+            storyteller_uuid=None,
+            kosync_doc_id=None,
+            ebook_filename=None,
+            grimmory_audio_source_id="2:10:99",
+        )
+    ]
+    grimmory = Mock()
+    grimmory.is_configured.return_value = True
+    grimmory.get_all_books.return_value = [
+        {
+            "id": 10,
+            "bookFileId": 99,
+            "bookType": "M4B",
+            "title": "Mapped Audio",
+            "fileName": "mapped.m4b",
+            "_instance_id": "2",
+        }
+    ]
+
+    _service(db, grimmory=grimmory)._check_cross_ebook_suggestions()
+
+    db.save_detected_book.assert_not_called()
+    grimmory.get_audiobook_progress.assert_not_called()
+    grimmory.get_progress.assert_not_called()
+
+
+def test_candidate_ranking_only_keeps_opposite_media_format_and_exact_source_keys():
+    service = _service(_db())
+    candidates = [
+        {
+            "source_family": "grimmory",
+            "source_key": "grimmory:2:10:99",
+            "title": "Format Work",
+            "media_format": "audiobook",
+        },
+        {
+            "source_family": "grimmory",
+            "source_key": "grimmory:2:format.epub",
+            "title": "Format Work",
+            "media_format": "ebook",
+        },
+    ]
+
+    ranked = service._rank_candidates_for_book(
+        "Format Work",
+        "",
+        candidates,
+        source_media_format="ebook",
+    )
+
+    assert [(match["source_key"], match["media_format"]) for match in ranked] == [
+        ("grimmory:2:10:99", "audiobook")
+    ]
 
 
 def test_mapped_grimmory_server_does_not_hide_same_filename_on_other_server():

@@ -8,25 +8,39 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from src.blueprints.matching_bp import _group_detected_pairings
+
 
 @pytest.fixture(autouse=True)
 def _use_repo_templates(flask_app):
     flask_app.template_folder = str(Path(__file__).parent.parent / "templates")
 
 
-def _detected(source_id, title, matches):
+def _detected(
+    source_id,
+    title,
+    matches,
+    *,
+    source=None,
+    media_format=None,
+    detected_id=None,
+    progress=0.42,
+    source_updated_at=None,
+):
+    source = source or ("abs" if matches else "kosync")
     return SimpleNamespace(
-        id=7 if matches else 8,
-        source="abs" if matches else "kosync",
+        id=detected_id if detected_id is not None else (7 if matches else 8),
+        source=source,
         source_id=source_id,
         title=title,
         author="Reader Author",
         cover_url=None,
-        progress_percentage=0.42,
+        progress_percentage=progress,
         last_seen_at=datetime(2026, 7, 15, tzinfo=UTC),
-        source_updated_at=datetime.now(UTC),
+        source_updated_at=source_updated_at or datetime.now(UTC),
         device="Kobo" if not matches else None,
         matches=matches,
+        media_format=media_format or ("audiobook" if source == "abs" else "ebook"),
     )
 
 
@@ -103,6 +117,124 @@ def test_configured_grimmory_instance_label_is_shown(client, mock_container):
         page = client.get("/suggestions").get_data(as_text=True)
 
     assert page.count("Family Library") == 2
+
+
+@pytest.mark.parametrize(
+    ("companion_source", "companion_source_id", "source_key"),
+    [
+        ("kosync", "hash-exact", "kosync:hash-exact"),
+        ("grimmory", "2:exact.epub", "grimmory:2:exact.epub"),
+    ],
+)
+def test_explicit_high_confidence_activity_edge_renders_one_group_and_exact_review_url(
+    client, mock_container, companion_source, companion_source_id, source_key
+):
+    match = {
+        "source_family": companion_source,
+        "source_key": source_key,
+        "title": "Exact Book",
+        "confidence": "high",
+        "media_format": "ebook",
+    }
+    rows = [
+        _detected("abs-exact", "Exact Book", [match], detected_id=11),
+        _detected(
+            companion_source_id,
+            "Exact Book",
+            [],
+            source=companion_source,
+            media_format="ebook",
+            detected_id=12,
+            progress=0.61,
+        ),
+    ]
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = rows
+    db.get_detected_book_count.return_value = 2
+
+    page = client.get("/suggestions").get_data(as_text=True)
+
+    assert page.count('class="pairing-card"') == 1
+    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)">Review pairing</a>', page).group(1)
+    query = parse_qs(urlparse(html.unescape(review_href)).query)
+    assert query["detected_id"] == ["11"]
+    assert query["detected_source"] == ["abs"]
+    assert query["detected_source_id"] == ["abs-exact"]
+    assert query["candidate_source"] == [companion_source]
+    assert query["candidate_source_id"] == [source_key]
+
+
+def test_same_title_without_explicit_edge_stays_separate(client, mock_container):
+    rows = [
+        _detected("abs-same", "Same Title", [], source="abs", media_format="audiobook", detected_id=21),
+        _detected("hash-same", "Same Title", [], source="kosync", media_format="ebook", detected_id=22),
+    ]
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = rows
+    db.get_detected_book_count.return_value = 2
+
+    page = client.get("/suggestions").get_data(as_text=True)
+
+    assert page.count('class="pairing-card"') == 2
+
+
+def test_non_high_confidence_edge_stays_separate(client, mock_container):
+    match = {
+        "source_family": "kosync",
+        "source_key": "kosync:hash-medium",
+        "title": "Maybe",
+        "confidence": "medium",
+        "media_format": "ebook",
+    }
+    rows = [
+        _detected("abs-medium", "Maybe", [match], detected_id=31),
+        _detected("hash-medium", "Maybe", [], source="kosync", media_format="ebook", detected_id=32),
+    ]
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = rows
+    db.get_detected_book_count.return_value = 2
+
+    page = client.get("/suggestions").get_data(as_text=True)
+
+    assert page.count('class="pairing-card"') == 2
+
+
+def test_group_contract_preserves_each_exact_identity_progress_and_dedupes_companions(flask_app):
+    companion = {
+        "source_family": "kosync",
+        "source_key": "kosync:hash-contract",
+        "title": "Contract Book",
+        "confidence": "high",
+        "media_format": "ebook",
+    }
+    rows = [
+        _detected("abs-contract", "Contract Book", [companion, dict(companion)], detected_id=41, progress=0.25),
+        _detected(
+            "hash-contract",
+            "Contract Book",
+            [],
+            source="kosync",
+            media_format="ebook",
+            detected_id=42,
+            progress=0.73,
+        ),
+    ]
+
+    with flask_app.test_request_context("/suggestions"):
+        grouped = _group_detected_pairings(rows)
+
+    assert len(grouped) == 1
+    assert grouped[0]["identities"] == [
+        {"source": "abs", "source_id": "abs-contract"},
+        {"source": "kosync", "source_id": "hash-contract"},
+    ]
+    assert [(activity["source"], activity["progress"]) for activity in grouped[0]["activities"]] == [
+        ("abs", 25),
+        ("kosync", 73),
+    ]
+    assert [companion["identity"] for companion in grouped[0]["companions"]] == [
+        {"source": "kosync", "source_id": "hash-contract"}
+    ]
 
 
 def test_legacy_catalog_only_renders_in_explicit_library_view(client, mock_container):

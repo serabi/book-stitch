@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 
+from src.api.grimmory_client import GRIMMORY_AUDIO_BOOK_TYPES
 from src.db.models import DetectedBook, PendingSuggestion
 from src.utils.string_utils import clean_book_title
 
@@ -164,6 +165,7 @@ class SuggestionService:
         matches: list[dict] | None = None,
         device: str | None = None,
         ebook_filename: str | None = None,
+        media_format: str | None = None,
         source_updated_at=None,
     ):
         # Pass NULL (not "[]") for empty matches so an upsert from a no-match code
@@ -180,6 +182,7 @@ class SuggestionService:
             device=device,
             ebook_filename=ebook_filename,
             source_updated_at=self._source_datetime(source_updated_at),
+            media_format=media_format or "ebook",
         )
         return self.database_service.save_detected_book(detected)
 
@@ -311,10 +314,12 @@ class SuggestionService:
                 for book in bl_client.get_all_books() or []:
                     try:
                         filename = book.get("fileName", "")
-                        if not filename or not filename.lower().endswith(".epub"):
+                        if not filename or book.get("id") is None:
                             continue
-                        instance_id, _ = self._grimmory_identity(book)
-                        dedupe_key = ("grimmory", instance_id, filename.lower())
+                        if self._grimmory_media_format(book) == "audiobook" and not book.get("bookFileId"):
+                            continue
+                        instance_id, source_id = self._grimmory_identity(book)
+                        dedupe_key = ("grimmory", source_id.lower())
                         if dedupe_key in seen:
                             continue
                         seen.add(dedupe_key)
@@ -322,12 +327,13 @@ class SuggestionService:
                             {
                                 "source_family": "grimmory",
                                 "source": "grimmory",
-                                "source_key": f"grimmory:{instance_id}:{filename}",
+                                "source_key": f"grimmory:{source_id}",
                                 "title": book.get("title") or Path(filename).stem,
                                 "author": book.get("authors") or "",
                                 "filename": filename,
                                 "id": f"{instance_id}:{book.get('id')}" if book.get("id") is not None else "",
                                 "action_kind": "create_mapping",
+                                "media_format": self._grimmory_media_format(book),
                             }
                         )
                     except Exception:
@@ -357,6 +363,7 @@ class SuggestionService:
                             "filename": epub.name,
                             "path": str(epub),
                             "action_kind": "create_mapping",
+                            "media_format": "ebook",
                         }
                     )
                     if idx % batch_size == 0:
@@ -396,6 +403,7 @@ class SuggestionService:
                         "highlight_count": book.highlight_count or 0,
                         "last_highlighted_at": last_highlighted_at,
                         "action_kind": "link_existing",
+                        "media_format": "ebook",
                     }
                 )
 
@@ -434,10 +442,20 @@ class SuggestionService:
         return match
 
     def _rank_candidates_for_book(
-        self, source_title: str, source_author: str, candidates: list[dict], bookfusion_context: dict | None = None
+        self,
+        source_title: str,
+        source_author: str,
+        candidates: list[dict],
+        bookfusion_context: dict | None = None,
+        source_media_format: str | None = None,
     ) -> list[dict]:
         ranked = []
         for candidate in candidates:
+            candidate_format = candidate.get("media_format")
+            if source_media_format and (
+                candidate_format not in {"audiobook", "ebook"} or candidate_format == source_media_format
+            ):
+                continue
             score, evidence = self._compute_match_score(
                 source_title,
                 source_author,
@@ -534,11 +552,15 @@ class SuggestionService:
                 clean_title = self._normalize_title(title)
                 matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
 
-        # Fallback: cross-ebook matching (Storyteller + Grimmory)
+        # Fallback: Grimmory audiobook companions.
         if not matches:
             ebook_candidates = self._build_ebook_source_candidates()
-            all_ebook = ebook_candidates.get("storyteller", []) + ebook_candidates.get("grimmory", [])
-            matches = self._rank_candidates_for_book(title, "", all_ebook)
+            matches = self._rank_candidates_for_book(
+                title,
+                "",
+                ebook_candidates.get("grimmory", []),
+                source_media_format="ebook",
+            )
 
         cover = None
         author = ""
@@ -562,6 +584,7 @@ class SuggestionService:
             matches=matches,
             device=device,
             ebook_filename=filename,
+            media_format="ebook",
             source_updated_at=source_updated_at,
         )
         logger.info(
@@ -673,6 +696,7 @@ class SuggestionService:
                         "pct": pct,
                         "source_updated_at": pos_data.get("ts"),
                         "cover_url": pos_data.get("cover_url", ""),
+                        "media_format": "ebook",
                     }
                 )
             except Exception:
@@ -680,9 +704,19 @@ class SuggestionService:
         return results
 
     @staticmethod
-    def _grimmory_identity(book: dict) -> tuple[str, str]:
+    def _grimmory_media_format(book: dict) -> str:
+        book_type = str(book.get("bookType") or "").upper()
+        if book_type in GRIMMORY_AUDIO_BOOK_TYPES:
+            return "audiobook"
+        return "ebook"
+
+    @classmethod
+    def _grimmory_identity(cls, book: dict) -> tuple[str, str]:
         instance_id = str(book.get("_instance_id") or "default")
-        return instance_id, f"{instance_id}:{book.get('fileName', '')}"
+        filename = str(book.get("fileName") or "")
+        if cls._grimmory_media_format(book) == "audiobook":
+            return instance_id, f"{instance_id}:{book.get('id')}:{book.get('bookFileId')}"
+        return instance_id, f"{instance_id}:{filename}"
 
     @staticmethod
     def _in_detection_window(pct: float | None) -> bool:
@@ -711,11 +745,18 @@ class SuggestionService:
                 filename = bl_book.get("fileName", "")
                 if not title or not filename:
                     continue
+                if self._grimmory_media_format(bl_book) == "audiobook" and not bl_book.get("bookFileId"):
+                    continue
                 instance_id, source_id = self._grimmory_identity(bl_book)
-                if mapped_books and (instance_id, filename) in mapped_books:
+                media_format = self._grimmory_media_format(bl_book)
+                mapped_identity = source_id if media_format == "audiobook" else (instance_id, filename)
+                if mapped_books and mapped_identity in mapped_books:
                     continue
                 try:
-                    pct_raw, _ = self.grimmory_client.get_progress(filename, instance_id=instance_id)
+                    if media_format == "audiobook":
+                        pct_raw, _ = self.grimmory_client.get_audiobook_progress(source_id)
+                    else:
+                        pct_raw, _ = self.grimmory_client.get_progress(filename, instance_id=instance_id)
                 except Exception:
                     if errors is not None:
                         errors.add("Grimmory")
@@ -734,6 +775,7 @@ class SuggestionService:
                         "pct": pct,
                         "id": f"{instance_id}:{bl_book.get('id')}" if bl_book.get("id") is not None else "",
                         "source_updated_at": bl_book.get("lastReadTime"),
+                        "media_format": media_format,
                     }
                 )
             except Exception:
@@ -776,6 +818,7 @@ class SuggestionService:
                         "pct": pct,
                         "device": doc.device,
                         "source_updated_at": doc.timestamp,
+                        "media_format": "ebook",
                     }
                 )
             except Exception:
@@ -804,6 +847,7 @@ class SuggestionService:
                                 "storyteller_uuid": uuid,
                                 "cover_url": f"/api/v2/books/{uuid}/cover",
                                 "action_kind": "create_ebook_mapping",
+                                "media_format": "ebook",
                             }
                         )
                     except Exception:
@@ -818,19 +862,22 @@ class SuggestionService:
                 for book in self.grimmory_client.get_all_books() or []:
                     try:
                         filename = book.get("fileName", "")
-                        if not filename or not filename.lower().endswith(".epub"):
+                        if not filename or book.get("id") is None:
                             continue
-                        instance_id, _ = self._grimmory_identity(book)
+                        if self._grimmory_media_format(book) == "audiobook" and not book.get("bookFileId"):
+                            continue
+                        instance_id, source_id = self._grimmory_identity(book)
                         candidates["grimmory"].append(
                             {
                                 "source_family": "grimmory",
                                 "source": "grimmory",
-                                "source_key": f"grimmory:{instance_id}:{filename}",
+                                "source_key": f"grimmory:{source_id}",
                                 "title": book.get("title") or Path(filename).stem,
                                 "author": book.get("authors") or "",
                                 "filename": filename,
                                 "id": f"{instance_id}:{book.get('id')}" if book.get("id") is not None else "",
                                 "action_kind": "create_ebook_mapping",
+                                "media_format": self._grimmory_media_format(book),
                             }
                         )
                     except Exception:
@@ -855,6 +902,7 @@ class SuggestionService:
                             "author": "",
                             "filename": doc.filename,
                             "action_kind": "create_ebook_mapping",
+                            "media_format": "ebook",
                         }
                     )
                 except Exception:
@@ -866,9 +914,12 @@ class SuggestionService:
 
         return candidates
 
-    def _mapped_grimmory_books(self, books) -> set[tuple[str, str]]:
+    def _mapped_grimmory_books(self, books) -> set:
         mapped = set()
         for book in books:
+            audio_source_id = getattr(book, "grimmory_audio_source_id", None)
+            if audio_source_id:
+                mapped.add(audio_source_id)
             filename = getattr(book, "ebook_filename", None)
             if not filename:
                 continue
@@ -909,12 +960,17 @@ class SuggestionService:
             abs_audiobooks or [], mapped_abs_ids={getattr(b, "abs_id", None) for b in all_books}
         )
 
-        # Storyteller books with progress -> match against Grimmory + KoSync
+        # Storyteller books with progress -> audiobook companions.
         for st_book in self._get_storyteller_books_with_progress(mapped_st_uuids, errors):
             uuid = st_book["uuid"]
             norm_title = self._normalize_title(st_book["title"])
-            other_candidates = ebook_candidates.get("grimmory", []) + ebook_candidates.get("kosync", [])
-            matches = self._rank_candidates_for_book(st_book["title"], st_book["author"], other_candidates)
+            other_candidates = ebook_candidates.get("grimmory", []) + abs_candidates
+            matches = self._rank_candidates_for_book(
+                st_book["title"],
+                st_book["author"],
+                other_candidates,
+                source_media_format=st_book["media_format"],
+            )
             cover = st_book.get("cover_url") or self._cover_url_for("storyteller", uuid, st_book)
             self._upsert_detected_book(
                 source="storyteller",
@@ -924,6 +980,7 @@ class SuggestionService:
                 author=st_book.get("author", ""),
                 cover_url=cover,
                 matches=matches,
+                media_format=st_book["media_format"],
                 source_updated_at=st_book.get("source_updated_at"),
             )
 
@@ -937,15 +994,28 @@ class SuggestionService:
                 )
                 existing_titles.add(norm_title)
 
-        # Grimmory books with progress -> match against Storyteller + KoSync
+        # Grimmory books with progress -> opposite-format companions.
         for bl_book in self._get_grimmory_books_with_progress(mapped_grimmory_books, errors):
             filename = bl_book["filename"]
             source_id = bl_book["source_id"]
             norm_title = self._normalize_title(bl_book["title"])
-            other_candidates = (
-                ebook_candidates.get("storyteller", []) + ebook_candidates.get("kosync", []) + abs_candidates
+            own_source_key = f"grimmory:{source_id}"
+            other_candidates = [
+                candidate
+                for candidate in (
+                    ebook_candidates.get("storyteller", [])
+                    + ebook_candidates.get("kosync", [])
+                    + ebook_candidates.get("grimmory", [])
+                    + abs_candidates
+                )
+                if candidate.get("source_key") != own_source_key
+            ]
+            matches = self._rank_candidates_for_book(
+                bl_book["title"],
+                bl_book["author"],
+                other_candidates,
+                source_media_format=bl_book["media_format"],
             )
-            matches = self._rank_candidates_for_book(bl_book["title"], bl_book["author"], other_candidates)
             matches = self._merge_detected_matches("grimmory", source_id, matches)
             cover = self._cover_url_for("grimmory", filename, bl_book)
 
@@ -969,17 +1039,19 @@ class SuggestionService:
                 author=bl_book.get("author", ""),
                 cover_url=cover,
                 matches=matches,
-                ebook_filename=filename,
+                ebook_filename=filename if bl_book["media_format"] == "ebook" else None,
+                media_format=bl_book["media_format"],
                 source_updated_at=bl_book.get("source_updated_at"),
             )
             existing_titles.add(norm_title)
 
-        # KoSync books with progress -> match against Storyteller + Grimmory.
+        # KoSync books with progress -> audiobook companions.
         for doc in self._get_kosync_books_with_progress(mapped_kosync_hashes, errors):
             matches = self._rank_candidates_for_book(
                 doc["title"],
                 doc["author"],
                 ebook_candidates.get("storyteller", []) + ebook_candidates.get("grimmory", []) + abs_candidates,
+                source_media_format=doc["media_format"],
             )
             matches = self._merge_detected_matches("kosync", doc["source_id"], matches)
             self._upsert_detected_book(
@@ -991,6 +1063,7 @@ class SuggestionService:
                 matches=matches,
                 device=doc.get("device"),
                 ebook_filename=doc["filename"],
+                media_format=doc["media_format"],
                 source_updated_at=doc.get("source_updated_at"),
             )
 
@@ -1031,13 +1104,15 @@ class SuggestionService:
                 self._save_reverse_suggestion(matches, clean_title, f"storyteller:{st_book['uuid']}")
 
         for bl_book in self._get_grimmory_books_with_progress(mapped_grimmory_books, errors):
+            if bl_book["media_format"] != "ebook":
+                continue
             clean_title = self._normalize_title(bl_book["title"])
             matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
             if matches:
                 self._save_reverse_suggestion(
                     matches,
                     bl_book["title"],
-                    f"grimmory:{bl_book['instance_id']}:{bl_book['filename']}",
+                    f"grimmory:{bl_book['source_id']}",
                 )
         return all_audiobooks
 
@@ -1057,6 +1132,7 @@ class SuggestionService:
                     "title": metadata.get("title") or "",
                     "author": metadata.get("authorName") or "",
                     "action_kind": "create_mapping",
+                    "media_format": "audiobook",
                 }
             )
         return candidates
@@ -1082,10 +1158,12 @@ class SuggestionService:
                     matches.append(
                         {
                             "source": "abs_audiobook",
+                            "source_key": f"abs:{ab_id}",
                             "abs_id": ab_id,
                             "title": meta.get("title"),
                             "author": meta.get("authorName"),
                             "confidence": "high" if clean_title == indexed_title else "medium",
+                            "media_format": "audiobook",
                         }
                     )
         return matches
@@ -1320,8 +1398,14 @@ class SuggestionService:
             "failed_sources": sorted(errors),
         }
 
-    def _search_live_candidates(self, title: str, author: str, bookfusion_context: dict | None = None) -> list[dict]:
-        """Search Grimmory and CWA live APIs for matching ebook candidates."""
+    def _search_live_candidates(
+        self,
+        title: str,
+        author: str,
+        bookfusion_context: dict | None = None,
+        source_media_format: str | None = None,
+    ) -> list[dict]:
+        """Search Grimmory and CWA live APIs for opposite-format candidates."""
         matches = []
         query = f"{title} {author}".strip() if author else title
 
@@ -1331,24 +1415,31 @@ class SuggestionService:
                 live_candidates = []
                 for book in live_results:
                     filename = book.get("fileName", "")
-                    if not filename or not filename.lower().endswith(".epub"):
+                    if not filename or book.get("id") is None:
                         continue
-                    instance_id, _ = self._grimmory_identity(book)
+                    if self._grimmory_media_format(book) == "audiobook" and not book.get("bookFileId"):
+                        continue
+                    instance_id, source_id = self._grimmory_identity(book)
                     live_candidates.append(
                         {
                             "source_family": "grimmory",
                             "source": "grimmory",
-                            "source_key": f"grimmory:{instance_id}:{filename}",
+                            "source_key": f"grimmory:{source_id}",
                             "title": book.get("title") or Path(filename).stem,
                             "author": book.get("authors") or "",
                             "filename": filename,
                             "id": f"{instance_id}:{book.get('id')}" if book.get("id") is not None else "",
                             "action_kind": "create_mapping",
+                            "media_format": self._grimmory_media_format(book),
                         }
                     )
                 matches.extend(
                     self._rank_candidates_for_book(
-                        title, author, live_candidates, bookfusion_context=bookfusion_context
+                        title,
+                        author,
+                        live_candidates,
+                        bookfusion_context=bookfusion_context,
+                        source_media_format=source_media_format,
                     )
                 )
             except Exception as e:
@@ -1366,9 +1457,14 @@ class SuggestionService:
                         "author": cr.get("author"),
                         "filename": f"cwa_{cr.get('id', 'unknown')}.{cr.get('ext', 'epub')}",
                         "action_kind": "create_mapping",
+                        "media_format": "ebook",
                     }
                     cwa_ranked = self._rank_candidates_for_book(
-                        title, author, [cwa_candidate], bookfusion_context=bookfusion_context
+                        title,
+                        author,
+                        [cwa_candidate],
+                        bookfusion_context=bookfusion_context,
+                        source_media_format=source_media_format,
                     )
                     matches.extend(cwa_ranked)
             except Exception as e:
@@ -1417,8 +1513,16 @@ class SuggestionService:
                 author,
                 self._build_library_candidates(bookfusion_context=bookfusion_context),
                 bookfusion_context=bookfusion_context,
+                source_media_format="audiobook",
             )
-            matches.extend(self._search_live_candidates(title, author, bookfusion_context))
+            matches.extend(
+                self._search_live_candidates(
+                    title,
+                    author,
+                    bookfusion_context,
+                    source_media_format="audiobook",
+                )
+            )
             matches = self._dedupe_matches(matches)
 
             self._upsert_detected_book(
@@ -1429,6 +1533,7 @@ class SuggestionService:
                 cover_url=cover,
                 progress_percentage=progress_percentage,
                 matches=matches,
+                media_format="audiobook",
                 source_updated_at=(progress_data or {}).get("lastUpdate") or (progress_data or {}).get("updatedAt"),
             )
 

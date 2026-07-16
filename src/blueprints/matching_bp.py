@@ -158,8 +158,21 @@ def _source_label(source, source_id=None):
     return _SOURCE_LABELS.get(source, (source or "Unknown source").replace("_", " ").title())
 
 
-def _source_format(source):
-    return "Audiobook" if source in {"abs", "abs_audiobook"} else "Ebook"
+def _media_format(item):
+    media_format = getattr(item, "media_format", None) if not isinstance(item, dict) else item.get("media_format")
+    if media_format in {"audiobook", "ebook"}:
+        return media_format
+    source = getattr(item, "source", None) if not isinstance(item, dict) else item.get("source_family") or item.get("source")
+    return "audiobook" if source in {"abs", "abs_audiobook"} else "ebook"
+
+
+def _explicit_media_format(item):
+    media_format = getattr(item, "media_format", None) if not isinstance(item, dict) else item.get("media_format")
+    return media_format if media_format in {"audiobook", "ebook"} else None
+
+
+def _source_format(source, media_format=None):
+    return "Audiobook" if media_format == "audiobook" or (not media_format and source in {"abs", "abs_audiobook"}) else "Ebook"
 
 
 def _candidate_source_id(match):
@@ -171,6 +184,45 @@ def _candidate_source_id(match):
         or match.get("filename")
         or (match.get("bookfusion_ids") or [None])[0]
     )
+
+
+def _detected_identity(detected):
+    return detected.source, str(detected.source_id)
+
+
+def _match_identity(match):
+    source = match.get("source_family") or match.get("source")
+    if source == "abs_audiobook":
+        source = "abs"
+    source_key = str(match.get("source_key") or "")
+    if source_key.startswith(f"{source}:"):
+        return source, source_key.split(":", 1)[1]
+    if source == "abs" and match.get("abs_id"):
+        return source, str(match["abs_id"])
+    if source == "storyteller" and match.get("storyteller_uuid"):
+        return source, str(match["storyteller_uuid"])
+    return None
+
+
+def _supported_review_matches(detected):
+    source_format = _media_format(detected)
+    supported = []
+    for match in detected.matches or []:
+        match_source = match.get("source_family") or match.get("source")
+        match_format = _media_format(match)
+        if (
+            detected.source == "abs"
+            and source_format == "audiobook"
+            and match_format == "ebook"
+            and match_source in {"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"}
+        ) or (
+            detected.source in {"grimmory", "kosync"}
+            and source_format == "ebook"
+            and match_format == "audiobook"
+            and match_source in {"abs", "abs_audiobook"}
+        ):
+            supported.append(match)
+    return supported
 
 
 def _pairing_review_url(detected, match=None):
@@ -193,31 +245,70 @@ def _pairing_review_url(detected, match=None):
     return url_for("matching.match", **params)
 
 
-def _serialize_detected_pairing(detected):
-    matches = list(detected.matches or [])
-    review_supported = detected.source in {"abs", "grimmory", "kosync"}
-    if detected.source == "abs":
-        supported_matches = [
-            match
-            for match in matches
-            if (match.get("source_family") or match.get("source"))
-            in {"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"}
-        ]
-    else:
-        supported_matches = [
-            match
-            for match in matches
-            if (match.get("source_family") or match.get("source")) in {"abs", "abs_audiobook"}
-        ]
-    top_match = supported_matches[0] if supported_matches else None
+def _activity_timestamp(detected):
     source_updated_at = getattr(detected, "source_updated_at", None)
     if source_updated_at and source_updated_at.tzinfo is None:
-        source_updated_at = source_updated_at.replace(tzinfo=UTC)
+        return source_updated_at.replace(tzinfo=UTC)
+    return source_updated_at
+
+
+def _serialize_detected_activity(detected):
+    source_updated_at = _activity_timestamp(detected)
     try:
         display_timezone = ZoneInfo(os.environ.get("TZ", "UTC"))
     except ZoneInfoNotFoundError:
         display_timezone = UTC
-    activity_current = bool(source_updated_at and source_updated_at >= datetime.now(UTC) - _RECENT_ACTIVITY_CUTOFF)
+    media_format = _media_format(detected)
+    return {
+        "source": detected.source,
+        "source_id": detected.source_id,
+        "identity": {"source": detected.source, "source_id": detected.source_id},
+        "source_label": _source_label(detected.source, detected.source_id),
+        "media_format": media_format,
+        "format": _source_format(detected.source, media_format),
+        "progress": round((detected.progress_percentage or 0) * 100),
+        "activity_at": (
+            source_updated_at.astimezone(display_timezone).strftime("%b %-d, %Y at %-I:%M %p %Z")
+            if source_updated_at
+            else None
+        ),
+        "activity_current": bool(
+            source_updated_at and source_updated_at >= datetime.now(UTC) - _RECENT_ACTIVITY_CUTOFF
+        ),
+        "device": detected.device,
+    }
+
+
+def _serialize_detected_pairing(detected, members=None):
+    members = list(members or [detected])
+    activities = [_serialize_detected_activity(member) for member in members]
+
+    review_detected = next((member for member in members if _supported_review_matches(member)), None)
+    if review_detected is None:
+        review_detected = next(
+            (
+                member
+                for member in members
+                if member.source == "abs"
+                or (member.source in {"grimmory", "kosync"} and _media_format(member) == "ebook")
+            ),
+            detected,
+        )
+    supported_matches = _supported_review_matches(review_detected)
+    top_match = supported_matches[0] if supported_matches else None
+    review_supported = review_detected.source == "abs" or (
+        review_detected.source in {"grimmory", "kosync"} and _media_format(review_detected) == "ebook"
+    )
+    companion_matches = {}
+    for member in members:
+        member_format = _explicit_media_format(member)
+        for match in member.matches or []:
+            identity = _match_identity(match)
+            match_format = _explicit_media_format(match)
+            if identity and member_format and match_format and match_format != member_format:
+                companion_matches.setdefault(identity, _serialize_detected_match(match))
+
+    activity = activities[0]
     source = detected.source or "unknown"
     return {
         "id": detected.id,
@@ -227,16 +318,16 @@ def _serialize_detected_pairing(detected):
         "author": detected.author or "Unknown author",
         "cover_url": detected.cover_url,
         "source_label": _source_label(source, detected.source_id),
-        "format": _source_format(source),
-        "progress": round((detected.progress_percentage or 0) * 100),
-        "activity_at": (
-            source_updated_at.astimezone(display_timezone).strftime("%b %-d, %Y at %-I:%M %p %Z")
-            if source_updated_at
-            else None
-        ),
-        "activity_current": activity_current,
+        "media_format": activity["media_format"],
+        "format": activity["format"],
+        "progress": activity["progress"],
+        "activity_at": activity["activity_at"],
+        "activity_current": activity["activity_current"],
         "device": detected.device,
-        "review_url": _pairing_review_url(detected, top_match),
+        "identities": [activity["identity"] for activity in activities],
+        "activities": activities,
+        "companions": list(companion_matches.values()),
+        "review_url": _pairing_review_url(review_detected, top_match),
         "review_supported": review_supported,
         "top_match": _serialize_detected_match(top_match) if top_match else None,
         "alternatives": [_serialize_detected_match(match) for match in supported_matches[1:]],
@@ -245,13 +336,55 @@ def _serialize_detected_pairing(detected):
 
 def _serialize_detected_match(match):
     source = match.get("source_family") or match.get("source") or "unknown"
+    identity = _match_identity(match)
+    media_format = _media_format(match)
     return {
         "title": match.get("title") or match.get("filename") or "Untitled candidate",
         "author": match.get("author") or "Unknown author",
         "source_label": _source_label(source, _candidate_source_id(match)),
-        "format": _source_format(source),
+        "source": identity[0] if identity else source,
+        "source_id": identity[1] if identity else None,
+        "identity": {"source": identity[0], "source_id": identity[1]} if identity else None,
+        "media_format": media_format,
+        "format": _source_format(source, media_format),
         "confidence": "Strong" if match.get("confidence") == "high" else "Possible",
     }
+
+
+def _group_detected_pairings(detected_books):
+    """Group active detections only through explicit high-confidence opposite-format edges."""
+    books = list(detected_books)
+    by_identity = {_detected_identity(book): index for index, book in enumerate(books)}
+    parents = list(range(len(books)))
+
+    def find(index):
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left, right):
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for index, book in enumerate(books):
+        book_format = _explicit_media_format(book)
+        if not book_format:
+            continue
+        for match in book.matches or []:
+            match_format = _explicit_media_format(match)
+            if match.get("confidence") != "high" or not match_format or match_format == book_format:
+                continue
+            target_index = by_identity.get(_match_identity(match))
+            if target_index is None or _explicit_media_format(books[target_index]) != match_format:
+                continue
+            union(index, target_index)
+
+    grouped = {}
+    for index, book in enumerate(books):
+        grouped.setdefault(find(index), []).append(book)
+    return [_serialize_detected_pairing(members[0], members) for members in grouped.values()]
 
 
 _PAIRING_REVIEW_FIELDS = (
@@ -641,7 +774,7 @@ def suggestions():
         active_detected = database_service.get_active_detected_books()
         if not isinstance(active_detected, (list, tuple)):
             active_detected = []
-        pairings = [_serialize_detected_pairing(detected) for detected in active_detected]
+        pairings = _group_detected_pairings(active_detected)
         recent = [pairing for pairing in pairings if pairing["activity_current"]]
         older = [pairing for pairing in pairings if not pairing["activity_current"]]
         ready = [pairing for pairing in recent if pairing["top_match"]]
