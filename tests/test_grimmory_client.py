@@ -311,17 +311,17 @@ def test_extract_progress_zero(grimmory_client):
     assert cfi is None
 
 
-@pytest.mark.parametrize("book_type", ["M4B", "M4A", "MP3", "OPUS"])
-def test_exact_audiobook_identity_and_progress(grimmory_client, book_type):
+@pytest.mark.parametrize("extension", ["m4b", "m4a", "mp3", "opus"])
+def test_exact_audiobook_identity_and_progress(grimmory_client, extension):
     book = {
         "id": 10,
-        "fileName": f"audio.{book_type.lower()}",
-        "bookType": book_type,
+        "fileName": f"audio.{extension}",
+        "bookType": "AUDIOBOOK",
         "bookFileId": 42,
         "audiobookProgress": {"percentage": 37.5, "positionMs": 1200, "trackIndex": 1},
     }
-    grimmory_client._book_cache = {book["fileName"]: book}
-    grimmory_client._book_id_cache = {10: book}
+    grimmory_client._reset_book_caches()
+    grimmory_client._cache_book_info(book["fileName"], book)
     grimmory_client._cache_timestamp = 9999999999
 
     assert grimmory_client.audio_source_id(book) == "default:10:42"
@@ -335,12 +335,12 @@ def test_update_exact_audiobook_uses_file_progress(grimmory_client):
     book = {
         "id": 10,
         "fileName": "audio.m4b",
-        "bookType": "M4B",
+        "bookType": "AUDIOBOOK",
         "bookFileId": 42,
         "audiobookProgress": {"percentage": 10},
     }
-    grimmory_client._book_cache = {book["fileName"]: book}
-    grimmory_client._book_id_cache = {10: book}
+    grimmory_client._reset_book_caches()
+    grimmory_client._cache_book_info(book["fileName"], book)
     grimmory_client._cache_timestamp = 9999999999
     response = MagicMock(status_code=200)
     grimmory_client._make_request = MagicMock(return_value=response)
@@ -351,6 +351,48 @@ def test_update_exact_audiobook_uses_file_progress(grimmory_client):
         "fileProgress": {"bookFileId": 42, "progressPercent": 50.0},
     }
     assert book["audiobookProgress"]["percentage"] == 50.0
+
+
+@pytest.mark.parametrize("audio_is_primary", [False, True])
+def test_processes_primary_and_alternative_formats_with_exact_file_identity(grimmory_client, audio_is_primary):
+    ebook = {"id": 41, "fileName": "book.epub", "bookType": "EPUB"}
+    audio = {"id": 42, "fileName": "book.m4b", "bookType": "AUDIOBOOK"}
+    detail = {
+        "id": 10,
+        "primaryFile": audio if audio_is_primary else ebook,
+        "alternativeFormats": [ebook if audio_is_primary else audio],
+        "metadata": {"title": "Book", "authors": [{"name": "Author"}]},
+        "epubProgress": {"percentage": 20},
+        "audiobookProgress": {"percentage": 35},
+    }
+
+    grimmory_client._process_book_detail(detail)
+
+    assert set(grimmory_client._book_cache) == {"book.epub", "book.m4b"}
+    assert grimmory_client._book_id_cache[10]["fileName"] == detail["primaryFile"]["fileName"]
+    assert grimmory_client.find_audiobook_by_source_id("default:10:42", allow_refresh=False)["fileName"] == "book.m4b"
+    assert grimmory_client.find_book_by_filename("book.epub", allow_refresh=False)["bookFileId"] == 41
+
+
+def test_refresh_prunes_removed_alternative_without_removing_primary_ebook(grimmory_client, mock_db):
+    detail = {
+        "id": 10,
+        "primaryFile": {"id": 41, "fileName": "book.epub", "bookType": "EPUB"},
+        "alternativeFormats": [{"id": 42, "fileName": "book.m4b", "bookType": "AUDIOBOOK"}],
+        "metadata": {"title": "Book", "authors": ["Author"]},
+    }
+    grimmory_client._process_book_detail(detail)
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"content": [{**detail, "alternativeFormats": []}]}
+    grimmory_client._make_request = MagicMock(return_value=response)
+    mock_db.reset_mock()
+
+    assert grimmory_client._refresh_book_cache() is True
+
+    assert set(grimmory_client._book_cache) == {"book.epub"}
+    assert grimmory_client.find_book_by_filename("book.epub", allow_refresh=False)["bookFileId"] == 41
+    assert grimmory_client.find_audiobook_by_source_id("default:10:42", allow_refresh=False) is None
+    mock_db.delete_grimmory_book.assert_called_once_with("book.m4b", server_id="default")
 
 
 def test_update_progress_file_progress(grimmory_client):

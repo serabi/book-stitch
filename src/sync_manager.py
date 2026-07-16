@@ -525,6 +525,11 @@ class SyncManager:
         }
         if is_audio_only:
             audio_only_clients = {"ABS", "Hardcover"}
+            source_id = getattr(book, "grimmory_audio_source_id", None)
+            source_parts = str(source_id).split(":") if source_id else []
+            if len(source_parts) == 3:
+                instance_id = source_parts[0]
+                audio_only_clients.add("GrimmoryAudio" if instance_id == "default" else f"Grimmory{instance_id}Audio")
             active_clients = {name: client for name, client in active_clients.items() if name in audio_only_clients}
             logger.debug(f"'{abs_id}' '{title_snip}' Audio-only mode - using clients: {list(active_clients.keys())}")
         elif sync_type == "ebook":
