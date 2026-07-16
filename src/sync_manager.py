@@ -739,7 +739,7 @@ class SyncManager:
         leader_state_data = leader_state.current
 
         leader_state_model = State(
-            abs_id=book.abs_id,
+            abs_id=abs_id,
             book_id=book.id,
             client_name=leader.lower(),
             last_updated=current_time,
@@ -761,7 +761,7 @@ class SyncManager:
                 except ImportError:
                     pass
                 client_state_model = State(
-                    abs_id=book.abs_id,
+                    abs_id=abs_id,
                     book_id=book.id,
                     client_name=client_name.lower(),
                     last_updated=current_time,

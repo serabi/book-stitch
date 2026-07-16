@@ -29,7 +29,7 @@ from src.services.storyteller_submission_service import StorytellerSubmissionSer
 from src.services.suggestion_service import SuggestionService
 from src.sync_clients.abs_ebook_sync_client import ABSEbookSyncClient
 from src.sync_clients.abs_sync_client import ABSSyncClient
-from src.sync_clients.grimmory_sync_client import GrimmorySyncClient
+from src.sync_clients.grimmory_sync_client import GrimmoryAudioSyncClient, GrimmorySyncClient
 from src.sync_clients.hardcover_sync_client import HardcoverSyncClient
 from src.sync_clients.kosync_sync_client import KoSyncSyncClient
 from src.sync_clients.storyteller_sync_client import StorytellerSyncClient
@@ -163,6 +163,14 @@ class Container(containers.DeclarativeContainer):
         GrimmorySyncClient, grimmory_client_2, ebook_parser, client_name="Grimmory2"
     )
 
+    grimmory_audio_sync_client = providers.Singleton(
+        GrimmoryAudioSyncClient, grimmory_client, ebook_parser, client_name="GrimmoryAudio"
+    )
+
+    grimmory_audio_sync_client_2 = providers.Singleton(
+        GrimmoryAudioSyncClient, grimmory_client_2, ebook_parser, client_name="Grimmory2Audio"
+    )
+
     abs_ebook_sync_client = providers.Singleton(ABSEbookSyncClient, abs_client, ebook_parser)
 
     hardcover_service = providers.Singleton(HardcoverService, hardcover_client, database_service, abs_client)
@@ -215,6 +223,8 @@ class Container(containers.DeclarativeContainer):
         Storyteller=storyteller_sync_client,
         Grimmory=grimmory_sync_client,
         Grimmory2=grimmory_sync_client_2,
+        GrimmoryAudio=grimmory_audio_sync_client,
+        Grimmory2Audio=grimmory_audio_sync_client_2,
         Hardcover=hardcover_sync_client,
     )
 
