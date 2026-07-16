@@ -275,10 +275,16 @@ class BookIntakeService:
                 resolve_detected=not processing_token,
                 renew_claim=renew_claim,
             )
-            if processing_token and not self.database_service.complete_detected_book(
-                detected_source_id, processing_token, source=detected_source
-            ):
-                raise _ClaimOwnershipLost
+            if processing_token:
+                try:
+                    completed = self.database_service.complete_detected_book(
+                        detected_source_id, processing_token, source=detected_source
+                    )
+                except Exception as exc:
+                    completed = False
+                    logger.warning("Pairing committed but its detection could not be completed: %s", exc)
+                if not completed:
+                    logger.warning("Pairing committed after its processing lease expired")
             return result
         except _MergeIdentityChanged:
             if processing_token:
@@ -407,18 +413,20 @@ class BookIntakeService:
                 "ebook_item_id": None,
             }
 
+        canonical_book = existing_book or prepared.current_book
         desired = Book(
             abs_id=prepared.abs_id,
             title=title,
             ebook_filename=prepared.ebook_filename,
             kosync_doc_id=prepared.kosync_doc_id,
-            transcript_file=None,
+            transcript_file=getattr(canonical_book, "transcript_file", None),
             status="pending",
             duration=duration,
             author=author,
             subtitle=subtitle,
             **merge_metadata,
         )
+        self._require_claim_ownership(renew_claim)
         if existing_book:
             overrides = {
                 attr: getattr(desired, attr)
@@ -454,49 +462,42 @@ class BookIntakeService:
                 raise _MergeIdentityChanged
         else:
             book = self.database_service.save_book(desired, is_new=True)
-        self._require_claim_ownership(renew_claim)
 
-        self._require_claim_ownership(renew_claim)
-        ensure_kosync_document(book, self.database_service)
-        self._require_claim_ownership(renew_claim)
-
-        self._require_claim_ownership(renew_claim)
-        self._record_grimmory_source(prepared.kosync_doc_id, prepared.ebook_source_id)
-        self._require_claim_ownership(renew_claim)
-        if storyteller_submit:
-            self._require_claim_ownership(renew_claim)
-            self._create_storyteller_reservation(prepared.abs_id)
-            self._require_claim_ownership(renew_claim)
-
-        self._require_claim_ownership(renew_claim)
-        collection_added = self.abs_service.add_to_collection(prepared.abs_id, self.collection_name)
-        self._require_claim_ownership(renew_claim)
-        if collection_added is False:
-            raise RuntimeError("Audiobookshelf collection update failed")
-
-        self._require_claim_ownership(renew_claim)
-        self.attempt_hardcover_automatch(self.container, book)
-        self._require_claim_ownership(renew_claim)
-        if prepared.grimmory_client:
-            self._require_claim_ownership(renew_claim)
-            self._add_to_grimmory_shelf(
-                prepared.grimmory_client, original_ebook_filename or prepared.ebook_filename
+        # The canonical mapping is committed. Follow-up bookkeeping and remote
+        # integrations are best effort and must never make it look retryable.
+        try:
+            ensure_kosync_document(book, self.database_service)
+            self._record_grimmory_source(prepared.kosync_doc_id, prepared.ebook_source_id)
+            if storyteller_submit:
+                self._create_storyteller_reservation(prepared.abs_id)
+            self._resolve_mapping_suggestions(
+                prepared.abs_id,
+                prepared.kosync_doc_id,
+                prepared.ebook_filename,
+                prepared.ebook_source_id,
+                resolve_detected=resolve_detected,
             )
-            self._require_claim_ownership(renew_claim)
-        if storyteller_submit:
-            self._require_claim_ownership(renew_claim)
-            self._submit_to_storyteller_async(prepared.abs_id, title, prepared.ebook_filename)
-            self._require_claim_ownership(renew_claim)
+        except Exception as exc:
+            logger.warning("Pairing committed but local follow-up failed: %s", exc)
 
-        self._require_claim_ownership(renew_claim)
-        self._resolve_mapping_suggestions(
-            prepared.abs_id,
-            prepared.kosync_doc_id,
-            prepared.ebook_filename,
-            prepared.ebook_source_id,
-            resolve_detected=resolve_detected,
-        )
-        self._require_claim_ownership(renew_claim)
+        try:
+            collection_added = self.abs_service.add_to_collection(prepared.abs_id, self.collection_name)
+            if collection_added is False:
+                logger.warning("Pairing committed but Audiobookshelf collection update failed")
+        except Exception as exc:
+            logger.warning("Pairing committed but Audiobookshelf collection update failed: %s", exc)
+
+        try:
+            self.attempt_hardcover_automatch(self.container, book)
+            if prepared.grimmory_client:
+                self._add_to_grimmory_shelf(
+                    prepared.grimmory_client, original_ebook_filename or prepared.ebook_filename
+                )
+            if storyteller_submit:
+                self._submit_to_storyteller_async(prepared.abs_id, title, prepared.ebook_filename)
+        except Exception as exc:
+            logger.warning("Pairing committed but external follow-up failed: %s", exc)
+
         return IntakeResult(book=book)
 
     @staticmethod
