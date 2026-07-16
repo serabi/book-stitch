@@ -1,10 +1,21 @@
 import logging
 import os
 import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from src.db.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
+
+
+def validate_timezone(value) -> str | None:
+    timezone = str(value or "").strip()
+    try:
+        ZoneInfo(timezone)
+    except (ValueError, ZoneInfoNotFoundError):
+        return None
+    return timezone
+
 
 # Full list of settings to manage
 ALL_SETTINGS = [
@@ -211,6 +222,12 @@ class ConfigLoader:
                 # Priority: 1. Env Var, 2. Default, 3. Empty string
                 val = os.environ.get(key, DEFAULT_CONFIG.get(key, ""))
 
+                if key == "TZ":
+                    val = validate_timezone(val)
+                    if val is None:
+                        logger.warning("Ignoring invalid TZ environment value during bootstrap")
+                        continue
+
                 # Check for None explicitly
                 if val is None:
                     val = ""
@@ -288,6 +305,10 @@ class ConfigLoader:
                 # Apply validation or type conversion if needed (mostly string for env vars)
                 val_str = str(value) if value is not None else ""
 
+                if key == "TZ" and validate_timezone(val_str) is None:
+                    logger.warning("Ignoring invalid stored TZ setting")
+                    continue
+
                 # Preserve existing non-empty env vars when DB value is blank.
                 if val_str != "":
                     os.environ[key] = val_str
@@ -297,6 +318,12 @@ class ConfigLoader:
                         os.environ[key] = ""
 
                 count += 1
+
+            timezone = validate_timezone(os.environ.get("TZ"))
+            if timezone is None:
+                timezone = DEFAULT_CONFIG["TZ"]
+                logger.warning("Invalid TZ environment value; using %s", timezone)
+            os.environ["TZ"] = timezone
 
             if hasattr(time, "tzset"):
                 time.tzset()

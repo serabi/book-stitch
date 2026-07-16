@@ -2,13 +2,12 @@
 
 import logging
 import os
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests as http_requests
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 
 from src.blueprints.helpers import get_container, get_database_service
-from src.utils.config_loader import load_settings
+from src.utils.config_loader import load_settings, validate_timezone
 from src.utils.logging_utils import sanitize_log_data
 from src.utils.secret_settings import SECRET_SETTING_KEYS
 from src.version import APP_VERSION, get_update_status
@@ -164,14 +163,10 @@ def settings():
 
     if request.method == "POST":
         timezone = request.form.get("TZ")
-        if timezone is not None:
-            try:
-                ZoneInfo(timezone.strip())
-            except (ValueError, ZoneInfoNotFoundError):
-                session["message"] = "Invalid timezone. Use an IANA name such as America/New_York."
-                session["is_error"] = True
-                active_tab = request.form.get("_active_tab", "general")
-                return redirect(url_for("settings_page.settings", tab=active_tab))
+        if timezone is not None and validate_timezone(timezone) is None:
+            session["message"] = "Invalid timezone. Use an IANA name such as America/New_York."
+            session["is_error"] = True
+            return redirect(url_for("settings_page.settings", tab="general", focus="timezone"))
 
         bool_keys = [
             "ABS_ENABLED",

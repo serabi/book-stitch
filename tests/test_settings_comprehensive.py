@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -177,27 +178,62 @@ class TestSettingsComprehensive(unittest.TestCase):
             self.mock_container.mock_database_service.set_setting.assert_any_call(key, val)
 
     def test_invalid_timezone_is_rejected_before_persistence(self):
-        self.mock_container.mock_database_service.reset_mock()
-        response = self.client.post("/settings", data={"TZ": "Not/A_Timezone"})
+        for timezone in ("", "Not/A_Timezone"):
+            with self.subTest(timezone=timezone):
+                self.mock_container.mock_database_service.reset_mock()
+                response = self.client.post("/settings", data={"TZ": timezone, "_active_tab": "abs"})
 
-        self.assertEqual(response.status_code, 302)
-        self.mock_container.mock_database_service.set_setting.assert_not_called()
-        with self.client.session_transaction() as flask_session:
-            self.assertTrue(flask_session["is_error"])
-            self.assertIn("Invalid timezone", flask_session["message"])
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("tab=general", response.location)
+                self.assertIn("focus=timezone", response.location)
+                self.mock_container.mock_database_service.set_setting.assert_not_called()
+                with self.client.session_transaction() as flask_session:
+                    self.assertTrue(flask_session["is_error"])
+                    self.assertIn("Invalid timezone", flask_session["message"])
 
+    def test_invalid_environment_timezone_is_not_bootstrapped_or_applied(self):
+        from src.utils.config_loader import DEFAULT_CONFIG, ConfigLoader
+
+        database_service = Mock()
+        database_service.get_all_settings.side_effect = [{}, {"LOG_LEVEL": "INFO"}]
+        database_service.get_undecryptable_secret_keys.return_value = []
+        database_service.reset_mock()
+
+        with patch.dict(os.environ, {"TZ": "Not/A_Timezone"}, clear=False):
+            ConfigLoader.bootstrap_config(database_service)
+            ConfigLoader.load_settings(database_service)
+
+            timezone_calls = [call for call in database_service.set_setting.call_args_list if call.args[0] == "TZ"]
+            self.assertEqual(timezone_calls, [])
+            self.assertEqual(os.environ["TZ"], DEFAULT_CONFIG["TZ"])
+
+        database_service.get_all_settings.side_effect = None
+        database_service.get_all_settings.return_value = {"LOG_LEVEL": "INFO"}
+        with patch.dict(os.environ, {"TZ": "Europe/London"}, clear=False):
+            ConfigLoader.load_settings(database_service)
+            self.assertEqual(os.environ["TZ"], "Europe/London")
+        if hasattr(time, "tzset"):
+            time.tzset()
+
+    @unittest.skipUnless(hasattr(time, "tzset"), "time.tzset is unavailable on this platform")
     def test_loading_settings_applies_process_timezone(self):
         from src.utils.config_loader import ConfigLoader
 
+        original_timezone = os.environ.get("TZ")
         database_service = Mock()
         database_service.get_all_settings.return_value = {"TZ": "Europe/Paris"}
         database_service.get_undecryptable_secret_keys.return_value = []
 
-        with patch("src.utils.config_loader.time.tzset") as tzset:
+        try:
             ConfigLoader.load_settings(database_service)
-
-        self.assertEqual(os.environ["TZ"], "Europe/Paris")
-        tzset.assert_called_once_with()
+            self.assertEqual(os.environ["TZ"], "Europe/Paris")
+            self.assertEqual(time.localtime(0).tm_hour, 1)
+        finally:
+            if original_timezone is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original_timezone
+            time.tzset()
 
     @patch("src.blueprints.settings_bp.http_requests.get")
     def test_abs_connection_test_uses_unsaved_payload(self, mock_get):
