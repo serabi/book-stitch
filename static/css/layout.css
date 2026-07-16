@@ -159,15 +159,9 @@ body {
   flex: 0 0 20px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.nav-item-icon use[href="#nav-icon-dashboard"],
-.nav-item-icon use[href="#nav-icon-reading"] {
-  fill: currentColor;
-  stroke: none;
 }
 
 .nav-badge {

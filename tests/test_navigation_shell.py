@@ -52,3 +52,13 @@ def test_mobile_pairings_badge_does_not_grow_bottom_navigation():
     assert ".mobile-nav-link {\n    position: relative;" in css
     assert ".mobile-nav-link .nav-badge {\n    position: absolute;" in css
     assert "margin: 0;" in css
+
+
+def test_navigation_icons_share_one_outline_style(flask_app):
+    html = render_navigation(flask_app, "/")
+    css = (Path(__file__).parent.parent / "static/css/layout.css").read_text()
+
+    for name in ("dashboard", "reading", "pairings", "settings", "add", "activity", "more"):
+        assert f'id="nav-icon-{name}"' in html
+    assert "stroke-width: 2;" in css
+    assert 'use[href="#nav-icon-dashboard"]' not in css
