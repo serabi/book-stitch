@@ -24,6 +24,7 @@
         var button = document.getElementById('rescan-btn');
         var status = document.getElementById('rescan-status');
         var timer = null;
+        var scanObserved = false;
 
         function poll() {
             fetch('/api/suggestions/rescan-status')
@@ -31,10 +32,12 @@
                 .then(function (data) {
                     if (!data.success) throw new Error(data.error || 'Status failed');
                     if (data.running) {
+                        scanObserved = true;
                         button.disabled = true;
                         status.textContent = data.message || 'Rescan in progress...';
                         timer = setTimeout(poll, 1500);
-                    } else if (data.phase === 'complete') {
+                    } else if (data.phase === 'complete' && scanObserved) {
+                        scanObserved = false;
                         window.location.reload();
                     } else {
                         button.disabled = false;
@@ -63,6 +66,7 @@
                     if (data.rate_limited) {
                         button.disabled = false;
                     } else {
+                        scanObserved = true;
                         poll();
                     }
                 })
@@ -70,6 +74,41 @@
                     button.disabled = false;
                     status.textContent = error.message || String(error);
                 });
+        });
+
+        document.querySelectorAll('.pairing-dismiss').forEach(function (dismissButton) {
+            dismissButton.addEventListener('click', function () {
+                var card = dismissButton.closest('.pairing-card');
+                var source = card.dataset.source;
+                var sourceId = card.dataset.sourceId;
+                var title = card.querySelector('h3').textContent;
+                dismissButton.disabled = true;
+                status.textContent = 'Dismissing ' + title + '...';
+                fetch('/api/detected/' + encodeURIComponent(source) + '/' + encodeURIComponent(sourceId) + '/dismiss', {
+                    method: 'POST'
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            if (!response.ok || !data.success) throw new Error(data.error || 'Dismiss failed');
+                            return data;
+                        });
+                    })
+                    .then(function () {
+                        var section = card.closest('.pairing-section');
+                        card.remove();
+                        var remaining = section.querySelectorAll('.pairing-card').length;
+                        if (remaining) {
+                            section.querySelector('.pairing-section-heading > span').textContent = remaining;
+                        } else {
+                            section.remove();
+                        }
+                        status.textContent = 'Dismissed ' + title + '.';
+                    })
+                    .catch(function (error) {
+                        dismissButton.disabled = false;
+                        status.textContent = 'Could not dismiss ' + title + ': ' + (error.message || String(error));
+                    });
+            });
         });
 
         poll();

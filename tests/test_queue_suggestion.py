@@ -32,11 +32,14 @@ class TestQueueSuggestion(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("SUGGESTIONS_ENABLED", None)
 
-    def test_skips_when_disabled(self):
+    def test_detection_runs_when_catalog_suggestions_disabled(self):
         os.environ["SUGGESTIONS_ENABLED"] = "false"
+        self.mock_db.get_detected_book.return_value = None
+        self.mock_abs.get_item_details.return_value = {
+            "media": {"metadata": {"title": "Test Book", "authorName": "Author"}}
+        }
         self.manager.queue_suggestion("book-123")
-        self.mock_db.get_all_books.assert_not_called()
-        self.mock_db.save_detected_book.assert_not_called()
+        self.mock_db.save_detected_book.assert_called_once()
 
     def test_skips_mapped_book(self):
         mock_book = Mock()

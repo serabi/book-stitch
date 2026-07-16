@@ -462,9 +462,6 @@ class SuggestionService:
 
     def queue_suggestion(self, abs_id: str) -> None:
         """Queue detected-book discovery for an unmapped ABS item."""
-        if self._suggestions_disabled():
-            return
-
         # Already mapped?
         all_books = self.database_service.get_all_books()
         mapped_ids = {b.abs_id for b in all_books}
@@ -486,9 +483,6 @@ class SuggestionService:
         source_updated_at=None,
     ) -> None:
         """Create or refresh a detected entry for a KoSync document."""
-        if self._suggestions_disabled():
-            return
-
         title = ""
         if filename:
             title = Path(filename).stem
@@ -560,9 +554,6 @@ class SuggestionService:
 
     def check_for_suggestions(self, abs_progress_map, active_books):
         """Check for unmapped books with progress and create detected entries."""
-        if self._suggestions_disabled():
-            return
-
         try:
             # optimization: get all mapped IDs to avoid suggesting existing books (even if inactive)
             all_books = self.database_service.get_all_books()
@@ -1028,6 +1019,8 @@ class SuggestionService:
         self, source: str, source_id: str, title: str, author: str | None, cover_url: str, new_matches: list[dict]
     ):
         """Save or merge a suggestion for any source type. Deduplicates matches by key."""
+        if self._suggestions_disabled():
+            return
         if self.database_service.is_suggestion_ignored(source_id, source=source):
             return
 

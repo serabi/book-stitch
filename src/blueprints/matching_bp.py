@@ -190,6 +190,8 @@ def _serialize_detected_pairing(detected):
     source = detected.source or "unknown"
     return {
         "id": detected.id,
+        "source": detected.source,
+        "source_id": detected.source_id,
         "title": detected.title or "Untitled book",
         "author": detected.author or "Unknown author",
         "cover_url": detected.cover_url,

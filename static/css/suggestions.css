@@ -8,6 +8,19 @@
   max-width: 1180px;
 }
 
+.pairings-inbox .sg-page-kicker {
+  color: #c7c3d8 !important;
+}
+
+.pairings-inbox .btn-primary {
+  background: #0f5f5a;
+  color: #fff;
+}
+
+.pairings-inbox .btn-primary:hover {
+  background: #0b4f4a;
+}
+
 .pairings-header {
   display: flex;
   align-items: flex-end;
@@ -198,7 +211,7 @@
 
 .pairing-eyebrow {
   margin-bottom: 7px !important;
-  color: var(--color-text-faint) !important;
+  color: #c7c3d8 !important;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -231,8 +244,8 @@
   flex: 0 0 auto;
   padding: 4px 8px;
   border-radius: 999px;
-  background: var(--color-confidence-high-bg);
-  color: var(--color-confidence-high);
+  background: #14532d;
+  color: #d1fae5;
   font-size: 0.72rem;
   font-weight: 700;
 }
@@ -305,6 +318,16 @@
 }
 
 @media (max-width: 680px) {
+  html {
+    scroll-padding-bottom: 84px;
+  }
+
+  .pairings-inbox a,
+  .pairings-inbox button,
+  .pairings-inbox summary {
+    scroll-margin-block: 12px 84px;
+  }
+
   .pairings-header,
   .pairings-header-actions,
   .pairing-card {

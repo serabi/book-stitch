@@ -1,5 +1,5 @@
 {% macro pairing_card(pairing) %}
-<article class="pairing-card">
+<article class="pairing-card" data-source="{{ pairing.source }}" data-source-id="{{ pairing.source_id }}">
     <div class="pairing-book">
         {% if pairing.cover_url %}<img src="{{ pairing.cover_url }}" alt="" class="pairing-cover" loading="lazy">{% else %}<div class="pairing-cover pairing-cover--empty" aria-hidden="true"></div>{% endif %}
         <div class="pairing-book-copy">
@@ -36,6 +36,7 @@
 
     <div class="pairing-actions">
         <a class="btn btn-primary" href="{{ pairing.review_url }}">Review pairing</a>
+        <button class="btn btn-secondary pairing-dismiss" type="button">Dismiss</button>
         {% if pairing.alternatives %}
         <details class="pairing-alternatives">
             <summary>{{ pairing.alternatives|length }} alternative{% if pairing.alternatives|length != 1 %}s{% endif %}</summary>

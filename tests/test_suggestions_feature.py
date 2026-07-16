@@ -164,8 +164,8 @@ class TestSuggestionsFeature(unittest.TestCase):
         self.mock_container.mock_database_service.set_setting.assert_any_call("SUGGESTIONS_ENABLED", "true")
         self.assertEqual(os.environ.get("SUGGESTIONS_ENABLED"), "true")
 
-    def test_sync_manager_respects_setting(self):
-        """Test that check_for_suggestions returns early if disabled."""
+    def test_sync_manager_detection_ignores_legacy_catalog_setting(self):
+        """Currently Reading discovery stays live when catalog suggestions are disabled."""
         from src.sync_manager import SyncManager
 
         # Initialize SyncManager with mocks
@@ -173,18 +173,8 @@ class TestSuggestionsFeature(unittest.TestCase):
             database_service=self.mock_container.mock_database_service, sync_clients={}, data_dir=Path(self.temp_dir)
         )
 
-        # Case 1: Disabled
         os.environ["SUGGESTIONS_ENABLED"] = "false"
         manager.check_for_suggestions({}, [])
-        # Should NOT call get_all_books (optimization check is inside the try block after the return)
-        self.mock_container.mock_database_service.get_all_books.assert_not_called()
-
-        # Case 2: Enabled
-        os.environ["SUGGESTIONS_ENABLED"] = "true"
-        # Mock get_all_books to avoid crash further down
-        self.mock_container.mock_database_service.get_all_books.return_value = []
-        manager.check_for_suggestions({}, [])
-        # Should proceed to call DB
         self.mock_container.mock_database_service.get_all_books.assert_called()
 
     def test_match_resolves_suggestions(self):

@@ -81,6 +81,26 @@ def test_manual_rescan_runs_currently_reading_discovery():
     service.check_for_suggestions.assert_called_once_with({}, [])
 
 
+def test_catalog_flag_does_not_disable_currently_reading_detection(monkeypatch):
+    monkeypatch.setenv("SUGGESTIONS_ENABLED", "false")
+    db = _db()
+    service = _service(db)
+    service._create_suggestion = Mock()
+    service._check_reverse_suggestions = Mock()
+    service._check_cross_ebook_suggestions = Mock()
+
+    service.check_for_suggestions(
+        {"abs-1": {"mediaType": "audiobook", "duration": 100, "currentTime": 42}},
+        [],
+    )
+    service._save_suggestion_with_merge("abs", "abs-1", "Book", None, "", [{"title": "Candidate"}])
+
+    service._create_suggestion.assert_called_once_with(
+        "abs-1", {"mediaType": "audiobook", "duration": 100, "currentTime": 42}
+    )
+    db.save_pending_suggestion.assert_not_called()
+
+
 def test_grimmory_instances_with_same_filename_keep_separate_identity_and_progress():
     db = _db()
     first = Mock(instance_id="default")

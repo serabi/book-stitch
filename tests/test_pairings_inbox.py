@@ -70,6 +70,8 @@ def test_currently_reading_is_default_and_carries_pairing_identifiers(client, mo
     assert "Audiobookshelf" in page and "Audiobook" in page
     assert "KoSync" in page and "Ebook" in page
     assert "42% read" in page and "Last seen Jul 15, 2026" in page
+    assert page.count('class="btn btn-secondary pairing-dismiss"') == 2
+    assert 'data-source="abs" data-source-id="abs-123"' in page
     assert 'id="suggestion-search"' not in page
     assert "Active books" not in page
 
@@ -114,3 +116,22 @@ def test_currently_reading_empty_states_use_existing_configuration(client, mock_
     db.get_detected_book_count.return_value = 3
     resolved = client.get("/suggestions").get_data(as_text=True)
     assert "All caught up" in resolved
+
+
+def test_source_scoped_detected_dismiss_endpoint(client, mock_container):
+    db = mock_container.mock_database_service
+    db.dismiss_detected_book.return_value = True
+
+    response = client.post("/api/detected/kosync/shared-id/dismiss")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"success": True}
+    db.dismiss_detected_book.assert_called_once_with("shared-id", source="kosync")
+
+
+def test_mobile_focus_clearance_is_scoped_to_pairings():
+    css = (Path(__file__).parent.parent / "static/css/suggestions.css").read_text()
+
+    assert "scroll-padding-bottom: 84px" in css
+    assert ".pairings-inbox button" in css
+    assert "scroll-margin-block: 12px 84px" in css

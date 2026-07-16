@@ -96,6 +96,14 @@
     "kind": "api"
   },
   {
+    "rule": "/api/detected/<source>/<source_id>/dismiss",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.dismiss_detected_book",
+    "kind": "api"
+  },
+  {
     "rule": "/api/detected/<source_id>/dismiss",
     "methods": [
       "POST"

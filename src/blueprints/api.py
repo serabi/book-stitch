@@ -62,11 +62,12 @@ def get_detected_books():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@api_bp.route("/api/detected/<source>/<source_id>/dismiss", methods=["POST"])
 @api_bp.route("/api/detected/<source_id>/dismiss", methods=["POST"])
-def dismiss_detected_book(source_id):
+def dismiss_detected_book(source_id, source=None):
     """Dismiss a detected book."""
     database_service = get_database_service()
-    source = request.args.get("source", "abs")
+    source = source or request.args.get("source", "abs")
     if source not in _VALID_SUGGESTION_SOURCES:
         return jsonify({"success": False, "error": "Invalid source"}), 400
     if database_service.dismiss_detected_book(source_id, source=source):
