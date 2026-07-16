@@ -100,9 +100,10 @@ class GrimmoryRepository(BaseRepository):
             for row in legacy_rows:
                 try:
                     metadata = json.loads(row.raw_metadata or "{}")
-                except (TypeError, json.JSONDecodeError):
+                    legacy_key = (str(metadata.get("id")), row.filename)
+                except (AttributeError, TypeError, json.JSONDecodeError):
+                    session.delete(row)
                     continue
-                legacy_key = (str(metadata.get("id")), row.filename)
                 if legacy_filename_counts[row.filename] == 1 and legacy_key not in live_legacy_keys:
                     session.delete(row)
 

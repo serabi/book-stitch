@@ -230,6 +230,17 @@ def test_bulk_reconcile_upserts_snapshot_and_prunes_stale_exact_rows(repository)
     ]
 
 
+@pytest.mark.parametrize("raw_metadata", ["not-json", "[]"])
+def test_bulk_reconcile_prunes_malformed_legacy_rows(repository, raw_metadata):
+    repository.save_grimmory_book(
+        GrimmoryBook(filename="stale.epub", server_id="test", raw_metadata=raw_metadata)
+    )
+
+    repository.reconcile_grimmory_books("test", [])
+
+    assert repository.get_all_grimmory_books(server_id="test") == []
+
+
 def test_save_grimmory_book_updates_preexisting_row(repository):
     """A row already committed by another writer is updated in place rather
     than duplicated when save sees the same identity."""
