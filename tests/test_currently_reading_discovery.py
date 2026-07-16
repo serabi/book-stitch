@@ -3,6 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from src.api.grimmory_client import GrimmoryClientGroup
 from src.services.suggestion_service import SuggestionService
 from src.sync_manager import SyncManager
@@ -78,7 +80,8 @@ def test_manual_rescan_runs_currently_reading_discovery():
 
     service._run_rescan_job()
 
-    service.check_for_suggestions.assert_called_once_with({}, [])
+    service.check_for_suggestions.assert_called_once_with({}, [], errors=set())
+    service.rescan_library_suggestions.assert_not_called()
 
 
 def test_catalog_flag_does_not_disable_currently_reading_detection(monkeypatch):
@@ -222,3 +225,108 @@ def test_abs_ebook_bulk_payload_is_not_misclassified_as_audiobook():
     )
 
     service._create_suggestion.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("pct", "expected"),
+    [(0.0, False), (0.01, True), (0.95, True), (1.0, False)],
+)
+def test_abs_and_kosync_events_share_detection_window(pct, expected):
+    db = _db()
+    abs_client = Mock()
+    abs_client.get_all_audiobooks.return_value = []
+    abs_client.get_item_details.return_value = {
+        "media": {"metadata": {"title": "Window Book", "authorName": "Reader"}}
+    }
+    service = _service(db, abs_client=abs_client)
+    service._check_reverse_suggestions = Mock(return_value=[])
+    service._check_cross_ebook_suggestions = Mock()
+
+    service.queue_suggestion(
+        "abs-window",
+        {"progress": pct, "lastUpdate": "2026-07-15T12:00:00Z"},
+    )
+    abs_saved = db.save_detected_book.call_count
+    db.save_detected_book.reset_mock()
+    service.queue_kosync_suggestion(
+        "hash-window",
+        filename="Window Book.epub",
+        progress_percentage=pct,
+        source_updated_at="2026-07-15T12:00:00Z",
+    )
+
+    assert bool(abs_saved) is expected
+    assert bool(db.save_detected_book.call_count) is expected
+    if expected:
+        detected = db.save_detected_book.call_args.args[0]
+        assert detected.progress_percentage == pct
+        assert detected.source_updated_at == datetime(2026, 7, 15, 12, tzinfo=UTC)
+
+
+def test_scheduled_ebook_detection_merges_ranked_abs_and_live_candidates():
+    db = _db()
+    db.get_unlinked_kosync_documents.return_value = [
+        SimpleNamespace(
+            document_hash="hash-merge",
+            filename="Merge Book.epub",
+            percentage=0.4,
+            device="KOReader",
+            timestamp=datetime(2026, 7, 15, 12, tzinfo=UTC),
+            linked_abs_id=None,
+        )
+    ]
+    live_match = {
+        "source_family": "grimmory",
+        "source_key": "grimmory:default:Merge Book.epub",
+        "title": "Merge Book",
+        "score": 0.9,
+    }
+    db.get_detected_book.side_effect = lambda source_id, source="abs": (
+        SimpleNamespace(matches=[live_match]) if (source, source_id) == ("kosync", "hash-merge") else None
+    )
+    abs_client = Mock()
+    abs_client.get_all_audiobooks.return_value = [
+        {
+            "id": "abs-merge",
+            "media": {"metadata": {"title": "Merge Book", "authorName": "Reader"}},
+        }
+    ]
+
+    _service(db, abs_client=abs_client).check_for_suggestions({}, [])
+
+    detected = next(
+        call.args[0]
+        for call in db.save_detected_book.call_args_list
+        if call.args[0].source == "kosync"
+    )
+    source_keys = {match.get("source_key") for match in detected.matches}
+    assert source_keys == {"abs:abs-merge", "grimmory:default:Merge Book.epub"}
+
+
+def test_source_failure_marks_rescan_partial_and_keeps_activity_results():
+    db = _db()
+    db.get_active_detected_book_count.return_value = 1
+    db.get_unlinked_kosync_documents.return_value = [
+        SimpleNamespace(
+            document_hash="healthy",
+            filename="Healthy.epub",
+            percentage=0.4,
+            device="KOReader",
+            timestamp=datetime(2026, 7, 15, 12, tzinfo=UTC),
+            linked_abs_id=None,
+        )
+    ]
+    abs_client = Mock()
+    abs_client.is_configured.return_value = True
+    abs_client.get_all_progress_raw.side_effect = RuntimeError("offline")
+    abs_client.get_all_audiobooks.side_effect = RuntimeError("offline")
+    service = _service(db, abs_client=abs_client)
+    service.rescan_library_suggestions = Mock()
+
+    service._run_rescan_job()
+
+    assert service.get_rescan_status()["phase"] == "partial"
+    assert service.get_rescan_status()["failed_sources"] == ["Audiobookshelf"]
+    assert service.get_rescan_status()["detected"] == 1
+    assert any(call.args[0].source_id == "healthy" for call in db.save_detected_book.call_args_list)
+    service.rescan_library_suggestions.assert_not_called()

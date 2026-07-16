@@ -206,7 +206,8 @@ def rescan_suggestions():
     container = get_container()
     data = request.get_json(silent=True) or {}
     force = bool(data.get("force"))
-    stats = container.suggestion_service().request_rescan_library_suggestions(force=force)
+    catalog = bool(data.get("catalog"))
+    stats = container.suggestion_service().request_rescan_library_suggestions(force=force, catalog=catalog)
     return jsonify({"success": True, **stats})
 
 

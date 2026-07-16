@@ -451,7 +451,7 @@
         fetch('/api/suggestions/rescan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify({ catalog: true })
         })
             .then(function (r) { return r.json(); })
             .then(function (data) {

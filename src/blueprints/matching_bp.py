@@ -2,7 +2,9 @@
 
 import logging
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, session, url_for
 from markupsafe import Markup
@@ -29,6 +31,8 @@ from src.utils.logging_utils import sanitize_log_data
 from src.utils.path_utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
+
+_RECENT_ACTIVITY_CUTOFF = timedelta(days=30)
 
 matching_bp = Blueprint("matching", __name__)
 
@@ -206,7 +210,14 @@ def _serialize_detected_pairing(detected):
             if (match.get("source_family") or match.get("source")) in {"abs", "abs_audiobook"}
         ]
     top_match = supported_matches[0] if supported_matches else None
-    last_seen = detected.last_seen_at
+    source_updated_at = getattr(detected, "source_updated_at", None)
+    if source_updated_at and source_updated_at.tzinfo is None:
+        source_updated_at = source_updated_at.replace(tzinfo=UTC)
+    try:
+        display_timezone = ZoneInfo(os.environ.get("TZ", "UTC"))
+    except ZoneInfoNotFoundError:
+        display_timezone = UTC
+    activity_current = bool(source_updated_at and source_updated_at >= datetime.now(UTC) - _RECENT_ACTIVITY_CUTOFF)
     source = detected.source or "unknown"
     return {
         "id": detected.id,
@@ -218,7 +229,12 @@ def _serialize_detected_pairing(detected):
         "source_label": _source_label(source, detected.source_id),
         "format": _source_format(source),
         "progress": round((detected.progress_percentage or 0) * 100),
-        "last_seen": f"{last_seen.strftime('%b')} {last_seen.day}, {last_seen.year}" if last_seen else None,
+        "activity_at": (
+            source_updated_at.astimezone(display_timezone).strftime("%b %-d, %Y at %-I:%M %p %Z")
+            if source_updated_at
+            else None
+        ),
+        "activity_current": activity_current,
         "device": detected.device,
         "review_url": _pairing_review_url(detected, top_match),
         "review_supported": review_supported,
@@ -626,14 +642,17 @@ def suggestions():
         if not isinstance(active_detected, (list, tuple)):
             active_detected = []
         pairings = [_serialize_detected_pairing(detected) for detected in active_detected]
-        ready = [pairing for pairing in pairings if pairing["top_match"]]
-        needs_companion = [pairing for pairing in pairings if not pairing["top_match"]]
+        recent = [pairing for pairing in pairings if pairing["activity_current"]]
+        older = [pairing for pairing in pairings if not pairing["activity_current"]]
+        ready = [pairing for pairing in recent if pairing["top_match"]]
+        needs_companion = [pairing for pairing in recent if not pairing["top_match"]]
         total_detected = database_service.get_detected_book_count()
         return render_template(
             "suggestions.html",
             library_view=False,
             ready_pairings=ready,
             needs_companion_pairings=needs_companion,
+            older_pairings=older,
             pairing_count=len(pairings),
             has_detected_history=isinstance(total_detected, int) and total_detected > 0,
             progress_sources_configured=_progress_sources_configured(container),

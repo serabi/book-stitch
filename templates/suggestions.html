@@ -9,7 +9,7 @@
                 <li>{{ pairing.source_label }}</li>
                 <li>{{ pairing.format }}</li>
                 <li>{{ pairing.progress }}% read</li>
-                <li>{% if pairing.last_seen %}Last seen {{ pairing.last_seen }}{% else %}Last seen date unknown{% endif %}</li>
+                <li>{% if pairing.activity_at %}Source activity {{ pairing.activity_at }}{% else %}Source activity time unknown{% endif %}</li>
                 {% if pairing.device %}<li>{{ pairing.device }}</li>{% endif %}
             </ul>
         </div>
@@ -118,6 +118,14 @@
                 </div>
                 <div class="pairing-list">{% for pairing in needs_companion_pairings %}{{ pairing_card(pairing) }}{% endfor %}</div>
             </section>
+            {% endif %}
+
+            {% if older_pairings %}
+            <details class="pairing-section pairing-older">
+                <summary>Older or unknown activity ({{ older_pairings|length }})</summary>
+                <p>Source activity is more than 30 days old or has no timestamp.</p>
+                <div class="pairing-list">{% for pairing in older_pairings %}{{ pairing_card(pairing) }}{% endfor %}</div>
+            </details>
             {% endif %}
         {% else %}
         <section class="pairings-empty" aria-labelledby="empty-heading">

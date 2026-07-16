@@ -24,6 +24,7 @@ def _detected(source_id, title, matches):
         cover_url=None,
         progress_percentage=0.42,
         last_seen_at=datetime(2026, 7, 15, tzinfo=UTC),
+        source_updated_at=datetime.now(UTC),
         device="Kobo" if not matches else None,
         matches=matches,
     )
@@ -70,7 +71,7 @@ def test_currently_reading_is_default_and_carries_pairing_identifiers(client, mo
     assert "1 alternative" in page
     assert "Audiobookshelf" in page and "Audiobook" in page
     assert "KoSync" in page and "Ebook" in page
-    assert "42% read" in page and "Last seen Jul 15, 2026" in page
+    assert "42% read" in page and "Source activity" in page
     assert page.count('class="btn btn-secondary pairing-dismiss"') == 2
     assert 'data-source="abs" data-source-id="abs-123"' in page
     assert 'id="suggestion-search"' not in page
@@ -149,6 +150,22 @@ def test_storyteller_only_detection_does_not_offer_unsupported_review_action(cli
     assert "Pairing for this source is not available yet." in page
     assert "choose one manually" not in page
     assert "Review pairing" not in page
+
+
+def test_stale_and_unknown_source_activity_is_collapsed(client, mock_container):
+    stale = _detected("abs-old", "Older Book", [{"source_family": "grimmory", "title": "Older Book"}])
+    stale.source_updated_at = datetime(2020, 1, 1, tzinfo=UTC)
+    unknown = _detected("hash-unknown", "Unknown Activity", [])
+    unknown.source_updated_at = None
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = [stale, unknown]
+    db.get_detected_book_count.return_value = 2
+
+    page = client.get("/suggestions").get_data(as_text=True)
+
+    assert "Older or unknown activity (2)" in page
+    assert "more than 30 days old or has no timestamp" in page
+    assert "Source activity time unknown" in page
 
 
 def test_source_scoped_detected_dismiss_endpoint(client, mock_container):

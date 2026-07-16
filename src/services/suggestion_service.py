@@ -249,7 +249,7 @@ class SuggestionService:
             status["next_allowed_in"] = max(0, min_interval - int(elapsed))
         return status
 
-    def request_rescan_library_suggestions(self, force: bool = False) -> dict:
+    def request_rescan_library_suggestions(self, force: bool = False, catalog: bool = False) -> dict:
         min_interval = int(os.environ.get("SUGGESTIONS_RESCAN_MIN_INTERVAL_SECONDS", "300"))
         with self._rescan_lock:
             if self._rescan_thread and self._rescan_thread.is_alive():
@@ -288,6 +288,7 @@ class SuggestionService:
             )
             self._rescan_thread = threading.Thread(
                 target=self._run_rescan_job,
+                args=(catalog,),
                 daemon=True,
                 name="suggestions-rescan",
             )
@@ -460,7 +461,7 @@ class SuggestionService:
         )
         return ranked[:6]
 
-    def queue_suggestion(self, abs_id: str) -> None:
+    def queue_suggestion(self, abs_id: str, progress_data: dict | None = None) -> None:
         """Queue detected-book discovery for an unmapped ABS item."""
         # Already mapped?
         all_books = self.database_service.get_all_books()
@@ -468,11 +469,18 @@ class SuggestionService:
         if abs_id in mapped_ids:
             return
 
-        if self._detected_book_is_dismissed(abs_id, source="abs"):
+        pct = self._progress_fraction(progress_data)
+        if pct is None and self.abs_client:
+            progress_data = self.abs_client.get_progress(abs_id)
+            pct = self._progress_fraction(progress_data)
+        if not self._in_detection_window(pct):
+            return
+
+        if self._detected_book_is_terminal(abs_id, source="abs"):
             return
 
         logger.info(f"Socket.IO: Queuing detected-book discovery for '{abs_id[:12]}...'")
-        self._create_suggestion(abs_id, None)
+        self._create_suggestion(abs_id, progress_data)
 
     def queue_kosync_suggestion(
         self,
@@ -483,6 +491,8 @@ class SuggestionService:
         source_updated_at=None,
     ) -> None:
         """Create or refresh a detected entry for a KoSync document."""
+        if not self._in_detection_window(progress_percentage):
+            return
         title = ""
         if filename:
             title = Path(filename).stem
@@ -552,8 +562,9 @@ class SuggestionService:
             + (f" with {len(matches)} match(es)" if matches else "")
         )
 
-    def check_for_suggestions(self, abs_progress_map, active_books):
+    def check_for_suggestions(self, abs_progress_map, active_books, errors: set[str] | None = None):
         """Check for unmapped books with progress and create detected entries."""
+        errors = errors if errors is not None else set()
         try:
             # optimization: get all mapped IDs to avoid suggesting existing books (even if inactive)
             all_books = self.database_service.get_all_books()
@@ -575,47 +586,58 @@ class SuggestionService:
 
                 if duration > 0:
                     pct = current_time / duration
-                    if pct > 0.01:
-                        if self._detected_book_is_dismissed(abs_id, source="abs"):
-                            logger.debug(f"Skipping {abs_id}: detected entry dismissed")
+                    if self._in_detection_window(pct):
+                        if self._detected_book_is_terminal(abs_id, source="abs"):
+                            logger.debug(f"Skipping {abs_id}: detected entry is terminal")
                             continue
-
-                        # Skip near-finished books — if a user is mostly done elsewhere,
-                        # surfacing a fresh detection adds little value.
-                        if pct > _DETECTION_WINDOW_MAX:
-                            logger.info(
-                                f"ABS detection: dropping {abs_id} — progress {pct:.1%} "
-                                f"above detection window max ({_DETECTION_WINDOW_MAX:.0%})"
-                            )
-                            continue
-
                         logger.debug(f"Creating detected entry for {abs_id} (progress: {pct:.1%})")
-                        self._create_suggestion(abs_id, item_data)
+                        if self._create_suggestion(abs_id, item_data) is False:
+                            errors.add("Audiobookshelf")
                     else:
-                        logger.debug(f"Skipping {abs_id}: progress {pct:.1%} below 1% threshold")
+                        logger.debug(f"Skipping {abs_id}: progress {pct:.1%} outside detection window")
                 else:
                     logger.debug(f"Skipping {abs_id}: no duration")
         except Exception as e:
             logger.error(f"Error checking detected ABS books: {e}")
+            errors.add("Audiobookshelf")
 
         # Reverse suggestions: ebook sources → ABS audiobooks
+        abs_audiobooks = []
         try:
-            self._check_reverse_suggestions()
+            abs_audiobooks = self._check_reverse_suggestions(errors)
         except Exception as e:
             logger.warning(f"Reverse suggestions check failed: {e}")
+            errors.add("Audiobookshelf")
 
         # Cross-ebook suggestions: Storyteller <-> Grimmory <-> KoSync
         try:
-            self._check_cross_ebook_suggestions()
+            self._check_cross_ebook_suggestions(errors, abs_audiobooks)
         except Exception as e:
             logger.warning(f"Cross-ebook suggestions check failed: {e}")
+            errors.add("ebook sources")
+        return errors
 
-    def _detected_book_is_dismissed(self, source_id: str, source: str = "abs") -> bool:
-        """Return True when a dismissed detected entry should stay hidden."""
+    def _detected_book_is_terminal(self, source_id: str, source: str = "abs") -> bool:
+        """Return True when a dismissed or resolved detection should stay hidden."""
         detected = self.database_service.get_detected_book(source_id, source=source)
-        return bool(detected and detected.status == "dismissed")
+        return bool(detected and detected.status in {"dismissed", "resolved"})
 
-    def _get_storyteller_books_with_progress(self, mapped_uuids: set | None = None) -> list[dict]:
+    @staticmethod
+    def _progress_fraction(progress_data: dict | None) -> float | None:
+        if not isinstance(progress_data, dict):
+            return None
+        value = progress_data.get("progress")
+        if isinstance(value, (int, float)):
+            return float(value)
+        duration = progress_data.get("duration")
+        current_time = progress_data.get("currentTime")
+        if isinstance(duration, (int, float)) and duration > 0 and isinstance(current_time, (int, float)):
+            return current_time / duration
+        return None
+
+    def _get_storyteller_books_with_progress(
+        self, mapped_uuids: set | None = None, errors: set[str] | None = None
+    ) -> list[dict]:
         """Fetch Storyteller books with 1-70% progress, excluding already-mapped UUIDs."""
         if not self.storyteller_client or not self.storyteller_client.is_configured():
             return []
@@ -623,6 +645,8 @@ class SuggestionService:
             positions = self.storyteller_client.get_all_positions_bulk()
         except Exception as e:
             logger.debug(f"Storyteller progress fetch failed: {e}")
+            if errors is not None:
+                errors.add("Storyteller")
             return []
 
         results = []
@@ -658,7 +682,9 @@ class SuggestionService:
         """Return True when progress falls within the detection window (see module constants)."""
         return bool(pct) and _DETECTION_WINDOW_MIN <= pct <= _DETECTION_WINDOW_MAX
 
-    def _get_grimmory_books_with_progress(self, mapped_books: set | None = None) -> list[dict]:
+    def _get_grimmory_books_with_progress(
+        self, mapped_books: set | None = None, errors: set[str] | None = None
+    ) -> list[dict]:
         """Fetch Grimmory books within the detection window, excluding mapped instance/filename pairs."""
         if not self.grimmory_client or not self.grimmory_client.is_configured():
             return []
@@ -666,6 +692,8 @@ class SuggestionService:
             bl_books = self.grimmory_client.get_all_books()
         except Exception as e:
             logger.debug(f"Grimmory book fetch failed: {e}")
+            if errors is not None:
+                errors.add("Grimmory")
             return []
 
         results = []
@@ -678,7 +706,12 @@ class SuggestionService:
                 instance_id, source_id = self._grimmory_identity(bl_book)
                 if mapped_books and (instance_id, filename) in mapped_books:
                     continue
-                pct_raw, _ = self.grimmory_client.get_progress(filename, instance_id=instance_id)
+                try:
+                    pct_raw, _ = self.grimmory_client.get_progress(filename, instance_id=instance_id)
+                except Exception:
+                    if errors is not None:
+                        errors.add("Grimmory")
+                    continue
                 pct = float(pct_raw or 0)
                 if not self._in_detection_window(pct):
                     logger.info(
@@ -703,11 +736,15 @@ class SuggestionService:
                 continue
         return results
 
-    def _get_kosync_books_with_progress(self, mapped_hashes: set | None = None) -> list[dict]:
+    def _get_kosync_books_with_progress(
+        self, mapped_hashes: set | None = None, errors: set[str] | None = None
+    ) -> list[dict]:
         try:
             documents = self.database_service.get_unlinked_kosync_documents()
         except Exception as e:
             logger.debug(f"KoSync progress fetch failed: {e}")
+            if errors is not None:
+                errors.add("KoSync")
             return []
 
         results = []
@@ -733,7 +770,7 @@ class SuggestionService:
                 continue
         return results
 
-    def _build_ebook_source_candidates(self) -> dict[str, list[dict]]:
+    def _build_ebook_source_candidates(self, errors: set[str] | None = None) -> dict[str, list[dict]]:
         """Build per-source candidate lists from Storyteller, Grimmory, and KoSync."""
         candidates: dict[str, list[dict]] = {"storyteller": [], "grimmory": [], "kosync": []}
 
@@ -761,6 +798,8 @@ class SuggestionService:
                         continue
             except Exception as e:
                 logger.debug(f"Ebook candidates: Storyteller fetch failed: {e}")
+                if errors is not None:
+                    errors.add("Storyteller")
 
         if self.grimmory_client and self.grimmory_client.is_configured():
             try:
@@ -786,6 +825,8 @@ class SuggestionService:
                         continue
             except Exception as e:
                 logger.debug(f"Ebook candidates: Grimmory fetch failed: {e}")
+                if errors is not None:
+                    errors.add("Grimmory")
 
         try:
             unlinked_docs = self.database_service.get_unlinked_kosync_documents()
@@ -808,6 +849,8 @@ class SuggestionService:
                     continue
         except Exception as e:
             logger.debug(f"Ebook candidates: KoSync fetch failed: {e}")
+            if errors is not None:
+                errors.add("KoSync")
 
         return candidates
 
@@ -834,7 +877,9 @@ class SuggestionService:
             mapped.add((instance_id, filename))
         return mapped
 
-    def _check_cross_ebook_suggestions(self):
+    def _check_cross_ebook_suggestions(
+        self, errors: set[str] | None = None, abs_audiobooks: list[dict] | None = None
+    ):
         """Check for cross-ebook pairings (Storyteller<->Grimmory, Storyteller<->KoSync, KoSync<->Grimmory)."""
         all_books = self.database_service.get_all_books()
         mapped_st_uuids = {b.storyteller_uuid for b in all_books if b.storyteller_uuid}
@@ -847,10 +892,13 @@ class SuggestionService:
             if s.title:
                 existing_titles.add(self._normalize_title(s.title))
 
-        ebook_candidates = self._build_ebook_source_candidates()
+        ebook_candidates = self._build_ebook_source_candidates(errors)
+        abs_candidates = self._build_abs_candidates(
+            abs_audiobooks or [], mapped_abs_ids={getattr(b, "abs_id", None) for b in all_books}
+        )
 
         # Storyteller books with progress -> match against Grimmory + KoSync
-        for st_book in self._get_storyteller_books_with_progress(mapped_st_uuids):
+        for st_book in self._get_storyteller_books_with_progress(mapped_st_uuids, errors):
             uuid = st_book["uuid"]
             norm_title = self._normalize_title(st_book["title"])
             other_candidates = ebook_candidates.get("grimmory", []) + ebook_candidates.get("kosync", [])
@@ -878,12 +926,15 @@ class SuggestionService:
                 existing_titles.add(norm_title)
 
         # Grimmory books with progress -> match against Storyteller + KoSync
-        for bl_book in self._get_grimmory_books_with_progress(mapped_grimmory_books):
+        for bl_book in self._get_grimmory_books_with_progress(mapped_grimmory_books, errors):
             filename = bl_book["filename"]
             source_id = bl_book["source_id"]
             norm_title = self._normalize_title(bl_book["title"])
-            other_candidates = ebook_candidates.get("storyteller", []) + ebook_candidates.get("kosync", [])
+            other_candidates = (
+                ebook_candidates.get("storyteller", []) + ebook_candidates.get("kosync", []) + abs_candidates
+            )
             matches = self._rank_candidates_for_book(bl_book["title"], bl_book["author"], other_candidates)
+            matches = self._merge_detected_matches("grimmory", source_id, matches)
             cover = self._cover_url_for("grimmory", filename, bl_book)
 
             # Legacy suggestion only when there's a cross-source match to act on.
@@ -912,12 +963,13 @@ class SuggestionService:
             existing_titles.add(norm_title)
 
         # KoSync books with progress -> match against Storyteller + Grimmory.
-        for doc in self._get_kosync_books_with_progress(mapped_kosync_hashes):
+        for doc in self._get_kosync_books_with_progress(mapped_kosync_hashes, errors):
             matches = self._rank_candidates_for_book(
                 doc["title"],
                 doc["author"],
-                ebook_candidates.get("storyteller", []) + ebook_candidates.get("grimmory", []),
+                ebook_candidates.get("storyteller", []) + ebook_candidates.get("grimmory", []) + abs_candidates,
             )
+            matches = self._merge_detected_matches("kosync", doc["source_id"], matches)
             self._upsert_detected_book(
                 source="kosync",
                 source_id=doc["source_id"],
@@ -930,19 +982,21 @@ class SuggestionService:
                 source_updated_at=doc.get("source_updated_at"),
             )
 
-    def _check_reverse_suggestions(self):
+    def _check_reverse_suggestions(self, errors: set[str] | None = None) -> list[dict]:
         """Check Storyteller and Grimmory for books with progress that could match ABS audiobooks."""
         if not self.abs_client:
-            return
+            return []
 
         try:
             all_audiobooks = self.abs_client.get_all_audiobooks()
         except Exception as e:
             logger.debug(f"Reverse suggestions: failed to fetch ABS audiobooks: {e}")
-            return
+            if errors is not None:
+                errors.add("Audiobookshelf")
+            return []
 
         if not all_audiobooks:
-            return
+            return []
 
         all_books = self.database_service.get_all_books()
         mapped_abs_ids = {b.abs_id for b in all_books}
@@ -958,13 +1012,13 @@ class SuggestionService:
                 if clean:
                     abs_by_title.setdefault(clean, []).append(ab)
 
-        for st_book in self._get_storyteller_books_with_progress(mapped_storyteller_uuids):
+        for st_book in self._get_storyteller_books_with_progress(mapped_storyteller_uuids, errors):
             clean_title = self._normalize_title(st_book["title"])
             matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
             if matches:
                 self._save_reverse_suggestion(matches, clean_title, f"storyteller:{st_book['uuid']}")
 
-        for bl_book in self._get_grimmory_books_with_progress(mapped_grimmory_books):
+        for bl_book in self._get_grimmory_books_with_progress(mapped_grimmory_books, errors):
             clean_title = self._normalize_title(bl_book["title"])
             matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
             if matches:
@@ -973,6 +1027,32 @@ class SuggestionService:
                     bl_book["title"],
                     f"grimmory:{bl_book['instance_id']}:{bl_book['filename']}",
                 )
+        return all_audiobooks
+
+    def _build_abs_candidates(self, audiobooks: list[dict], mapped_abs_ids: set) -> list[dict]:
+        candidates = []
+        for audiobook in audiobooks:
+            abs_id = audiobook.get("id")
+            if not abs_id or abs_id in mapped_abs_ids:
+                continue
+            metadata = audiobook.get("media", {}).get("metadata", {})
+            candidates.append(
+                {
+                    "source_family": "abs_audiobook",
+                    "source": "abs_audiobook",
+                    "source_key": f"abs:{abs_id}",
+                    "abs_id": abs_id,
+                    "title": metadata.get("title") or "",
+                    "author": metadata.get("authorName") or "",
+                    "action_kind": "create_mapping",
+                }
+            )
+        return candidates
+
+    def _merge_detected_matches(self, source: str, source_id: str, matches: list[dict]) -> list[dict]:
+        existing = self.database_service.get_detected_book(source_id, source=source)
+        existing_matches = existing.matches if existing and isinstance(existing.matches, list) else []
+        return self._dedupe_matches(existing_matches + matches)
 
     def _find_abs_audiobook_matches(self, clean_title: str, abs_by_title: dict, mapped_abs_ids: set) -> list[dict]:
         """Find ABS audiobooks matching a title, excluding already-mapped ones."""
@@ -1072,7 +1152,7 @@ class SuggestionService:
             "abs", abs_id, best.get("title", title), best.get("author"), cover, matches_with_provenance
         )
 
-    def _run_rescan_job(self) -> None:
+    def _run_rescan_job(self, catalog: bool = False) -> None:
         try:
             self._update_rescan_status(
                 running=True,
@@ -1082,19 +1162,37 @@ class SuggestionService:
                 rate_limited=False,
             )
             abs_progress = {}
+            errors: set[str] = set()
             if self.abs_client and self.abs_client.is_configured():
                 try:
                     abs_progress = self.abs_client.get_all_progress_raw() or {}
                 except Exception as e:
                     logger.warning(f"Manual discovery failed to load ABS progress: {e}")
-            self.check_for_suggestions(abs_progress, [])
-            stats = self.rescan_library_suggestions()
+                    errors.add("Audiobookshelf")
+            self.check_for_suggestions(abs_progress, [], errors=errors)
+            if catalog:
+                stats = self.rescan_library_suggestions()
+                count_label = "catalog suggestion"
+            else:
+                total = self.database_service.get_active_detected_book_count()
+                stats = {
+                    "created": 0,
+                    "updated": 0,
+                    "deleted": 0,
+                    "total": total,
+                    "detected": total,
+                    "bookfusion_catalog": False,
+                }
+                count_label = "Currently Reading book"
+            phase = "partial" if errors else "complete"
+            suffix = f" Some sources failed: {', '.join(sorted(errors))}." if errors else ""
             self._update_rescan_status(
                 running=False,
                 queued=False,
-                phase="complete",
-                message=f"Rescan complete. {stats['total']} suggestion(s) available.",
+                phase=phase,
+                message=f"Rescan {phase}. {stats['total']} {count_label}(s) available.{suffix}",
                 last_finished_at=time.time(),
+                failed_sources=sorted(errors),
                 **stats,
             )
         except Exception as e:
@@ -1267,7 +1365,7 @@ class SuggestionService:
         """Create or update a detected ABS book for an unmapped item."""
         with self._suggestion_lock:
             if abs_id in self._suggestion_in_flight:
-                return
+                return None
             self._suggestion_in_flight.add(abs_id)
 
         try:
@@ -1275,7 +1373,7 @@ class SuggestionService:
             item = self.abs_client.get_item_details(abs_id)
             if not item:
                 logger.debug(f"Detected book lookup failed: Could not get details for {abs_id}")
-                return
+                return False
 
             media = item.get("media", {})
             metadata = media.get("metadata", {})
@@ -1317,10 +1415,12 @@ class SuggestionService:
                 if matches
                 else f"Created detected entry for '{title}' with no matches yet"
             )
+            return True
 
         except Exception as e:
             logger.error(f"Failed to create detected entry for '{abs_id}': {e}")
             logger.debug(traceback.format_exc())
+            return False
         finally:
             with self._suggestion_lock:
                 self._suggestion_in_flight.discard(abs_id)

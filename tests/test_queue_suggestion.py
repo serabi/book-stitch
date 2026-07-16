@@ -22,6 +22,10 @@ class TestQueueSuggestion(unittest.TestCase):
         self.mock_db.get_all_books.return_value = []
 
         self.mock_abs = Mock()
+        self.mock_abs.get_progress.return_value = {
+            "progress": 0.42,
+            "lastUpdate": 1_700_000_000_000,
+        }
 
         self.manager = SyncManager(
             database_service=self.mock_db, abs_client=self.mock_abs, sync_clients={}, data_dir=Path("/tmp")

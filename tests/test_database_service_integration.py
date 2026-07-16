@@ -369,6 +369,22 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         row = self.db_service.get_detected_book("status-apply", source="abs")
         self.assertEqual(row.status, "resolved")
 
+    def test_late_discovery_save_does_not_reopen_resolved_book(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="resolved-keep", title="Done", progress_percentage=0.3)
+        )
+        self.assertTrue(self.db_service.resolve_detected_book("resolved-keep", source="abs"))
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="resolved-keep", title="Done", progress_percentage=0.5)
+        )
+
+        row = self.db_service.get_detected_book("resolved-keep", source="abs")
+        self.assertEqual(row.status, "resolved")
+        self.assertAlmostEqual(row.progress_percentage, 0.5)
+
     def test_save_detected_book_preserves_truthy_only_fields(self):
         """Falsy incoming title/author/cover_url/device/ebook_filename do not overwrite existing values."""
         from src.db.models import DetectedBook
@@ -541,6 +557,53 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         row = self.db_service.get_detected_book("offset-progress", source="kosync")
         self.assertAlmostEqual(row.progress_percentage, 0.2)
         self.assertEqual(row.source_updated_at, datetime(2026, 7, 15, 12, 30))
+
+    def test_save_detected_book_equal_timestamp_keeps_highest_progress(self):
+        from src.db.models import DetectedBook
+
+        timestamp = datetime(2026, 7, 15, 12, tzinfo=UTC)
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="equal-time",
+                title="Equal",
+                progress_percentage=0.7,
+                source_updated_at=timestamp,
+            )
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="equal-time",
+                title="Equal",
+                progress_percentage=0.4,
+                source_updated_at=timestamp,
+            )
+        )
+
+        row = self.db_service.get_detected_book("equal-time", source="abs")
+        self.assertAlmostEqual(row.progress_percentage, 0.7)
+
+    def test_active_detected_books_are_ordered_by_source_activity(self):
+        from src.db.models import DetectedBook
+
+        for source_id, source_time in (
+            ("older-source", datetime(2026, 7, 14, 12, tzinfo=UTC)),
+            ("newer-source", datetime(2026, 7, 15, 12, tzinfo=UTC)),
+        ):
+            self.db_service.save_detected_book(
+                DetectedBook(
+                    source="abs",
+                    source_id=source_id,
+                    title=source_id,
+                    progress_percentage=0.4,
+                    source_updated_at=source_time,
+                )
+            )
+
+        rows = self.db_service.get_active_detected_books()
+
+        self.assertEqual([row.source_id for row in rows], ["newer-source", "older-source"])
 
     def test_save_detected_book_missing_source_timestamp_preserves_progress(self):
         from datetime import UTC, datetime

@@ -233,9 +233,9 @@ class SyncManager:
 
     # ── Suggestion delegation (implementation in SuggestionService) ──
 
-    def queue_suggestion(self, abs_id: str) -> None:
+    def queue_suggestion(self, abs_id: str, progress_data: dict | None = None) -> None:
         """Queue suggestion discovery for an unmapped book (called from socket listener)."""
-        self.suggestion_service.queue_suggestion(abs_id)
+        self.suggestion_service.queue_suggestion(abs_id, progress_data)
 
     def check_for_suggestions(self, abs_progress_map, active_books):
         """Check for unmapped books with progress and create suggestions."""

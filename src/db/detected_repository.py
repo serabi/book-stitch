@@ -27,7 +27,7 @@ class DetectedRepository(BaseRepository):
             query = (
                 session.query(DetectedBook)
                 .filter(DetectedBook.status.in_(self.ACTIVE_STATUSES))
-                .order_by(DetectedBook.last_seen_at.desc())
+                .order_by(DetectedBook.source_updated_at.desc(), DetectedBook.last_seen_at.desc())
             )
             if limit is not None:
                 query = query.limit(limit)
@@ -58,7 +58,7 @@ class DetectedRepository(BaseRepository):
     )
 
     def save_detected_book(self, detected_book):
-        """Upsert a detected book while preserving dismissed status.
+        """Upsert a detected book while preserving terminal status.
 
         Normalization runs against the existing row inside the upsert transaction
         so a concurrent insert of the same (source_id, source) cannot bypass the
@@ -90,8 +90,8 @@ class DetectedRepository(BaseRepository):
             detected_book.processing_token = None
             detected_book.processing_started_at = None
 
-        if existing.status == "dismissed" and detected_book.status == "detected":
-            detected_book.status = "dismissed"
+        if existing.status in {"dismissed", "resolved"} and detected_book.status == "detected":
+            detected_book.status = existing.status
 
         for attr in ("title", "author", "cover_url", "device", "ebook_filename"):
             if not getattr(detected_book, attr):
@@ -117,6 +117,11 @@ class DetectedRepository(BaseRepository):
             if incoming < current:
                 detected_book.progress_percentage = existing.progress_percentage
                 detected_book.source_updated_at = existing.source_updated_at
+            elif incoming == current:
+                detected_book.progress_percentage = max(
+                    detected_book.progress_percentage or 0,
+                    existing.progress_percentage or 0,
+                )
 
         detected_book.last_seen_at = detected_book.last_seen_at or now
         if existing.first_detected_at is None:
