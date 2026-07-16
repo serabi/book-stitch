@@ -43,6 +43,27 @@ URL_SETTING_KEYS = {
     "KOSYNC_PUBLIC_URL",
 }
 
+BOOL_SETTING_KEYS = [
+    "ABS_ENABLED",
+    "KOSYNC_USE_PERCENTAGE_FROM_SERVER",
+    "SYNC_ABS_EBOOK",
+    "XPATH_FALLBACK_TO_PREVIOUS_SEGMENT",
+    "KOSYNC_ENABLED",
+    "STORYTELLER_ENABLED",
+    "STORYTELLER_FORCE_MODE",
+    "GRIMMORY_ENABLED",
+    "GRIMMORY_2_ENABLED",
+    "CWA_ENABLED",
+    "HARDCOVER_ENABLED",
+    "TELEGRAM_ENABLED",
+    "SUGGESTIONS_ENABLED",
+    "REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT",
+    "INSTANT_SYNC_ENABLED",
+    "ABS_SOCKET_ENABLED",
+    "BOOKFUSION_ENABLED",
+]
+
+
 def _is_secret_request_authorized() -> bool:
     """Authorize secret reveal requests via admin session or service token."""
     if bool(session.get("is_admin")):
@@ -142,6 +163,35 @@ def _reload_integration_clients():
     _reload_client_config(lambda: current_app.config["kosync_service"], "KoSync service")
 
 
+def _render_settings(*, message=None, is_error=False, form_values=None, timezone_error=None, status=200):
+    latest_version, update_available = get_update_status()
+    template_values = {}
+    if form_values is not None:
+        from src.app_template_context import _get_bool, _get_val
+
+        def submitted_get_val(key, default_val=None):
+            return form_values.get(key, "") if key in form_values else _get_val(key, default_val)
+
+        def submitted_get_bool(key):
+            return key in form_values if key in BOOL_SETTING_KEYS else _get_bool(key)
+
+        template_values = {"get_val": submitted_get_val, "get_bool": submitted_get_bool}
+
+    return (
+        render_template(
+            "settings.html",
+            message=message,
+            is_error=is_error,
+            timezone_error=timezone_error,
+            app_version=APP_VERSION,
+            update_available=update_available,
+            latest_version=latest_version,
+            **template_values,
+        ),
+        status,
+    )
+
+
 @settings_bp.route("/settings", methods=["GET", "POST"])
 def settings():
     """
@@ -164,34 +214,19 @@ def settings():
     if request.method == "POST":
         timezone = request.form.get("TZ")
         if timezone is not None and validate_timezone(timezone) is None:
-            session["message"] = "Invalid timezone. Use an IANA name such as America/New_York."
-            session["is_error"] = True
-            return redirect(url_for("settings_page.settings", tab="general", focus="timezone"))
-
-        bool_keys = [
-            "ABS_ENABLED",
-            "KOSYNC_USE_PERCENTAGE_FROM_SERVER",
-            "SYNC_ABS_EBOOK",
-            "XPATH_FALLBACK_TO_PREVIOUS_SEGMENT",
-            "KOSYNC_ENABLED",
-            "STORYTELLER_ENABLED",
-            "STORYTELLER_FORCE_MODE",
-            "GRIMMORY_ENABLED",
-            "GRIMMORY_2_ENABLED",
-            "CWA_ENABLED",
-            "HARDCOVER_ENABLED",
-            "TELEGRAM_ENABLED",
-            "SUGGESTIONS_ENABLED",
-            "REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT",
-            "INSTANT_SYNC_ENABLED",
-            "ABS_SOCKET_ENABLED",
-            "BOOKFUSION_ENABLED",
-        ]
+            error = "Invalid timezone. Use an IANA name such as America/New_York."
+            return _render_settings(
+                message=error,
+                is_error=True,
+                form_values=request.form,
+                timezone_error=error,
+                status=400,
+            )
 
         current_settings = database_service.get_all_settings()
 
         # 1. Handle Boolean Toggles
-        for key in bool_keys:
+        for key in BOOL_SETTING_KEYS:
             is_checked = key in request.form
             val_str = str(is_checked).lower()
             database_service.set_setting(key, val_str)
@@ -201,7 +236,7 @@ def settings():
         for key, value in request.form.items():
             if key == "_active_tab":
                 continue
-            if key in bool_keys:
+            if key in BOOL_SETTING_KEYS:
                 continue
 
             clean_value = _normalize_url_value(value) if key in URL_SETTING_KEYS else value.strip()
@@ -237,16 +272,7 @@ def settings():
     message = session.pop("message", None)
     is_error = session.pop("is_error", False)
 
-    latest_version, update_available = get_update_status()
-
-    return render_template(
-        "settings.html",
-        message=message,
-        is_error=is_error,
-        app_version=APP_VERSION,
-        update_available=update_available,
-        latest_version=latest_version,
-    )
+    return _render_settings(message=message, is_error=is_error)
 
 
 @settings_bp.route("/api/settings/secret/<key>", methods=["GET"])

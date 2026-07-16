@@ -96,6 +96,33 @@ def test_index_renders_with_no_books(client, mock_container):
     assert response.status_code == 200
 
 
+def test_index_shows_currently_reading_preview_with_no_mapped_books(client, mock_container):
+    """Unresolved detected books remain visible before the first mapping exists."""
+    _setup_dashboard_db_defaults(mock_container.mock_database_service)
+    mock_container.mock_database_service.get_active_detected_books.return_value = [
+        SimpleNamespace(
+            id=1,
+            source="kosync",
+            source_id="hash-1",
+            title="Unmapped Reader",
+            author="Reader",
+            cover_url=None,
+            progress_percentage=0.3,
+            first_detected_at=None,
+            last_seen_at=None,
+            matches=[],
+            device="Kobo",
+            ebook_filename=None,
+        )
+    ]
+
+    page = client.get("/").get_data(as_text=True)
+
+    assert "Currently Reading books need pairing review" in page
+    assert "Unmapped Reader" in page
+    assert "No books syncing yet" in page
+
+
 def test_index_uses_metadata_overrides_over_source_enrichment(flask_app, mock_container):
     """Dashboard cards should prefer PageKeeper metadata overrides."""
     book = Book(

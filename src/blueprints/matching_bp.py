@@ -8,6 +8,7 @@ from flask import Blueprint, Response, current_app, flash, redirect, render_temp
 from markupsafe import Markup
 
 from src.blueprints.helpers import (
+    _grimmory_label,
     any_grimmory_configured,
     attempt_hardcover_automatch,
     audiobook_matches_search,
@@ -144,7 +145,12 @@ _SOURCE_LABELS = {
 }
 
 
-def _source_label(source):
+def _source_label(source, source_id=None):
+    if source == "grimmory":
+        identity = str(source_id or "")
+        parts = identity.split(":")
+        instance_id = parts[1] if identity.startswith("grimmory:") and len(parts) > 2 else parts[0]
+        return _grimmory_label(instance_id) or _SOURCE_LABELS["grimmory"]
     return _SOURCE_LABELS.get(source, (source or "Unknown source").replace("_", " ").title())
 
 
@@ -209,7 +215,7 @@ def _serialize_detected_pairing(detected):
         "title": detected.title or "Untitled book",
         "author": detected.author or "Unknown author",
         "cover_url": detected.cover_url,
-        "source_label": _source_label(source),
+        "source_label": _source_label(source, detected.source_id),
         "format": _source_format(source),
         "progress": round((detected.progress_percentage or 0) * 100),
         "last_seen": f"{last_seen.strftime('%b')} {last_seen.day}, {last_seen.year}" if last_seen else None,
@@ -226,7 +232,7 @@ def _serialize_detected_match(match):
     return {
         "title": match.get("title") or match.get("filename") or "Untitled candidate",
         "author": match.get("author") or "Unknown author",
-        "source_label": _source_label(source),
+        "source_label": _source_label(source, _candidate_source_id(match)),
         "format": _source_format(source),
         "confidence": "Strong" if match.get("confidence") == "high" else "Possible",
     }

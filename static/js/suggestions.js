@@ -26,6 +26,26 @@
         var timer = null;
         var scanObserved = false;
 
+        function updatePairingBadges() {
+            document.querySelectorAll('.nav-badge').forEach(function (badge) {
+                var count = Math.max(0, Number(badge.textContent) - 1);
+                if (count) badge.textContent = count;
+                else badge.remove();
+            });
+        }
+
+        function showCaughtUpState() {
+            var inbox = document.querySelector('.pairings-inbox');
+            var empty = document.createElement('section');
+            empty.className = 'pairings-empty';
+            empty.setAttribute('aria-labelledby', 'empty-heading');
+            empty.innerHTML = '<h2 id="empty-heading" tabindex="-1">All caught up</h2>' +
+                '<p>Every detected Currently Reading book has been resolved or dismissed.</p>';
+            inbox.appendChild(empty);
+            var heading = empty.querySelector('h2');
+            heading.focus();
+        }
+
         function poll() {
             fetch('/api/suggestions/rescan-status')
                 .then(function (response) { return response.json(); })
@@ -82,6 +102,9 @@
                 var source = card.dataset.source;
                 var sourceId = card.dataset.sourceId;
                 var title = card.querySelector('h3').textContent;
+                var cards = Array.prototype.slice.call(document.querySelectorAll('.pairing-card'));
+                var cardIndex = cards.indexOf(card);
+                var recoveryCard = cards[cardIndex + 1] || cards[cardIndex - 1];
                 dismissButton.disabled = true;
                 status.textContent = 'Dismissing ' + title + '...';
                 fetch('/api/detected/' + encodeURIComponent(source) + '/' + encodeURIComponent(sourceId) + '/dismiss', {
@@ -102,7 +125,14 @@
                         } else {
                             section.remove();
                         }
+                        updatePairingBadges();
                         status.textContent = 'Dismissed ' + title + '.';
+                        if (recoveryCard) {
+                            var recoveryAction = recoveryCard.querySelector('a, button');
+                            if (recoveryAction) recoveryAction.focus();
+                        } else {
+                            showCaughtUpState();
+                        }
                     })
                     .catch(function (error) {
                         dismissButton.disabled = false;

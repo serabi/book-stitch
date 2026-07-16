@@ -3,6 +3,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -85,6 +86,24 @@ def test_currently_reading_is_default_and_carries_pairing_identifiers(client, mo
     assert query["abs_id"] == ["abs-123"]
 
 
+def test_configured_grimmory_instance_label_is_shown(client, mock_container):
+    audiobook = _detected(
+        "abs-123",
+        "Ready Book",
+        [{"source_family": "grimmory", "source_key": "grimmory:2:ready.epub", "title": "Ready ebook"}],
+    )
+    ebook = _detected("2:another.epub", "Another Book", [])
+    ebook.source = "grimmory"
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = [audiobook, ebook]
+    db.get_detected_book_count.return_value = 2
+
+    with patch.dict("os.environ", {"GRIMMORY_2_LABEL": "Family Library"}):
+        page = client.get("/suggestions").get_data(as_text=True)
+
+    assert page.count("Family Library") == 2
+
+
 def test_legacy_catalog_only_renders_in_explicit_library_view(client, mock_container):
     db = mock_container.mock_database_service
     db.get_all_actionable_suggestions.return_value = []
@@ -149,3 +168,14 @@ def test_mobile_focus_clearance_is_scoped_to_pairings():
     assert "scroll-padding-bottom: 84px" in css
     assert ".pairings-inbox button" in css
     assert "scroll-margin-block: 12px 84px" in css
+
+
+def test_advanced_library_controls_have_programmatic_labels(client, mock_container):
+    mock_container.mock_database_service.get_all_actionable_suggestions.return_value = []
+    mock_container.mock_bookfusion_client.is_configured.return_value = True
+
+    page = client.get("/suggestions?view=library").get_data(as_text=True)
+
+    assert 'for="suggestion-search"' in page
+    assert 'for="confidence-filter"' in page
+    assert 'for="bookfusion-filter"' in page

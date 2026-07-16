@@ -21,7 +21,7 @@
 
     <div class="container settings-page">
         {% if message %}
-        <div class="flash-bar {% if is_error %}flash-error{% else %}flash-success{% endif %}">
+        <div class="flash-bar {% if is_error %}flash-error{% else %}flash-success{% endif %}"{% if is_error %} role="alert"{% endif %}>
             {{ message }}
         </div>
         {% endif %}
@@ -147,8 +147,11 @@
                     <div class="field-grid">
                         <div class="form-group">
                             <label for="timezone">Timezone</label>
-                            <input type="text" id="timezone" name="TZ" value="{{ get_val('TZ') }}">
-                            <div class="help-text">IANA timezone, for example <code>America/New_York</code>.</div>
+                            <input type="text" id="timezone" name="TZ" value="{{ get_val('TZ') }}"
+                                aria-describedby="timezone-help{% if timezone_error %} timezone-error{% endif %}"
+                                {% if timezone_error %}aria-invalid="true" autofocus{% endif %}>
+                            <div class="help-text" id="timezone-help">IANA timezone, for example <code>America/New_York</code>.</div>
+                            {% if timezone_error %}<div class="help-text field-error" id="timezone-error">{{ timezone_error }}</div>{% endif %}
                         </div>
                         <div class="form-group">
                             <label>Log Level</label>

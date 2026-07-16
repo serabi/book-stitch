@@ -42,5 +42,5 @@ def test_pairings_badge_counts_only_unresolved_detected_books(flask_app, mock_co
 
     html = render_navigation(flask_app, "/suggestions")
 
-    assert '<span class="nav-badge">3</span>' in html
+    assert html.count('<span class="nav-badge">3</span>') == 2
     mock_container.mock_database_service.get_pending_suggestion_count.assert_not_called()

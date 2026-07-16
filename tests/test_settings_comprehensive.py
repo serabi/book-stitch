@@ -181,15 +181,22 @@ class TestSettingsComprehensive(unittest.TestCase):
         for timezone in ("", "Not/A_Timezone"):
             with self.subTest(timezone=timezone):
                 self.mock_container.mock_database_service.reset_mock()
-                response = self.client.post("/settings", data={"TZ": timezone, "_active_tab": "abs"})
+                response = self.client.post(
+                    "/settings",
+                    data={"TZ": timezone, "LOG_LEVEL": "ERROR", "ABS_SERVER": "example.test", "ABS_ENABLED": "on"},
+                )
 
-                self.assertEqual(response.status_code, 302)
-                self.assertIn("tab=general", response.location)
-                self.assertIn("focus=timezone", response.location)
+                self.assertEqual(response.status_code, 400)
                 self.mock_container.mock_database_service.set_setting.assert_not_called()
-                with self.client.session_transaction() as flask_session:
-                    self.assertTrue(flask_session["is_error"])
-                    self.assertIn("Invalid timezone", flask_session["message"])
+                page = response.get_data(as_text=True)
+                self.assertIn('value="example.test"', page)
+                self.assertIn('<option value="ERROR" selected>', page)
+                self.assertIn('name="ABS_ENABLED"', page)
+                self.assertIn("checked", page)
+                self.assertIn('role="alert"', page)
+                self.assertIn('aria-invalid="true"', page)
+                self.assertIn('aria-describedby="timezone-help timezone-error"', page)
+                self.assertIn("autofocus", page)
 
     def test_invalid_environment_timezone_is_not_bootstrapped_or_applied(self):
         from src.utils.config_loader import DEFAULT_CONFIG, ConfigLoader

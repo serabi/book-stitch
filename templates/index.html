@@ -35,6 +35,17 @@
         </div>
         {% endif %}
         {% endwith %}
+
+        {% if detected_books %}
+        <aside class="currently-reading-preview" aria-label="Unresolved Currently Reading pairings">
+            <div>
+                <strong>Currently Reading books need pairing review</strong>
+                <p>{% for d in detected_books %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+            </div>
+            <a href="/suggestions" class="btn btn-secondary">Open Pairings</a>
+        </aside>
+        {% endif %}
+
         {% if mappings %}
         <div class="controls-bar">
             <div class="control-group">
@@ -105,16 +116,6 @@
         <div class="section-header">
             <h2>Currently Reading</h2>
         </div>
-
-        {% if detected_books %}
-        <aside class="currently-reading-preview" aria-label="Unresolved Currently Reading pairings">
-            <div>
-                <strong>Currently Reading books need pairing review</strong>
-                <p>{% for d in detected_books %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
-            </div>
-            <a href="/suggestions" class="btn btn-secondary">Open Pairings</a>
-        </aside>
-        {% endif %}
 
         <div class="book-grid" id="currently-reading-grid">
             {% for mapping in mappings %}

@@ -373,3 +373,6 @@ def test_match_accessibility_and_mobile_guards_are_scoped_to_touched_flow():
     assert ".batch-select-card:focus-within" in css
     assert ".match-action-footer {\n    position: static;" in css
     assert "actionBtn.disabled = true" in javascript
+    assert "radio.addEventListener('change'" in javascript
+    assert "Pairing selected editions…" in javascript
+    assert 'onclick="selectItem' not in template

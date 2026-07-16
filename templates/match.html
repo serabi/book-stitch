@@ -115,7 +115,6 @@
                         {% for ab in audiobooks %}
                         {% set is_preselected = (preselect_abs_id and ab.id == preselect_abs_id) %}
                         <label class="audiobook-option batch-select-card ab-option {% if single_match or is_preselected %}selected{% endif %}"
-                            onclick="selectItem(this, 'audiobook_id')"
                             data-title="{{ get_title(ab) }}"
                             data-cover="{{ ab.cover_url or '' }}">
                             <input type="radio" name="audiobook_id" value="{{ ab.id }}" {% if single_match or is_preselected %}checked{% endif %}
@@ -164,8 +163,7 @@
                             </p>
                             <div class="resource-grid">
                                 <label
-                                    class="audiobook-option resource-card st-option ghost-card batch-select-card {% if not single_st_match %}selected{% endif %}"
-                                    onclick="selectItem(this, 'storyteller_uuid')">
+                                    class="audiobook-option resource-card st-option ghost-card batch-select-card {% if not single_st_match %}selected{% endif %}">
                                     <input type="radio" name="storyteller_uuid" value="" {% if not single_st_match %}checked{% endif %}>
                                     <div class="resource-icon"></div>
                                     <div class="resource-title">{% if storyteller_submit_available %}Not listed{% else %}Skip Storyteller{% endif %}</div>
@@ -178,8 +176,7 @@
 
                                 {% for st in storyteller_books %}
                                 <label
-                                    class="audiobook-option resource-card st-option batch-select-card {% if single_st_match %}selected{% endif %}"
-                                    onclick="selectItem(this, 'storyteller_uuid')">
+                                    class="audiobook-option resource-card st-option batch-select-card {% if single_st_match %}selected{% endif %}">
                                     <input type="radio" name="storyteller_uuid" value="{{ st.uuid }}" {% if single_st_match %}checked{% endif %}>
                                     <div class="resource-icon"></div>
                                     <div class="resource-title" title="{{ st.title }}{% if st.subtitle %}: {{ st.subtitle }}{% endif %}">
@@ -231,8 +228,7 @@
                         <label
                             class="audiobook-option resource-card eb-option batch-select-card {% if single_eb_match or eb.is_selected %}selected{% endif %}"
                             data-source-type="{{ eb.source }}" data-source-path="{{ eb.path }}"
-                            data-source-id="{{ eb.source_id }}" data-grimmory-id="{{ eb.grimmory_id or '' }}"
-                            onclick="selectItem(this, 'ebook_filename')">
+                            data-source-id="{{ eb.source_id }}" data-grimmory-id="{{ eb.grimmory_id or '' }}">
                             <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match or eb.is_selected %}checked{% endif %}
                                 {% if pairing_review and pairing_review.detected.source in ['grimmory', 'kosync'] %}disabled{% endif %}>
                             {% if eb.cover_url %}

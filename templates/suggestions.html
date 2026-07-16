@@ -153,13 +153,16 @@
 
         <div class="sg-toolbar" id="suggestions-toolbar">
             <div class="sg-toolbar-main">
+                <label class="visually-hidden" for="suggestion-search">Search pairing suggestions</label>
                 <input type="text" id="suggestion-search" class="search-box" placeholder="Filter by title, author, or candidate..." value="{{ initial_search }}">
+                <label class="visually-hidden" for="confidence-filter">Filter by match confidence</label>
                 <select id="confidence-filter">
                     <option value="all">All confidence</option>
                     <option value="high">High confidence</option>
                     <option value="medium">High + medium</option>
                 </select>
                 {% if bookfusion_enabled %}
+                <label class="visually-hidden" for="bookfusion-filter">Filter by evidence source</label>
                 <select id="bookfusion-filter">
                     <option value="all">All evidence</option>
                     <option value="bookfusion">Has BookFusion evidence</option>

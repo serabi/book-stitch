@@ -12,6 +12,11 @@ const button = {
 };
 const status = { textContent: '' };
 let cardRemoved = false;
+let caughtUpAppended = false;
+let caughtUpFocused = false;
+let badgeRemoved = false;
+const badge = { textContent: '1', remove: function () { badgeRemoved = true; } };
+const inbox = { appendChild: function () { caughtUpAppended = true; } };
 const section = {
     querySelectorAll: function () { return []; },
     querySelector: function () { return { textContent: '' }; },
@@ -42,7 +47,23 @@ const context = {
     console: console,
     document: {
         getElementById: function (id) { return id === 'rescan-btn' ? button : status; },
-        querySelectorAll: function (selector) { return selector === '.pairing-dismiss' ? [dismissButton] : []; }
+        querySelectorAll: function (selector) {
+            if (selector === '.pairing-dismiss') return [dismissButton];
+            if (selector === '.pairing-card') return [card];
+            if (selector === '.nav-badge') return [badge];
+            return [];
+        },
+        querySelector: function (selector) { return selector === '.pairings-inbox' ? inbox : null; },
+        createElement: function () {
+            return {
+                className: '',
+                innerHTML: '',
+                setAttribute: function () {},
+                querySelector: function () {
+                    return { focus: function () { caughtUpFocused = true; } };
+                }
+            };
+        }
     },
     fetch: function (url) {
         fetchedUrls.push(url);
@@ -84,6 +105,9 @@ function flush() {
     assert.equal(fetchedUrls[fetchedUrls.length - 1], '/api/detected/kosync/shared%3Aid/dismiss');
     assert.equal(cardRemoved, true);
     assert.equal(status.textContent, 'Dismissed Dismiss Me.');
+    assert.equal(badgeRemoved, true);
+    assert.equal(caughtUpAppended, true);
+    assert.equal(caughtUpFocused, true);
     console.log('pairings inbox JS checks passed');
 })().catch(function (error) {
     console.error(error);

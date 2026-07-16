@@ -352,6 +352,12 @@
             ebookSection.insertAdjacentElement('afterend', storytellerSection);
         }
 
+        document.querySelectorAll('.ab-option input[type="radio"], .eb-option input[type="radio"], .st-option input[type="radio"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                if (radio.checked) selectItem(radio.closest('label'), radio.name);
+            });
+        });
+
         // ── Attach flow: simple init ──
         if (isAttachFlow) {
             updateLayout();
@@ -438,13 +444,18 @@
                 if (actionBtn) {
                     actionBtn.disabled = true;
                     actionBtn.setAttribute('aria-disabled', 'true');
+                    actionBtn.textContent = isPairingReview ? 'Pairing…' : 'Saving…';
+                }
+                var actionStatus = document.getElementById('actionStatus');
+                if (actionStatus) {
+                    actionStatus.textContent = isPairingReview ? 'Pairing selected editions…' : 'Saving selection…';
+                    actionStatus.dataset.state = 'ready';
                 }
             });
         }
     });
 
-    /* ── Expose functions needed by inline onclick handlers ── */
-    window.selectItem = selectItem;
+    /* ── Expose remove action used by the library badge ── */
     window.showRemoveModal = showRemoveModal;
 
 })();
