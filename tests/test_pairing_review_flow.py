@@ -9,7 +9,9 @@ from src.blueprints.helpers import EbookResult
 from src.services.book_intake_service import IntakeResult
 
 
-def _detected(*, source="abs", source_id="abs-1", ebook_filename=None, matches=None, detected_id=7):
+def _detected(
+    *, source="abs", source_id="abs-1", ebook_filename=None, matches=None, detected_id=7, media_format=None
+):
     return SimpleNamespace(
         id=detected_id,
         source=source,
@@ -19,6 +21,7 @@ def _detected(*, source="abs", source_id="abs-1", ebook_filename=None, matches=N
         status="detected",
         ebook_filename=ebook_filename,
         matches=matches or [],
+        media_format=media_format or ("audiobook" if source == "abs" else "ebook"),
     )
 
 
@@ -62,6 +65,7 @@ def test_abs_to_grimmory_review_preserves_and_preselects_exact_editions(client, 
                 "filename": "exact.epub",
                 "id": "2:44",
                 "title": "Exact Book",
+                "media_format": "ebook",
             }
         ]
     )
@@ -77,10 +81,114 @@ def test_abs_to_grimmory_review_preserves_and_preselects_exact_editions(client, 
     assert page.count("<h1") == 1
     assert 'name="detected_source_id" value="abs-1"' in page
     assert 'name="candidate_source_id" value="grimmory:2:exact.epub"' in page
-    assert 'name="audiobook_id" value="abs-1" checked' in page
-    assert 'name="ebook_filename" value="exact.epub" checked' in page
+    assert 'name="audiobook_id" value="abs-1"' in page
+    assert 'name="ebook_filename" value="exact.epub"' in page
     assert 'id="input_ebook_source_id" value="2:44"' in page
-    assert "Pair formats" in page
+    assert "Review match" in page
+    assert "Link formats" in page
+    assert "Search books" not in page
+    assert "Storyteller" not in page
+
+
+def test_grimmory_audiobook_review_revalidates_exact_identity_before_render(client, mock_container, review_setup):
+    detected = _detected(
+        source="grimmory",
+        source_id="2:10:99",
+        media_format="audiobook",
+        matches=[
+            {
+                "source_family": "kosync",
+                "source_key": "kosync:hash-exact",
+                "filename": "exact.epub",
+                "title": "Exact Book",
+                "media_format": "ebook",
+            }
+        ],
+    )
+    review_setup.get_detected_book.return_value = detected
+    mock_container.mock_grimmory_client.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 99,
+        "title": "Exact Book Audio",
+    }
+    ebook = EbookResult("exact.epub", title="Exact Book Ebook", source="Filesystem")
+
+    with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]):
+        response = client.get(f"/match?{_review_query(detected, 'kosync', 'kosync:hash-exact')}")
+
+    page = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Started audiobook" in page
+    assert "Exact Book Audio" in page
+    assert 'name="audio_source" value="grimmory"' in page
+    assert 'name="audio_source_id" value="2:10:99"' in page
+    mock_container.mock_grimmory_client.find_audiobook_by_source_id.assert_called_with("2:10:99")
+
+
+@pytest.mark.parametrize(
+    ("detected_source", "detected_source_id", "ebook_source_id"),
+    [("kosync", "hash-exact", None), ("grimmory", "default:exact.epub", "default:44")],
+)
+def test_ebook_to_grimmory_audio_review_ignores_hidden_identity_and_uses_exact_stored_match(
+    client, mock_container, review_setup, detected_source, detected_source_id, ebook_source_id
+):
+    detected = _detected(
+        source=detected_source,
+        source_id=detected_source_id,
+        ebook_filename="exact.epub",
+        media_format="ebook",
+        matches=[
+            {
+                "source_family": "grimmory",
+                "source_key": "grimmory:2:10:99",
+                "title": "Exact Book Audio",
+                "media_format": "audiobook",
+            }
+        ],
+    )
+    review_setup.get_detected_book.return_value = detected
+    mock_container.mock_grimmory_client.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 99,
+        "title": "Exact Book Audio",
+    }
+    ebook = EbookResult(
+        "exact.epub",
+        title="Exact Book Ebook",
+        grimmory_id=ebook_source_id,
+        source="Grimmory" if ebook_source_id else "Filesystem",
+    )
+    intake = Mock()
+    intake.link_grimmory_audiobook_ebook.return_value = IntakeResult(book=SimpleNamespace(id=1))
+    data = {
+        "detected_id": "7",
+        "detected_source": detected_source,
+        "detected_source_id": detected_source_id,
+        "candidate_source": "grimmory",
+        "candidate_source_id": "grimmory:2:10:99",
+        "audio_source": "grimmory",
+        "audio_source_id": "evil:changed:identity",
+        "audiobook_id": "evil:changed:identity",
+        "ebook_filename": "wrong.epub",
+        "ebook_source_id": "evil:44",
+    }
+
+    with (
+        patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]),
+        patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake),
+    ):
+        response = client.post("/match", data=data)
+
+    assert response.status_code == 302
+    intake.map_audiobook_ebook.assert_not_called()
+    intake.link_grimmory_audiobook_ebook.assert_called_once_with(
+        audio_source_id="2:10:99",
+        ebook_filename="exact.epub",
+        ebook_source_id=ebook_source_id,
+        expected_ebook_kosync_id="hash-exact" if detected_source == "kosync" else None,
+        detected_source=detected_source,
+        detected_source_id=detected_source_id,
+    )
 
 
 @pytest.mark.parametrize(
@@ -94,7 +202,15 @@ def test_ebook_to_abs_review_commits_through_intake_and_redirects_next(
         source=source,
         source_id=source_id,
         ebook_filename="exact.epub",
-        matches=[{"source": "abs_audiobook", "abs_id": "abs-1", "title": "Exact Book"}],
+        matches=[
+            {
+                "source": "abs_audiobook",
+                "source_key": "abs:abs-1",
+                "abs_id": "abs-1",
+                "title": "Exact Book",
+                "media_format": "audiobook",
+            }
+        ],
     )
     review_setup.get_detected_book.return_value = detected
     ebook = EbookResult(
@@ -111,7 +227,7 @@ def test_ebook_to_abs_review_commits_through_intake_and_redirects_next(
         "detected_source": source,
         "detected_source_id": source_id,
         "candidate_source": "abs_audiobook",
-        "candidate_source_id": "abs-1",
+        "candidate_source_id": "abs:abs-1",
         "audiobook_id": "abs-1",
         "ebook_filename": "exact.epub",
         "ebook_source_id": ebook_source_id,
@@ -154,6 +270,7 @@ def test_stale_recommended_edition_clears_candidate_and_recovers_manual_review(c
                 "source_key": "grimmory:default:gone.epub",
                 "filename": "gone.epub",
                 "id": "default:99",
+                "media_format": "ebook",
             }
         ]
     )
@@ -165,11 +282,11 @@ def test_stale_recommended_edition_clears_candidate_and_recovers_manual_review(c
         )
 
     page = response.get_data(as_text=True)
-    assert response.status_code == 200
-    assert "recommended ebook was removed" in page
+    assert response.status_code == 409
+    assert "selected ebook edition is no longer available" in page
     assert 'name="candidate_source_id" value="grimmory:default:gone.epub"' not in page
     assert 'name="detected_source_id" value="abs-1"' in page
-    assert "Pair formats" in page
+    assert "Choose a different companion" in page
 
 
 def test_post_error_keeps_exact_selections_and_inline_error(client, mock_container, review_setup):
@@ -180,6 +297,7 @@ def test_post_error_keeps_exact_selections_and_inline_error(client, mock_contain
                 "source_key": "grimmory:default:exact.epub",
                 "filename": "exact.epub",
                 "id": "default:44",
+                "media_format": "ebook",
             }
         ]
     )
@@ -208,8 +326,8 @@ def test_post_error_keeps_exact_selections_and_inline_error(client, mock_contain
     page = response.get_data(as_text=True)
     assert response.status_code == 409
     assert 'role="alert">Edition changed' in page
-    assert 'name="audiobook_id" value="abs-1" checked' in page
-    assert 'name="ebook_filename" value="exact.epub" checked' in page
+    assert 'name="audiobook_id" value="abs-1"' in page
+    assert 'name="ebook_filename" value="exact.epub"' in page
     assert 'name="candidate_source_id" value="grimmory:default:exact.epub"' in page
 
 
@@ -218,7 +336,14 @@ def test_existing_entry_collision_requires_distinct_confirmation(client, review_
         source="kosync",
         source_id="hash-exact",
         ebook_filename="exact.epub",
-        matches=[{"source": "abs_audiobook", "abs_id": "abs-1"}],
+        matches=[
+            {
+                "source": "abs_audiobook",
+                "source_key": "abs:abs-1",
+                "abs_id": "abs-1",
+                "media_format": "audiobook",
+            }
+        ],
     )
     review_setup.get_detected_book.return_value = detected
     ebook = EbookResult("exact.epub", source="Filesystem")
@@ -235,12 +360,12 @@ def test_existing_entry_collision_requires_distinct_confirmation(client, review_
         patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]),
         patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake),
     ):
-        response = client.get(f"/match?{_review_query(detected, 'abs_audiobook', 'abs-1')}")
+        response = client.get(f"/match?{_review_query(detected, 'abs_audiobook', 'abs:abs-1')}")
 
     page = response.get_data(as_text=True)
     assert response.status_code == 200
     assert "one canonical PageKeeper entry" in page
-    assert "Combine existing entries and pair" in page
+    assert "Combine existing entries and link" in page
     assert 'name="confirm_combine" value="1"' in page
     assert 'name="combine_book_id" value="22"' in page
 
@@ -252,6 +377,7 @@ def test_abs_to_kosync_recommendation_passes_exact_hash_to_service(client, revie
                 "source_family": "kosync",
                 "source_key": "kosync:hash-exact",
                 "filename": "same.epub",
+                "media_format": "ebook",
             }
         ]
     )
@@ -268,14 +394,18 @@ def test_abs_to_kosync_recommendation_passes_exact_hash_to_service(client, revie
         "ebook_filename": "same.epub",
     }
 
-    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+    ebook = EbookResult("same.epub", source="Filesystem")
+    with (
+        patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]),
+        patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake),
+    ):
         response = client.post("/match", data=data)
 
     assert response.status_code == 302
     assert intake.map_audiobook_ebook.call_args.kwargs["expected_ebook_kosync_id"] == "hash-exact"
 
 
-def test_removed_candidate_post_recovers_with_manual_companion(client, review_setup):
+def test_removed_candidate_post_does_not_trust_hidden_companion(client, review_setup):
     detected = _detected(matches=[])
     review_setup.get_detected_book.return_value = detected
     intake = Mock()
@@ -293,8 +423,8 @@ def test_removed_candidate_post_recovers_with_manual_companion(client, review_se
     with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
         response = client.post("/match", data=data)
 
-    assert response.status_code == 302
-    assert intake.map_audiobook_ebook.call_args.kwargs["expected_ebook_kosync_id"] is None
+    assert response.status_code == 409
+    intake.map_audiobook_ebook.assert_not_called()
 
 
 def test_storyteller_detection_is_terminal_and_left_active(client, review_setup):
@@ -310,7 +440,7 @@ def test_storyteller_detection_is_terminal_and_left_active(client, review_setup)
     review_setup.resolve_detected_book.assert_not_called()
 
 
-def test_resolved_detection_get_is_terminal_but_post_verifies_mapping_retry(client, review_setup):
+def test_resolved_detection_get_is_terminal_and_post_requires_stored_companion(client, review_setup):
     detected = _detected()
     detected.status = "resolved"
     review_setup.get_detected_book.return_value = detected
@@ -320,7 +450,6 @@ def test_resolved_detection_get_is_terminal_but_post_verifies_mapping_retry(clie
     assert 'name="detected_source_id"' not in terminal.get_data(as_text=True)
 
     intake = Mock()
-    intake.map_audiobook_ebook.return_value = IntakeResult(book=SimpleNamespace(id=1))
     with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
         retry = client.post(
             "/match",
@@ -333,8 +462,8 @@ def test_resolved_detection_get_is_terminal_but_post_verifies_mapping_retry(clie
             },
         )
 
-    assert retry.status_code == 302
-    assert retry.headers["Location"].endswith("/suggestions")
+    assert retry.status_code == 409
+    intake.map_audiobook_ebook.assert_not_called()
 
 
 def test_legacy_match_renders_service_combine_conflict(client, mock_container, review_setup):
@@ -374,5 +503,5 @@ def test_match_accessibility_and_mobile_guards_are_scoped_to_touched_flow():
     assert ".match-action-footer {\n    position: static;" in css
     assert "actionBtn.disabled = true" in javascript
     assert "radio.addEventListener('change'" in javascript
-    assert "Pairing selected editions…" in javascript
+    assert "Linking selected formats…" in javascript
     assert 'onclick="selectItem' not in template

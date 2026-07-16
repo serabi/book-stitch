@@ -23,6 +23,7 @@
     var hasStorytellerSection = !!document.getElementById('storytellerSection');
     var storytellerForceMode = PK_PAGE_DATA.storytellerForceMode;
     var isPairingReview = PK_PAGE_DATA.isPairingReview;
+    var pairingReady = PK_PAGE_DATA.pairingReady;
     var hasExistingEntryCollision = PK_PAGE_DATA.hasExistingEntryCollision;
 
     var absConfigured = PK_PAGE_DATA.absConfigured;
@@ -200,13 +201,12 @@
         var hasText = ebVal !== '' || stVal !== '';
 
         if (isPairingReview) {
-            var pairingReady = hasAudio && ebVal !== '';
             btn.type = 'submit';
             btn.disabled = !pairingReady;
             btn.textContent = hasExistingEntryCollision
-                ? 'Combine existing entries and pair'
-                : 'Pair formats';
-            status.textContent = pairingReady ? 'Exact editions selected. Ready to pair.' : 'Select both formats to continue.';
+                ? 'Combine existing entries and link'
+                : 'Link formats';
+            status.textContent = pairingReady ? 'Exact editions verified.' : 'Choose another companion to continue.';
             status.dataset.state = pairingReady ? 'ready' : 'warning';
             return;
         }
@@ -444,11 +444,11 @@
                 if (actionBtn) {
                     actionBtn.disabled = true;
                     actionBtn.setAttribute('aria-disabled', 'true');
-                    actionBtn.textContent = isPairingReview ? 'Pairing…' : 'Saving…';
+                    actionBtn.textContent = isPairingReview ? 'Linking…' : 'Saving…';
                 }
                 var actionStatus = document.getElementById('actionStatus');
                 if (actionStatus) {
-                    actionStatus.textContent = isPairingReview ? 'Pairing selected editions…' : 'Saving selection…';
+                    actionStatus.textContent = isPairingReview ? 'Linking selected formats…' : 'Saving selection…';
                     actionStatus.dataset.state = 'ready';
                 }
             });

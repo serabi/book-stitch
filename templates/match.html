@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>{{ title_prefix }}{% if pairing_review %}Review pairing{% else %}Add Book{% endif %} - PageKeeper</title>
+    <title>{{ title_prefix }}{% if pairing_review %}Review match{% else %}Add Book{% endif %} - PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/variables.css">
@@ -25,8 +25,8 @@
             <h1>Attach Audiobook</h1>
             <p class="subtitle">Choose an audiobook from your audiobook library to link to <strong>{{ link_title }}</strong>.</p>
             {% elif pairing_review %}
-            <h1>Review pairing</h1>
-            <p class="subtitle">Review the exact detected edition and its companion before pairing.</p>
+            <h1>Review match</h1>
+            <p class="subtitle">Confirm the started edition and its exact opposite-format companion.</p>
             {% else %}
             <h1>Add Book</h1>
             {% endif %}
@@ -36,6 +36,7 @@
         <div class="match-inline-error" role="alert">{{ pairing_error }}</div>
         {% endif %}
 
+        {% if not pairing_review %}
         <section class="search-section batch-search-section">
             <form method="GET" action="/match" class="batch-search-form">
                 <label for="match-search" class="search-label">Search books</label>
@@ -56,6 +57,7 @@
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
         </section>
+        {% endif %}
 
         {% if not attach_to and not link_to and not pairing_review %}
         {% set abs_ok = abs_configured|default(true) %}
@@ -101,6 +103,39 @@
             </div>
             {% endif %}
 
+            {% if pairing_review %}
+            <section class="match-review-editions" aria-label="Formats to link">
+                {% if review_editions %}
+                    {% if review_editions.started_format == 'audiobook' %}
+                    <article class="match-review-edition match-review-edition--started">
+                        <span class="source-badge">Started audiobook</span>
+                        <strong>{{ review_editions.audio_title }}</strong>
+                        <span>{{ review_editions.audio_source_label }}</span>
+                    </article>
+                    <article class="match-review-edition">
+                        <span class="source-badge">Ebook companion</span>
+                        <strong>{{ review_editions.ebook_title }}</strong>
+                        <span>{{ review_editions.ebook_source_label }}</span>
+                    </article>
+                    {% else %}
+                    <article class="match-review-edition match-review-edition--started">
+                        <span class="source-badge">Started ebook</span>
+                        <strong>{{ review_editions.ebook_title }}</strong>
+                        <span>{{ review_editions.ebook_source_label }}</span>
+                    </article>
+                    <article class="match-review-edition">
+                        <span class="source-badge">Audiobook companion</span>
+                        <strong>{{ review_editions.audio_title }}</strong>
+                        <span>{{ review_editions.audio_source_label }}</span>
+                    </article>
+                    {% endif %}
+                    <input type="hidden" name="audiobook_id" value="{{ review_editions.audio_source_id }}">
+                    <input type="hidden" name="ebook_filename" value="{{ review_editions.ebook_filename }}">
+                    <input type="hidden" name="ebook_source_id" value="{{ review_editions.ebook_source_id or '' }}">
+                {% endif %}
+                <a class="btn btn-secondary" href="{{ url_for('matching.match', search=pairing_review.detected.title) }}">Choose a different companion</a>
+            </section>
+            {% else %}
             <section class="match-workspace">
                 {# ── Audiobook section ── #}
                 {% if not attach_to %}
@@ -272,6 +307,7 @@
                 </fieldset>
                 {% endif %}
             </section>
+            {% endif %}
 
             {% if combine_conflict and combine_conflict.conflict_code == 'combine_required' %}
             <div class="match-combine-warning" role="status">
@@ -284,12 +320,12 @@
 
             {# ── Sticky action footer ── #}
             <div class="match-action-footer" id="actionFooter">
-                <div class="match-summary-chips" id="summaryChips" style="display:none">
+                {% if not pairing_review %}<div class="match-summary-chips" id="summaryChips" style="display:none">
                     <span class="match-summary-chip" id="summaryAudio"></span>
                     <span class="match-summary-chip" id="summaryEbook"></span>
                     <span class="match-summary-chip" id="summaryStoryteller"></span>
-                </div>
-                <span class="match-action-status" id="actionStatus" aria-live="polite">Select an audiobook to continue.</span>
+                </div>{% endif %}
+                <span class="match-action-status" id="actionStatus" aria-live="polite">{% if pairing_review and review_editions %}Exact editions verified.{% elif pairing_review %}Choose another companion to continue.{% else %}Select an audiobook to continue.{% endif %}</span>
                 {% if attach_to %}
                 <button type="submit" class="btn btn-success" id="actionBtn" disabled
                     onclick="document.getElementById('input_action').value='attach_ebook';">
@@ -301,8 +337,8 @@
                     Attach Audiobook
                 </button>
                 {% elif pairing_review %}
-                <button type="submit" class="btn btn-success" id="actionBtn" disabled>
-                    {% if combine_conflict and combine_conflict.conflict_code == 'combine_required' %}Combine existing entries and pair{% else %}Pair formats{% endif %}
+                <button type="submit" class="btn btn-success" id="actionBtn"{% if not review_editions %} disabled{% endif %}>
+                    {% if combine_conflict and combine_conflict.conflict_code == 'combine_required' %}Combine existing entries and link{% else %}Link formats{% endif %}
                 </button>
                 {% else %}
                 <button type="submit" class="btn btn-success" id="actionBtn" disabled>
@@ -324,6 +360,7 @@
             absConfigured: {{ 'true' if abs_configured|default(true) else 'false' }},
             hasEbookSources: {{ 'true' if has_ebook_sources|default(true) else 'false' }},
             isPairingReview: {{ 'true' if pairing_review else 'false' }},
+            pairingReady: {{ 'true' if review_editions else 'false' }},
             hasExistingEntryCollision: {{ 'true' if combine_conflict and combine_conflict.conflict_code == 'combine_required' else 'false' }}
         };
     </script>

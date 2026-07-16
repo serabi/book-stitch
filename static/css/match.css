@@ -1,5 +1,29 @@
 /* PageKeeper - Match + Batch Match page specific styles */
 
+.match-review-editions {
+    display: grid;
+    gap: 16px;
+    max-width: 760px;
+    margin: 24px auto;
+}
+
+.match-review-edition {
+    display: grid;
+    gap: 8px;
+    padding: 20px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+}
+
+.match-review-edition--started {
+    border-color: var(--color-primary);
+}
+
+.match-review-edition strong {
+    font-size: 1.1rem;
+}
+
 /* Override container width for match pages */
 .container {
   max-width: 1600px;

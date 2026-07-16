@@ -205,13 +205,13 @@ def _match_identity(match):
 
 
 def _supported_review_matches(detected):
-    source_format = _media_format(detected)
+    source_format = _explicit_media_format(detected)
     supported = []
     for match in detected.matches or []:
         match_source = match.get("source_family") or match.get("source")
-        match_format = _media_format(match)
+        match_format = _explicit_media_format(match)
         if (
-            detected.source == "abs"
+            detected.source in {"abs", "grimmory"}
             and source_format == "audiobook"
             and match_format == "ebook"
             and match_source in {"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"}
@@ -219,7 +219,7 @@ def _supported_review_matches(detected):
             detected.source in {"grimmory", "kosync"}
             and source_format == "ebook"
             and match_format == "audiobook"
-            and match_source in {"abs", "abs_audiobook"}
+            and match_source in {"abs", "abs_audiobook", "grimmory"}
         ):
             supported.append(match)
     return supported
@@ -239,6 +239,15 @@ def _pairing_review_url(detected, match=None):
         params["candidate_source"] = candidate_source
     if candidate_id:
         params["candidate_source_id"] = candidate_id
+    detected_format = _explicit_media_format(detected)
+    match_format = _explicit_media_format(match)
+    if detected_format == "audiobook":
+        params["audio_source"] = detected.source
+        params["audio_source_id"] = detected.source_id
+    elif match_format == "audiobook":
+        audio_identity = _match_identity(match)
+        if audio_identity:
+            params["audio_source"], params["audio_source_id"] = audio_identity
     abs_id = match.get("abs_id") or (detected.source_id if detected.source == "abs" else None)
     if abs_id:
         params["abs_id"] = abs_id
@@ -393,6 +402,8 @@ _PAIRING_REVIEW_FIELDS = (
     "detected_source_id",
     "candidate_source",
     "candidate_source_id",
+    "audio_source",
+    "audio_source_id",
 )
 
 
@@ -418,7 +429,11 @@ def _load_pairing_review(database_service, values, method="GET"):
     )
     if not detected or getattr(detected, "id", None) != detected_id:
         return None, "This detected book is no longer available.", 409, True
-    if detected.source not in {"abs", "grimmory", "kosync"}:
+    detected_format = _explicit_media_format(detected)
+    supported_detected = (detected_format == "audiobook" and detected.source in {"abs", "grimmory"}) or (
+        detected_format == "ebook" and detected.source in {"grimmory", "kosync"}
+    )
+    if not supported_detected:
         return None, "This source cannot yet be paired with the current write path.", 409, True
 
     status = getattr(detected, "status", "detected")
@@ -444,6 +459,22 @@ def _load_pairing_review(database_service, values, method="GET"):
             values = {**values, "candidate_source": "", "candidate_source_id": ""}
             warning = "The previous recommendation is no longer available. Choose a companion manually."
 
+    if candidate and candidate not in _supported_review_matches(detected):
+        candidate = None
+        values = {**values, "candidate_source": "", "candidate_source_id": ""}
+        warning = "The previous recommendation is no longer available. Choose a companion manually."
+
+    audio_identity = None
+    if detected_format == "audiobook":
+        audio_identity = _detected_identity(detected)
+    elif candidate and _explicit_media_format(candidate) == "audiobook":
+        audio_identity = _match_identity(candidate)
+    values = {
+        **values,
+        "audio_source": audio_identity[0] if audio_identity else "",
+        "audio_source_id": audio_identity[1] if audio_identity else "",
+    }
+
     return {"detected": detected, "candidate": candidate, **values}, warning, 200, False
 
 
@@ -453,18 +484,17 @@ def _review_defaults(review):
 
     detected = review["detected"]
     candidate = review["candidate"] or {}
-    detected_source = detected.source
-    candidate_source = candidate.get("source_family") or candidate.get("source")
     defaults = {"audiobook_id": "", "ebook_filename": "", "ebook_source_id": ""}
 
-    if detected_source == "abs":
+    if _explicit_media_format(detected) == "audiobook" and detected.source == "abs":
         defaults["audiobook_id"] = detected.source_id
-    else:
+    elif _explicit_media_format(detected) == "ebook":
         defaults["ebook_filename"] = detected.ebook_filename or ""
 
-    if candidate_source in {"abs", "abs_audiobook"}:
+    candidate_source = candidate.get("source_family") or candidate.get("source")
+    if _explicit_media_format(candidate) == "audiobook" and candidate_source in {"abs", "abs_audiobook"}:
         defaults["audiobook_id"] = candidate.get("abs_id") or ""
-    elif candidate:
+    elif _explicit_media_format(candidate) == "ebook":
         defaults["ebook_filename"] = candidate.get("filename") or defaults["ebook_filename"]
         if candidate_source == "grimmory":
             defaults["ebook_source_id"] = candidate.get("id") or ""
@@ -510,6 +540,66 @@ def _expected_review_kosync_id(review, ebook_filename):
     return None
 
 
+def _exact_review_editions(container, review):
+    """Resolve the stored opposite-format edge to live editions; form values are never authority."""
+    detected = review["detected"]
+    candidate = review.get("candidate")
+    if not candidate:
+        return None, "Choose a different companion to continue."
+
+    detected_format = _explicit_media_format(detected)
+    candidate_format = _explicit_media_format(candidate)
+    if not detected_format or not candidate_format or detected_format == candidate_format:
+        return None, "The recommended companion no longer has a valid format identity."
+
+    audio_item = detected if detected_format == "audiobook" else candidate
+    ebook_item = detected if detected_format == "ebook" else candidate
+    audio_identity = _detected_identity(audio_item) if audio_item is detected else _match_identity(audio_item)
+    if not audio_identity or audio_identity[0] not in {"abs", "grimmory"}:
+        return None, "The recommended audiobook identity is no longer supported."
+
+    if audio_identity[0] == "abs":
+        audio = next((item for item in get_audiobooks_conditionally() if item["id"] == audio_identity[1]), None)
+    else:
+        audio = container.grimmory_client_group().find_audiobook_by_source_id(audio_identity[1])
+    if not audio:
+        return None, "The selected audiobook edition is no longer available."
+
+    ebook_filename = (
+        detected.ebook_filename if ebook_item is detected else candidate.get("filename")
+    )
+    if not ebook_filename:
+        return None, "The selected ebook edition is no longer available."
+    ebooks = [ebook for ebook in get_searchable_ebooks(ebook_filename) if ebook.name == ebook_filename]
+    ebook_source_id = None
+    ebook_source = detected.source if ebook_item is detected else candidate.get("source_family") or candidate.get("source")
+    if ebook_source == "grimmory":
+        expected_id = candidate.get("id") if ebook_item is candidate else None
+        if expected_id:
+            ebook = next((item for item in ebooks if str(item.grimmory_id or "") == str(expected_id)), None)
+        else:
+            instance_id = detected.source_id.split(":", 1)[0]
+            ebook = next(
+                (item for item in ebooks if str(item.grimmory_id or "").startswith(f"{instance_id}:")),
+                None,
+            )
+        if ebook:
+            ebook_source_id = str(ebook.grimmory_id)
+    else:
+        ebook = ebooks[0] if ebooks else None
+    if not ebook:
+        return None, "The selected ebook edition is no longer available."
+
+    return {
+        "audio_source": audio_identity[0],
+        "audio_source_id": audio_identity[1],
+        "audio": audio,
+        "ebook": ebook,
+        "ebook_filename": ebook_filename,
+        "ebook_source_id": ebook_source_id,
+    }, None
+
+
 def _render_match_page(
     container,
     manager,
@@ -521,12 +611,24 @@ def _render_match_page(
     combine_conflict=None,
 ):
     defaults = _review_defaults(review)
+    review_editions = None
+    if review:
+        review_editions, edition_error = _exact_review_editions(container, review)
+        if edition_error and not error:
+            error = edition_error
+            status_code = 409 if review.get("candidate") else 200
+        if edition_error:
+            review = {**review, "candidate": None, "candidate_source": "", "candidate_source_id": ""}
     search = str(values.get("search") or (review["detected"].title if review else "") or "").strip().lower()
     attach_to = str(values.get("attach_to", "") or "").strip()
     link_to = str(values.get("link_to", "") or "").strip()
     selected_abs_id = str(values.get("audiobook_id") or values.get("abs_id") or defaults["audiobook_id"]).strip()
     selected_ebook_filename = sanitize_filename(values.get("ebook_filename") or defaults["ebook_filename"])
     selected_ebook_source_id = str(values.get("ebook_source_id") or defaults["ebook_source_id"]).strip()
+    if review_editions:
+        selected_abs_id = review_editions["audio_source_id"] if review_editions["audio_source"] == "abs" else ""
+        selected_ebook_filename = review_editions["ebook_filename"]
+        selected_ebook_source_id = review_editions["ebook_source_id"] or ""
     attach_title = ""
     link_title = ""
 
@@ -609,33 +711,22 @@ def _render_match_page(
     for ebook in ebooks:
         ebook.is_selected = ebook is selected_ebook
 
-    if review and not error:
-        candidate_source = (candidate.get("source_family") or candidate.get("source")) if candidate else None
-        if detected.source == "abs" and not any(ab["id"] == detected.source_id for ab in audiobooks):
-            error, status_code = "The detected audiobook edition is no longer available.", 409
-        elif detected.source in {"grimmory", "kosync"} and not any(
-            eb.name == detected.ebook_filename for eb in ebooks
-        ):
-            error, status_code = "The detected ebook edition is no longer available.", 409
-        elif candidate_source in {"abs", "abs_audiobook"} and not any(
-            ab["id"] == candidate.get("abs_id") for ab in audiobooks
-        ):
-            selected_abs_id = detected.source_id if detected.source == "abs" else ""
-            review = {**review, "candidate": None, "candidate_source": "", "candidate_source_id": ""}
-            candidate = None
-            error, status_code = "The recommended audiobook was removed. Choose another manually.", 200
-        elif candidate_source == "grimmory" and not any(
-            eb.name == candidate_filename and str(eb.grimmory_id or "") == str(candidate.get("id") or "")
-            for eb in ebooks
-        ):
-            if detected.source == "abs":
-                selected_ebook_filename = ""
-                selected_ebook_source_id = ""
-                for ebook in ebooks:
-                    ebook.is_selected = False
-            review = {**review, "candidate": None, "candidate_source": "", "candidate_source_id": ""}
-            candidate = None
-            error, status_code = "The recommended ebook was removed. Choose another manually.", 200
+    if review_editions:
+        audio = review_editions["audio"]
+        review_editions["audio_title"] = (
+            manager.get_audiobook_title(audio)
+            if review_editions["audio_source"] == "abs"
+            else audio.get("title") or detected.title
+        )
+        review_editions["audio_source_label"] = _source_label(
+            review_editions["audio_source"], review_editions["audio_source_id"]
+        )
+        review_editions["ebook_title"] = review_editions["ebook"].title or detected.title
+        review_editions["ebook_source_label"] = _source_label(
+            detected.source if _explicit_media_format(detected) == "ebook" else candidate.get("source_family") or candidate.get("source"),
+            detected.source_id if _explicit_media_format(detected) == "ebook" else _candidate_source_id(candidate),
+        )
+        review_editions["started_format"] = _explicit_media_format(detected)
 
     storyteller_submit_available = False
     try:
@@ -700,6 +791,7 @@ def _render_match_page(
         pairing_review=review,
         pairing_values=pairing_values,
         pairing_error=error,
+        review_editions=review_editions,
         combine_conflict=combine_conflict,
     )
     return (page, status_code) if status_code != 200 else page
@@ -720,44 +812,42 @@ def _post_pairing_review(container, manager, database_service, review):
             combine_conflict=combine_conflict,
         )
 
-    abs_id = str(values.get("audiobook_id", "") or "").strip()
-    ebook_filename = sanitize_filename(values.get("ebook_filename"))
-    ebook_source_id = str(values.get("ebook_source_id", "") or "").strip() or None
-    if not abs_id or not ebook_filename:
-        return render_error("Choose one audiobook and one ebook before pairing formats.")
-
     detected = review["detected"]
-    if detected.source == "abs" and abs_id != detected.source_id:
-        return render_error("The detected audiobook edition must remain selected.", 409)
-    if detected.source in {"grimmory", "kosync"} and ebook_filename != detected.ebook_filename:
-        return render_error("The detected ebook edition must remain selected.", 409)
-    if detected.source == "grimmory":
-        instance_id = detected.source_id.split(":", 1)[0]
-        if not ebook_source_id or not ebook_source_id.startswith(f"{instance_id}:"):
-            return render_error("The detected Grimmory edition no longer matches this selection.", 409)
+    editions, edition_error = _exact_review_editions(container, review)
+    if edition_error:
+        return render_error(edition_error, 409)
 
-    abs_service = get_abs_service()
-    selected_ab = next((ab for ab in abs_service.get_audiobooks() if ab["id"] == abs_id), None)
-    if not selected_ab:
-        return render_error("The selected audiobook edition is no longer available.", 409)
-
-    metadata = selected_ab.get("media", {}).get("metadata", {})
-    result = _get_book_intake_service(container).map_audiobook_ebook(
-        abs_id=abs_id,
-        title=manager.get_audiobook_title(selected_ab),
-        ebook_filename=ebook_filename,
-        ebook_source_id=ebook_source_id,
-        duration=manager.get_duration(selected_ab),
-        storyteller_uuid=values.get("storyteller_uuid") or None,
-        storyteller_submit=bool(values.get("storyteller_submit")),
-        author=get_audiobook_author(selected_ab),
-        subtitle=metadata.get("subtitle") or None,
-        detected_source=detected.source,
-        detected_source_id=detected.source_id,
-        expected_ebook_kosync_id=_expected_review_kosync_id(review, ebook_filename),
-        confirm_combine=values.get("confirm_combine") == "1",
-        confirmed_merge_book_id=values.get("combine_book_id"),
-    )
+    ebook_filename = editions["ebook_filename"]
+    ebook_source_id = editions["ebook_source_id"]
+    intake = _get_book_intake_service(container)
+    if editions["audio_source"] == "grimmory":
+        result = intake.link_grimmory_audiobook_ebook(
+            audio_source_id=editions["audio_source_id"],
+            ebook_filename=ebook_filename,
+            ebook_source_id=ebook_source_id,
+            expected_ebook_kosync_id=_expected_review_kosync_id(review, ebook_filename),
+            detected_source=detected.source,
+            detected_source_id=detected.source_id,
+        )
+    else:
+        selected_ab = editions["audio"]
+        metadata = selected_ab.get("media", {}).get("metadata", {})
+        result = intake.map_audiobook_ebook(
+            abs_id=editions["audio_source_id"],
+            title=manager.get_audiobook_title(selected_ab),
+            ebook_filename=ebook_filename,
+            ebook_source_id=ebook_source_id,
+            duration=manager.get_duration(selected_ab),
+            storyteller_uuid=None,
+            storyteller_submit=False,
+            author=get_audiobook_author(selected_ab),
+            subtitle=metadata.get("subtitle") or None,
+            detected_source=detected.source,
+            detected_source_id=detected.source_id,
+            expected_ebook_kosync_id=_expected_review_kosync_id(review, ebook_filename),
+            confirm_combine=values.get("confirm_combine") == "1",
+            confirmed_merge_book_id=values.get("combine_book_id"),
+        )
     if result.error:
         return render_error(result.error, result.status_code, combine_conflict=result)
     return redirect(url_for("matching.suggestions"))

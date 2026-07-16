@@ -56,12 +56,14 @@ def test_currently_reading_is_default_and_carries_pairing_identifiers(client, mo
                     "title": "Ready Book ebook",
                     "author": "Reader Author",
                     "confidence": "high",
+                    "media_format": "ebook",
                 },
                 {
                     "source_family": "filesystem",
                     "filename": "ready-alt.epub",
                     "title": "Ready Book alternate",
                     "confidence": "medium",
+                    "media_format": "ebook",
                 },
             ],
         ),
@@ -105,7 +107,14 @@ def test_configured_grimmory_instance_label_is_shown(client, mock_container):
     audiobook = _detected(
         "abs-123",
         "Ready Book",
-        [{"source_family": "grimmory", "source_key": "grimmory:2:ready.epub", "title": "Ready ebook"}],
+        [
+            {
+                "source_family": "grimmory",
+                "source_key": "grimmory:2:ready.epub",
+                "title": "Ready ebook",
+                "media_format": "ebook",
+            }
+        ],
     )
     ebook = _detected("2:another.epub", "Another Book", [])
     ebook.source = "grimmory"
@@ -162,6 +171,34 @@ def test_explicit_high_confidence_activity_edge_renders_one_group_and_exact_revi
     assert query["detected_source_id"] == ["abs-exact"]
     assert query["candidate_source"] == [companion_source]
     assert query["candidate_source_id"] == [source_key]
+
+
+def test_grimmory_audio_candidate_review_url_carries_exact_audio_identity(client, mock_container):
+    match = {
+        "source_family": "grimmory",
+        "source_key": "grimmory:2:10:99",
+        "title": "Exact Audio",
+        "confidence": "high",
+        "media_format": "audiobook",
+    }
+    detected = _detected(
+        "hash-audio",
+        "Exact Book",
+        [match],
+        source="kosync",
+        media_format="ebook",
+        detected_id=13,
+    )
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = [detected]
+    db.get_detected_book_count.return_value = 1
+
+    page = client.get("/suggestions").get_data(as_text=True)
+
+    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)">Review pairing</a>', page).group(1)
+    query = parse_qs(urlparse(html.unescape(review_href)).query)
+    assert query["audio_source"] == ["grimmory"]
+    assert query["audio_source_id"] == ["2:10:99"]
 
 
 def test_same_title_without_explicit_edge_stays_separate(client, mock_container):
