@@ -15,16 +15,20 @@ let cardRemoved = false;
 let caughtUpAppended = false;
 let caughtUpFocused = false;
 let badgeRemoved = false;
-const badge = { textContent: '1', remove: function () { badgeRemoved = true; } };
+const badge = { textContent: '2', remove: function () { badgeRemoved = true; } };
 const inbox = { appendChild: function () { caughtUpAppended = true; } };
-const section = {
-    querySelectorAll: function () { return []; },
-    querySelector: function () { return { textContent: '' }; },
-    remove: function () {}
+const list = {
+    querySelector: function () { return null; }
 };
 const card = {
     dataset: { source: 'kosync', sourceId: 'shared:id' },
-    closest: function () { return section; },
+    closest: function () { return list; },
+    querySelectorAll: function () {
+        return [
+            { dataset: { source: 'abs', sourceId: 'audio:1' } },
+            { dataset: { source: 'kosync', sourceId: 'shared:id' } }
+        ];
+    },
     querySelector: function () { return { textContent: 'Dismiss Me' }; },
     remove: function () { cardRemoved = true; }
 };
@@ -110,11 +114,14 @@ function flush() {
     assert.equal((script.match(/data\.phase === 'partial'/g) || []).length, 2,
         'both inbox and catalog polling treat partial as terminal');
 
-    responses.push({ success: true });
+    responses.push({ success: true }, { success: true });
     dismissHandlers.click();
     await flush();
     await flush();
-    assert.equal(fetchedUrls[fetchedUrls.length - 1], '/api/detected/kosync/shared%3Aid/dismiss');
+    assert.deepEqual(fetchedUrls.slice(-2), [
+        '/api/detected/abs/audio%3A1/dismiss',
+        '/api/detected/kosync/shared%3Aid/dismiss'
+    ]);
     assert.equal(cardRemoved, true);
     assert.equal(status.textContent, 'Dismissed Dismiss Me.');
     assert.equal(badgeRemoved, true);

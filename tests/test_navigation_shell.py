@@ -17,6 +17,9 @@ def test_navigation_shell_exposes_primary_and_utility_destinations(flask_app):
     assert '<nav class="mobile-bottom-nav"' in html
     for destination in ("/", "/reading", "/suggestions", "/settings", "/match", "/logs"):
         assert f'href="{destination}"' in html
+    assert '<span class="sidebar-label">Currently Reading</span>' in html
+    assert '<span>Currently</span>' in html
+    assert '/static/grimmory-app.png' in html
 
 
 @pytest.mark.parametrize("path", ["/suggestions", "/match", "/batch-match"])

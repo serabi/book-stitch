@@ -118,7 +118,8 @@ def test_index_shows_currently_reading_preview_with_no_mapped_books(client, mock
 
     page = client.get("/").get_data(as_text=True)
 
-    assert "Currently Reading books need pairing review" in page
+    assert "Currently Reading books need companions" in page
+    assert "Open Currently Reading" in page
     assert "Unmapped Reader" in page
     assert "No books syncing yet" in page
 

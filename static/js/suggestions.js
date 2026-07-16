@@ -26,9 +26,9 @@
         var timer = null;
         var scanObserved = false;
 
-        function updatePairingBadges() {
+        function updatePairingBadges(resolvedCount) {
             document.querySelectorAll('.nav-badge').forEach(function (badge) {
-                var count = Math.max(0, Number(badge.textContent) - 1);
+                var count = Math.max(0, Number(badge.textContent) - resolvedCount);
                 if (count) badge.textContent = count;
                 else badge.remove();
             });
@@ -99,44 +99,42 @@
         document.querySelectorAll('.pairing-dismiss').forEach(function (dismissButton) {
             dismissButton.addEventListener('click', function () {
                 var card = dismissButton.closest('.pairing-card');
-                var source = card.dataset.source;
-                var sourceId = card.dataset.sourceId;
+                var identities = Array.prototype.map.call(
+                    card.querySelectorAll('.pairing-activity'),
+                    function (activity) { return activity.dataset; }
+                );
                 var title = card.querySelector('h3').textContent;
                 var cards = Array.prototype.slice.call(document.querySelectorAll('.pairing-card'));
                 var cardIndex = cards.indexOf(card);
                 var recoveryCard = cards[cardIndex + 1] || cards[cardIndex - 1];
                 dismissButton.disabled = true;
                 status.textContent = 'Dismissing ' + title + '...';
-                fetch('/api/detected/' + encodeURIComponent(source) + '/' + encodeURIComponent(sourceId) + '/dismiss', {
-                    method: 'POST'
-                })
-                    .then(function (response) {
+                Promise.all(identities.map(function (identity) {
+                    return fetch('/api/detected/' + encodeURIComponent(identity.source) + '/' + encodeURIComponent(identity.sourceId) + '/dismiss', {
+                        method: 'POST'
+                    }).then(function (response) {
                         return response.json().then(function (data) {
                             if (!response.ok || !data.success) throw new Error(data.error || 'Dismiss failed');
                             return data;
                         });
-                    })
+                    });
+                }))
                     .then(function () {
-                        var section = card.closest('.pairing-section');
+                        var list = card.closest('.pairing-list');
                         card.remove();
-                        var remaining = section.querySelectorAll('.pairing-card').length;
-                        if (remaining) {
-                            section.querySelector('.pairing-section-heading > span').textContent = remaining;
-                        } else {
-                            section.remove();
-                        }
-                        updatePairingBadges();
+                        updatePairingBadges(identities.length);
                         status.textContent = 'Dismissed ' + title + '.';
                         if (recoveryCard) {
                             var recoveryAction = recoveryCard.querySelector('a, button');
                             if (recoveryAction) recoveryAction.focus();
-                        } else {
+                        } else if (!list.querySelector('.pairing-card')) {
                             showCaughtUpState();
                         }
                     })
                     .catch(function (error) {
                         dismissButton.disabled = false;
                         status.textContent = 'Could not dismiss ' + title + ': ' + (error.message || String(error));
+                        if (identities.length > 1) window.location.reload();
                     });
             });
         });

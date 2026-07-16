@@ -80,20 +80,21 @@ def test_currently_reading_is_default_and_carries_pairing_identifiers(client, mo
     assert response.status_code == 200
     assert page.count("<h1") == 1
     assert "Currently Reading" in page
-    assert "Ready to pair" in page
-    assert "Needs a companion" in page
+    assert "Library suggestions" in page and "Batch matching" in page
+    assert "Ready to pair" not in page
+    assert "Needs a companion" not in page
     assert "Strong match" in page
     assert "Possible match" in page
-    assert "1 alternative" in page
+    assert "Companion options" in page
     assert "Audiobookshelf" in page and "Audiobook" in page
     assert "KoSync" in page and "Ebook" in page
-    assert "42% read" in page and "Source activity" in page
+    assert "42% read" in page and "Active" in page
     assert page.count('class="btn btn-secondary pairing-dismiss"') == 2
     assert 'data-source="abs" data-source-id="abs-123"' in page
     assert 'id="suggestion-search"' not in page
     assert "Active books" not in page
 
-    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)">Review pairing</a>', page).group(1)
+    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)"[^>]*>Review match</a>', page).group(1)
     query = parse_qs(urlparse(html.unescape(review_href)).query)
     assert query["detected_id"] == ["7"]
     assert query["detected_source"] == ["abs"]
@@ -125,7 +126,7 @@ def test_configured_grimmory_instance_label_is_shown(client, mock_container):
     with patch.dict("os.environ", {"GRIMMORY_2_LABEL": "Family Library"}):
         page = client.get("/suggestions").get_data(as_text=True)
 
-    assert page.count("Family Library") == 2
+    assert page.count("Family Library") >= 2
 
 
 @pytest.mark.parametrize(
@@ -164,7 +165,11 @@ def test_explicit_high_confidence_activity_edge_renders_one_group_and_exact_revi
     page = client.get("/suggestions").get_data(as_text=True)
 
     assert page.count('class="pairing-card"') == 1
-    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)">Review pairing</a>', page).group(1)
+    assert page.count("<h3>Exact Book</h3>") == 1
+    assert page.count('class="pairing-activity"') == 2
+    assert 'aria-label="Review match for Exact Book from' in page
+    assert 'aria-label="Dismiss Exact Book from' in page
+    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)"[^>]*>Review match</a>', page).group(1)
     query = parse_qs(urlparse(html.unescape(review_href)).query)
     assert query["detected_id"] == ["11"]
     assert query["detected_source"] == ["abs"]
@@ -195,7 +200,7 @@ def test_grimmory_audio_candidate_review_url_carries_exact_audio_identity(client
 
     page = client.get("/suggestions").get_data(as_text=True)
 
-    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)">Review pairing</a>', page).group(1)
+    review_href = re.search(r'<a class="btn btn-primary" href="([^"]+)"[^>]*>Review match</a>', page).group(1)
     query = parse_qs(urlparse(html.unescape(review_href)).query)
     assert query["audio_source"] == ["grimmory"]
     assert query["audio_source_id"] == ["2:10:99"]
@@ -213,6 +218,30 @@ def test_same_title_without_explicit_edge_stays_separate(client, mock_container)
     page = client.get("/suggestions").get_data(as_text=True)
 
     assert page.count('class="pairing-card"') == 2
+
+
+def test_currently_reading_groups_are_ordered_by_most_recent_source_activity(client, mock_container):
+    older = _detected(
+        "older",
+        "Older Book",
+        [],
+        source="kosync",
+        source_updated_at=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+    newer = _detected(
+        "newer",
+        "Newer Book",
+        [],
+        source="kosync",
+        source_updated_at=datetime(2026, 7, 15, tzinfo=UTC),
+    )
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = [older, newer]
+    db.get_detected_book_count.return_value = 2
+
+    page = client.get("/suggestions").get_data(as_text=True)
+
+    assert page.index("Newer Book") < page.index("Older Book")
 
 
 def test_non_high_confidence_edge_stays_separate(client, mock_container):
@@ -245,7 +274,14 @@ def test_group_contract_preserves_each_exact_identity_progress_and_dedupes_compa
         "media_format": "ebook",
     }
     rows = [
-        _detected("abs-contract", "Contract Book", [companion, dict(companion)], detected_id=41, progress=0.25),
+        _detected(
+            "abs-contract",
+            "Contract Book",
+            [companion, dict(companion)],
+            detected_id=41,
+            progress=0.25,
+            source_updated_at=datetime(2026, 7, 14, tzinfo=UTC),
+        ),
         _detected(
             "hash-contract",
             "Contract Book",
@@ -254,6 +290,7 @@ def test_group_contract_preserves_each_exact_identity_progress_and_dedupes_compa
             media_format="ebook",
             detected_id=42,
             progress=0.73,
+            source_updated_at=datetime(2026, 7, 15, tzinfo=UTC),
         ),
     ]
 
@@ -262,12 +299,12 @@ def test_group_contract_preserves_each_exact_identity_progress_and_dedupes_compa
 
     assert len(grouped) == 1
     assert grouped[0]["identities"] == [
-        {"source": "abs", "source_id": "abs-contract"},
         {"source": "kosync", "source_id": "hash-contract"},
+        {"source": "abs", "source_id": "abs-contract"},
     ]
     assert [(activity["source"], activity["progress"]) for activity in grouped[0]["activities"]] == [
-        ("abs", 25),
         ("kosync", 73),
+        ("abs", 25),
     ]
     assert [companion["identity"] for companion in grouped[0]["companions"]] == [
         {"source": "kosync", "source_id": "hash-contract"}
@@ -283,7 +320,7 @@ def test_legacy_catalog_only_renders_in_explicit_library_view(client, mock_conta
     page = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "Pairing Suggestions" in page
+    assert "Library Suggestions" in page
     assert 'id="suggestion-search"' in page
     assert "Currently Reading</h1>" not in page
     db.get_active_detected_books.assert_not_called()
@@ -307,7 +344,7 @@ def test_currently_reading_empty_states_use_existing_configuration(client, mock_
     assert "All caught up" in resolved
 
 
-def test_storyteller_only_detection_does_not_offer_unsupported_review_action(client, mock_container):
+def test_storyteller_only_detection_offers_generic_companion_search(client, mock_container):
     detected = _detected("story-1", "Storyteller Book", [])
     detected.source = "storyteller"
     db = mock_container.mock_database_service
@@ -316,12 +353,11 @@ def test_storyteller_only_detection_does_not_offer_unsupported_review_action(cli
 
     page = client.get("/suggestions").get_data(as_text=True)
 
-    assert "Pairing for this source is not available yet." in page
-    assert "choose one manually" not in page
-    assert "Review pairing" not in page
+    assert "Find companion" in page
+    assert "Review match" not in page
 
 
-def test_stale_and_unknown_source_activity_is_collapsed(client, mock_container):
+def test_stale_and_unknown_source_activity_stays_in_single_list(client, mock_container):
     stale = _detected("abs-old", "Older Book", [{"source_family": "grimmory", "title": "Older Book"}])
     stale.source_updated_at = datetime(2020, 1, 1, tzinfo=UTC)
     unknown = _detected("hash-unknown", "Unknown Activity", [])
@@ -332,9 +368,9 @@ def test_stale_and_unknown_source_activity_is_collapsed(client, mock_container):
 
     page = client.get("/suggestions").get_data(as_text=True)
 
-    assert "Older or unknown activity (2)" in page
-    assert "more than 30 days old or has no timestamp" in page
-    assert "Source activity time unknown" in page
+    assert "Older or unknown activity" not in page
+    assert "Activity time unknown" in page
+    assert page.count('class="pairing-card"') == 2
 
 
 def test_source_scoped_detected_dismiss_endpoint(client, mock_container):

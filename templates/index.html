@@ -37,12 +37,12 @@
         {% endwith %}
 
         {% if detected_books %}
-        <aside class="currently-reading-preview" aria-label="Unresolved Currently Reading pairings">
+        <aside class="currently-reading-preview" aria-label="Unresolved Currently Reading books">
             <div>
-                <strong>Currently Reading books need pairing review</strong>
+                <strong>Currently Reading books need companions</strong>
                 <p>{% for d in detected_books %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
             </div>
-            <a href="/suggestions" class="btn btn-secondary">Open Pairings</a>
+            <a href="/suggestions" class="btn btn-secondary">Open Currently Reading</a>
         </aside>
         {% endif %}
 

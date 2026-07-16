@@ -201,6 +201,9 @@ def _match_identity(match):
         return source, str(match["abs_id"])
     if source == "storyteller" and match.get("storyteller_uuid"):
         return source, str(match["storyteller_uuid"])
+    candidate_id = _candidate_source_id(match)
+    if source and candidate_id:
+        return source, str(candidate_id)
     return None
 
 
@@ -289,7 +292,12 @@ def _serialize_detected_activity(detected):
 
 
 def _serialize_detected_pairing(detected, members=None):
-    members = list(members or [detected])
+    members = sorted(
+        members or [detected],
+        key=lambda member: _activity_timestamp(member) or datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )
+    detected = members[0]
     activities = [_serialize_detected_activity(member) for member in members]
 
     review_detected = next((member for member in members if _supported_review_matches(member)), None)
@@ -298,16 +306,14 @@ def _serialize_detected_pairing(detected, members=None):
             (
                 member
                 for member in members
-                if member.source == "abs"
-                or (member.source in {"grimmory", "kosync"} and _media_format(member) == "ebook")
+                if _explicit_media_format(member) == "audiobook" and member.source in {"abs", "grimmory"}
+                or (_explicit_media_format(member) == "ebook" and member.source in {"grimmory", "kosync"})
             ),
             detected,
         )
     supported_matches = _supported_review_matches(review_detected)
     top_match = supported_matches[0] if supported_matches else None
-    review_supported = review_detected.source == "abs" or (
-        review_detected.source in {"grimmory", "kosync"} and _media_format(review_detected) == "ebook"
-    )
+    review_supported = bool(_supported_review_matches(review_detected))
     companion_matches = {}
     for member in members:
         member_format = _explicit_media_format(member)
@@ -335,8 +341,11 @@ def _serialize_detected_pairing(detected, members=None):
         "device": detected.device,
         "identities": [activity["identity"] for activity in activities],
         "activities": activities,
+        "activity_sort": _activity_timestamp(detected) or datetime.min.replace(tzinfo=UTC),
+        "source_summary": ", ".join(activity["source_label"] for activity in activities),
         "companions": list(companion_matches.values()),
         "review_url": _pairing_review_url(review_detected, top_match),
+        "find_companion_url": url_for("matching.match", search=detected.title or ""),
         "review_supported": review_supported,
         "top_match": _serialize_detected_match(top_match) if top_match else None,
         "alternatives": [_serialize_detected_match(match) for match in supported_matches[1:]],
@@ -393,7 +402,11 @@ def _group_detected_pairings(detected_books):
     grouped = {}
     for index, book in enumerate(books):
         grouped.setdefault(find(index), []).append(book)
-    return [_serialize_detected_pairing(members[0], members) for members in grouped.values()]
+    return sorted(
+        (_serialize_detected_pairing(members[0], members) for members in grouped.values()),
+        key=lambda pairing: pairing["activity_sort"],
+        reverse=True,
+    )
 
 
 _PAIRING_REVIEW_FIELDS = (
@@ -865,17 +878,11 @@ def suggestions():
         if not isinstance(active_detected, (list, tuple)):
             active_detected = []
         pairings = _group_detected_pairings(active_detected)
-        recent = [pairing for pairing in pairings if pairing["activity_current"]]
-        older = [pairing for pairing in pairings if not pairing["activity_current"]]
-        ready = [pairing for pairing in recent if pairing["top_match"]]
-        needs_companion = [pairing for pairing in recent if not pairing["top_match"]]
         total_detected = database_service.get_detected_book_count()
         return render_template(
             "suggestions.html",
             library_view=False,
-            ready_pairings=ready,
-            needs_companion_pairings=needs_companion,
-            older_pairings=older,
+            pairings=pairings,
             pairing_count=len(pairings),
             has_detected_history=isinstance(total_detected, int) and total_detected > 0,
             progress_sources_configured=_progress_sources_configured(container),
