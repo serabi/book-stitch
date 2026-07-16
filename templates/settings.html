@@ -146,9 +146,9 @@
 
                     <div class="field-grid">
                         <div class="form-group">
-                            <label>Timezone</label>
-                            <input type="text" value="{{ get_val('TZ') }}" readonly class="readonly-input">
-                            <div class="help-text">Set via <code>TZ</code> environment variable in docker-compose.yml.</div>
+                            <label for="timezone">Timezone</label>
+                            <input type="text" id="timezone" name="TZ" value="{{ get_val('TZ') }}" required>
+                            <div class="help-text">IANA timezone, for example <code>America/New_York</code>.</div>
                         </div>
                         <div class="form-group">
                             <label>Log Level</label>

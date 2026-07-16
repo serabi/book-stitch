@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from src.db.database_service import DatabaseService
 
@@ -7,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 # Full list of settings to manage
 ALL_SETTINGS = [
+    "TZ",
     # ABS
     "ABS_ENABLED",
     "ABS_SERVER",
@@ -295,6 +297,9 @@ class ConfigLoader:
                         os.environ[key] = ""
 
                 count += 1
+
+            if hasattr(time, "tzset"):
+                time.tzset()
 
             logger.info(f"Loaded {count} settings from database")
 

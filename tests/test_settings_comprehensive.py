@@ -176,6 +176,29 @@ class TestSettingsComprehensive(unittest.TestCase):
         for key, val in test_data.items():
             self.mock_container.mock_database_service.set_setting.assert_any_call(key, val)
 
+    def test_invalid_timezone_is_rejected_before_persistence(self):
+        self.mock_container.mock_database_service.reset_mock()
+        response = self.client.post("/settings", data={"TZ": "Not/A_Timezone"})
+
+        self.assertEqual(response.status_code, 302)
+        self.mock_container.mock_database_service.set_setting.assert_not_called()
+        with self.client.session_transaction() as flask_session:
+            self.assertTrue(flask_session["is_error"])
+            self.assertIn("Invalid timezone", flask_session["message"])
+
+    def test_loading_settings_applies_process_timezone(self):
+        from src.utils.config_loader import ConfigLoader
+
+        database_service = Mock()
+        database_service.get_all_settings.return_value = {"TZ": "Europe/Paris"}
+        database_service.get_undecryptable_secret_keys.return_value = []
+
+        with patch("src.utils.config_loader.time.tzset") as tzset:
+            ConfigLoader.load_settings(database_service)
+
+        self.assertEqual(os.environ["TZ"], "Europe/Paris")
+        tzset.assert_called_once_with()
+
     @patch("src.blueprints.settings_bp.http_requests.get")
     def test_abs_connection_test_uses_unsaved_payload(self, mock_get):
         mock_response = Mock()

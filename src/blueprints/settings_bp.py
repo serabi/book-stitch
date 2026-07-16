@@ -2,6 +2,7 @@
 
 import logging
 import os
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests as http_requests
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
@@ -162,6 +163,16 @@ def settings():
     database_service = get_database_service()
 
     if request.method == "POST":
+        timezone = request.form.get("TZ")
+        if timezone is not None:
+            try:
+                ZoneInfo(timezone.strip())
+            except (ValueError, ZoneInfoNotFoundError):
+                session["message"] = "Invalid timezone. Use an IANA name such as America/New_York."
+                session["is_error"] = True
+                active_tab = request.form.get("_active_tab", "general")
+                return redirect(url_for("settings_page.settings", tab=active_tab))
+
         bool_keys = [
             "ABS_ENABLED",
             "KOSYNC_USE_PERCENTAGE_FROM_SERVER",
