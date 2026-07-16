@@ -164,6 +164,39 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertEqual(claimed.processing_token, token)
         self.assertTrue(self.db_service.complete_detected_book("claimed-save", token, source="abs"))
 
+    def test_renewed_near_expiry_claim_cannot_be_reclaimed(self):
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="renewed-claim", title="Renew", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("renewed-claim", source="abs")
+        with self.db_service.get_session() as session:
+            row = session.query(DetectedBook).filter_by(source="abs", source_id="renewed-claim").one()
+            row.processing_started_at = (
+                datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE + timedelta(seconds=1)
+            )
+
+        self.assertFalse(self.db_service.renew_detected_book_claim("renewed-claim", "wrong", source="abs"))
+        self.assertTrue(self.db_service.renew_detected_book_claim("renewed-claim", token, source="abs"))
+        self.assertIsNone(self.db_service.claim_detected_book("renewed-claim", source="abs"))
+
+    def test_dismiss_and_resolve_cannot_revoke_processing_claim(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claimed-status", title="Claim", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("claimed-status", source="abs")
+
+        self.assertFalse(self.db_service.dismiss_detected_book("claimed-status", source="abs"))
+        self.assertFalse(self.db_service.resolve_detected_book("claimed-status", source="abs"))
+        claimed = self.db_service.get_detected_book("claimed-status", source="abs")
+        self.assertEqual(claimed.status, "processing")
+        self.assertEqual(claimed.processing_token, token)
+        self.assertTrue(self.db_service.complete_detected_book("claimed-status", token, source="abs"))
+
     def test_expired_claim_reappears_and_can_be_reclaimed(self):
         from src.db.detected_repository import DetectedRepository
         from src.db.models import DetectedBook

@@ -165,6 +165,7 @@ class DetectedRepository(BaseRepository):
                 .filter(
                     DetectedBook.source_id == source_id,
                     DetectedBook.source == source,
+                    DetectedBook.status != "processing",
                 )
                 .first()
             )
@@ -209,6 +210,24 @@ class DetectedRepository(BaseRepository):
                 )
             )
             return token if updated == 1 else None
+
+    def renew_detected_book_claim(self, source_id, processing_token, source="abs"):
+        """Refresh a claim lease only while the caller still owns it."""
+        with self.get_session() as session:
+            updated = (
+                session.query(DetectedBook)
+                .filter(
+                    DetectedBook.source_id == source_id,
+                    DetectedBook.source == source,
+                    DetectedBook.status == "processing",
+                    DetectedBook.processing_token == processing_token,
+                )
+                .update(
+                    {DetectedBook.processing_started_at: datetime.now(UTC)},
+                    synchronize_session=False,
+                )
+            )
+            return updated == 1
 
     def _finish_claim(self, source_id, processing_token, source, status):
         with self.get_session() as session:

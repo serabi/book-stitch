@@ -39,6 +39,10 @@ class _MergeIdentityChanged(Exception):
     """The confirmed merge source changed before the transactional write."""
 
 
+class _ClaimOwnershipLost(Exception):
+    """The detected-book lease no longer belongs to this intake request."""
+
+
 class BookIntakeService:
     """Deep Module for creating and joining PageKeeper books from user intent.
 
@@ -250,6 +254,15 @@ class BookIntakeService:
                 )
             return self._combine_conflict(prepared.merge_book)
 
+        def _renew_claim():
+            return self.database_service.renew_detected_book_claim(
+                detected_source_id,
+                processing_token,
+                source=detected_source,
+            )
+
+        renew_claim = _renew_claim if processing_token else None
+
         try:
             result = self._apply_mapping(
                 prepared,
@@ -260,11 +273,12 @@ class BookIntakeService:
                 author=author,
                 subtitle=subtitle,
                 resolve_detected=not processing_token,
+                renew_claim=renew_claim,
             )
             if processing_token and not self.database_service.complete_detected_book(
                 detected_source_id, processing_token, source=detected_source
             ):
-                raise RuntimeError("Detected book claim was lost before completion")
+                raise _ClaimOwnershipLost
             return result
         except _MergeIdentityChanged:
             if processing_token:
@@ -276,6 +290,16 @@ class BookIntakeService:
                 status_code=409,
                 conflict_code="combine_changed",
                 conflict_book_id=confirmed_merge_id,
+            )
+        except _ClaimOwnershipLost:
+            if processing_token:
+                self.database_service.restore_detected_book(
+                    detected_source_id, processing_token, source=detected_source
+                )
+            return IntakeResult(
+                error="This pairing lost its processing lease. Try again.",
+                status_code=409,
+                conflict_code="claim_lost",
             )
         except Exception:
             if processing_token:
@@ -357,9 +381,11 @@ class BookIntakeService:
         author,
         subtitle,
         resolve_detected,
+        renew_claim,
     ):
         existing_book = prepared.merge_book
         original_ebook_filename = None
+        self._require_claim_ownership(renew_claim)
         if existing_book:
             logger.info("Merging exact book id=%s into '%s'", existing_book.id, prepared.abs_id)
             ebook_item_id = existing_book.ebook_item_id or existing_book.abs_ebook_item_id or existing_book.abs_id
@@ -428,20 +454,41 @@ class BookIntakeService:
                 raise _MergeIdentityChanged
         else:
             book = self.database_service.save_book(desired, is_new=True)
+        self._require_claim_ownership(renew_claim)
 
+        self._require_claim_ownership(renew_claim)
         ensure_kosync_document(book, self.database_service)
+        self._require_claim_ownership(renew_claim)
+
+        self._require_claim_ownership(renew_claim)
         self._record_grimmory_source(prepared.kosync_doc_id, prepared.ebook_source_id)
+        self._require_claim_ownership(renew_claim)
         if storyteller_submit:
+            self._require_claim_ownership(renew_claim)
             self._create_storyteller_reservation(prepared.abs_id)
-        if self.abs_service.add_to_collection(prepared.abs_id, self.collection_name) is False:
+            self._require_claim_ownership(renew_claim)
+
+        self._require_claim_ownership(renew_claim)
+        collection_added = self.abs_service.add_to_collection(prepared.abs_id, self.collection_name)
+        self._require_claim_ownership(renew_claim)
+        if collection_added is False:
             raise RuntimeError("Audiobookshelf collection update failed")
+
+        self._require_claim_ownership(renew_claim)
         self.attempt_hardcover_automatch(self.container, book)
+        self._require_claim_ownership(renew_claim)
         if prepared.grimmory_client:
+            self._require_claim_ownership(renew_claim)
             self._add_to_grimmory_shelf(
                 prepared.grimmory_client, original_ebook_filename or prepared.ebook_filename
             )
+            self._require_claim_ownership(renew_claim)
         if storyteller_submit:
+            self._require_claim_ownership(renew_claim)
             self._submit_to_storyteller_async(prepared.abs_id, title, prepared.ebook_filename)
+            self._require_claim_ownership(renew_claim)
+
+        self._require_claim_ownership(renew_claim)
         self._resolve_mapping_suggestions(
             prepared.abs_id,
             prepared.kosync_doc_id,
@@ -449,7 +496,13 @@ class BookIntakeService:
             prepared.ebook_source_id,
             resolve_detected=resolve_detected,
         )
+        self._require_claim_ownership(renew_claim)
         return IntakeResult(book=book)
+
+    @staticmethod
+    def _require_claim_ownership(renew_claim):
+        if renew_claim and not renew_claim():
+            raise _ClaimOwnershipLost
 
     def _create_storyteller_reservation(self, abs_id):
         book = self.database_service.get_book_by_ref(abs_id)

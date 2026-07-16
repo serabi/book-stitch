@@ -324,6 +324,7 @@ def test_pairing_review_same_mapping_retry_reconciles_side_effects_before_comple
     db = Mock()
     db.get_book_by_ref.return_value = existing
     db.get_kosync_document.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
     service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="hash-exact")
 
     result = service.map_audiobook_ebook(
@@ -340,9 +341,12 @@ def test_pairing_review_same_mapping_retry_reconciles_side_effects_before_comple
     abs_service.add_to_collection.assert_called_once_with("abs-1", "Synced")
     hc.assert_called_once()
     db.claim_detected_book.assert_called_once_with("abs-1", source="abs")
-    db.complete_detected_book.assert_called_once_with(
-        "abs-1", db.claim_detected_book.return_value, source="abs"
+    assert db.renew_detected_book_claim.call_count == 12
+    assert all(
+        call.args == ("abs-1", "owner-token") and call.kwargs == {"source": "abs"}
+        for call in db.renew_detected_book_claim.call_args_list
     )
+    db.complete_detected_book.assert_called_once_with("abs-1", "owner-token", source="abs")
 
 
 def test_combine_conflict_claims_then_restores_before_any_write_or_side_effect():
@@ -509,6 +513,32 @@ def test_confirmed_merge_identity_change_returns_typed_failure_without_side_effe
     db.restore_detected_book.assert_called_once_with("abs-1", "owner-token", source="abs")
     abs_service.add_to_collection.assert_not_called()
     hc.assert_not_called()
+
+
+def test_lost_claim_stops_later_side_effects_and_cannot_restore_new_owner():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = "original-token"
+    db.renew_detected_book_claim.side_effect = [True, True, False]
+    service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.conflict_code == "claim_lost"
+    db.save_book.assert_called_once()
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+    db.restore_detected_book.assert_called_once_with("abs-1", "original-token", source="abs")
+    db.complete_detected_book.assert_not_called()
 
 
 def test_resolved_retry_requires_exact_existing_mapping():
