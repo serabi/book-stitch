@@ -197,13 +197,38 @@ class BookRepository(BaseRepository):
         the source row, move any target-only children, then delete only the
         temporary target row.
         """
+        return self._migrate_book_data(
+            [Book.abs_id == old_abs_id],
+            old_abs_id,
+            new_abs_id,
+            overrides,
+        )
+
+    def migrate_book_data_by_id(
+        self,
+        book_id,
+        new_abs_id,
+        *,
+        expected_kosync_doc_id,
+        expected_abs_id,
+        overrides=None,
+    ):
+        """Migrate an exact source row only while its confirmed identity matches."""
+        return self._migrate_book_data(
+            [
+                Book.id == book_id,
+                Book.kosync_doc_id == expected_kosync_doc_id,
+                Book.abs_id == expected_abs_id,
+            ],
+            expected_abs_id,
+            new_abs_id,
+            overrides,
+        )
+
+    def _migrate_book_data(self, lookup_filters, old_abs_id, new_abs_id, overrides):
         with self.get_session() as session:
             try:
-                book = session.query(Book).filter(Book.abs_id == old_abs_id).first()
-                if not book and old_abs_id is not None:
-                    old_ref = str(old_abs_id).strip()
-                    if old_ref.isdigit():
-                        book = session.query(Book).filter(Book.id == int(old_ref)).first()
+                book = session.query(Book).filter(*lookup_filters).first()
                 if not book:
                     logger.warning(f"migrate_book_data: book '{old_abs_id}' not found")
                     return

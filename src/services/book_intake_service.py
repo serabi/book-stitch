@@ -35,6 +35,10 @@ class _PreparedMapping:
     grimmory_client: object | None
 
 
+class _MergeIdentityChanged(Exception):
+    """The confirmed merge source changed before the transactional write."""
+
+
 class BookIntakeService:
     """Deep Module for creating and joining PageKeeper books from user intent.
 
@@ -220,10 +224,12 @@ class BookIntakeService:
         if isinstance(prepared, IntakeResult):
             return prepared
 
-        claimed = False
+        processing_token = None
         if detected_source and detected_source_id:
-            claimed = self.database_service.claim_detected_book(detected_source_id, source=detected_source)
-            if not claimed:
+            processing_token = self.database_service.claim_detected_book(
+                detected_source_id, source=detected_source
+            )
+            if not processing_token:
                 detected = self.database_service.get_detected_book(detected_source_id, source=detected_source)
                 if getattr(detected, "status", None) == "resolved" and self._mapping_matches(prepared):
                     return IntakeResult(book=prepared.current_book)
@@ -238,8 +244,10 @@ class BookIntakeService:
             not confirm_combine or confirmed_merge_id != prepared.merge_book.id
         )
         if merge_unconfirmed:
-            if claimed:
-                self.database_service.restore_detected_book(detected_source_id, source=detected_source)
+            if processing_token:
+                self.database_service.restore_detected_book(
+                    detected_source_id, processing_token, source=detected_source
+                )
             return self._combine_conflict(prepared.merge_book)
 
         try:
@@ -251,16 +259,29 @@ class BookIntakeService:
                 storyteller_submit=storyteller_submit,
                 author=author,
                 subtitle=subtitle,
-                resolve_detected=not claimed,
+                resolve_detected=not processing_token,
             )
-            if claimed and not self.database_service.complete_detected_book(
-                detected_source_id, source=detected_source
+            if processing_token and not self.database_service.complete_detected_book(
+                detected_source_id, processing_token, source=detected_source
             ):
                 raise RuntimeError("Detected book claim was lost before completion")
             return result
+        except _MergeIdentityChanged:
+            if processing_token:
+                self.database_service.restore_detected_book(
+                    detected_source_id, processing_token, source=detected_source
+                )
+            return IntakeResult(
+                error="The existing book changed before it could be combined. Review the pairing again.",
+                status_code=409,
+                conflict_code="combine_changed",
+                conflict_book_id=confirmed_merge_id,
+            )
         except Exception:
-            if claimed:
-                self.database_service.restore_detected_book(detected_source_id, source=detected_source)
+            if processing_token:
+                self.database_service.restore_detected_book(
+                    detected_source_id, processing_token, source=detected_source
+                )
             raise
 
     def inspect_audiobook_ebook(
@@ -396,9 +417,15 @@ class BookIntakeService:
                     "read_count",
                 )
             }
-            book = self.database_service.migrate_book_data(existing_book.id, prepared.abs_id, overrides=overrides)
+            book = self.database_service.migrate_book_data_by_id(
+                existing_book.id,
+                prepared.abs_id,
+                expected_kosync_doc_id=prepared.kosync_doc_id,
+                expected_abs_id=existing_book.abs_id,
+                overrides=overrides,
+            )
             if not book:
-                raise RuntimeError(f"Exact merge source book id={existing_book.id} disappeared")
+                raise _MergeIdentityChanged
         else:
             book = self.database_service.save_book(desired, is_new=True)
 
@@ -406,7 +433,8 @@ class BookIntakeService:
         self._record_grimmory_source(prepared.kosync_doc_id, prepared.ebook_source_id)
         if storyteller_submit:
             self._create_storyteller_reservation(prepared.abs_id)
-        self.abs_service.add_to_collection(prepared.abs_id, self.collection_name)
+        if self.abs_service.add_to_collection(prepared.abs_id, self.collection_name) is False:
+            raise RuntimeError("Audiobookshelf collection update failed")
         self.attempt_hardcover_automatch(self.container, book)
         if prepared.grimmory_client:
             self._add_to_grimmory_shelf(

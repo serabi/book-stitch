@@ -15,7 +15,11 @@
         </div>
     </div>
 
-    {% if pairing.top_match %}
+    {% if not pairing.review_supported %}
+    <div class="pairing-recommendation pairing-recommendation--empty">
+        <p>This source cannot be paired here yet.</p>
+    </div>
+    {% elif pairing.top_match %}
     <div class="pairing-recommendation">
         <p class="pairing-eyebrow">Top recommendation</p>
         <div class="pairing-match-heading">

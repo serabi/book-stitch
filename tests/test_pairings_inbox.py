@@ -128,6 +128,7 @@ def test_storyteller_only_detection_does_not_offer_unsupported_review_action(cli
     page = client.get("/suggestions").get_data(as_text=True)
 
     assert "Pairing for this source is not available yet." in page
+    assert "choose one manually" not in page
     assert "Review pairing" not in page
 
 

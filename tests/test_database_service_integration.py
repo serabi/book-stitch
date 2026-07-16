@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Add project root to Python path
@@ -132,13 +133,58 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
             DetectedBook(source="abs", source_id="claim-once", title="Claim", progress_percentage=0.2)
         )
 
-        self.assertTrue(self.db_service.claim_detected_book("claim-once", source="abs"))
-        self.assertFalse(self.db_service.claim_detected_book("claim-once", source="abs"))
-        self.assertEqual(self.db_service.get_detected_book("claim-once", source="abs").status, "processing")
-        self.assertTrue(self.db_service.restore_detected_book("claim-once", source="abs"))
-        self.assertTrue(self.db_service.claim_detected_book("claim-once", source="abs"))
-        self.assertTrue(self.db_service.complete_detected_book("claim-once", source="abs"))
+        first_token = self.db_service.claim_detected_book("claim-once", source="abs")
+        self.assertIsInstance(first_token, str)
+        self.assertIsNone(self.db_service.claim_detected_book("claim-once", source="abs"))
+        claimed = self.db_service.get_detected_book("claim-once", source="abs")
+        self.assertEqual(claimed.status, "processing")
+        self.assertEqual(claimed.processing_token, first_token)
+        self.assertFalse(self.db_service.restore_detected_book("claim-once", "wrong", source="abs"))
+        self.assertFalse(self.db_service.complete_detected_book("claim-once", "wrong", source="abs"))
+        self.assertTrue(self.db_service.restore_detected_book("claim-once", first_token, source="abs"))
+        second_token = self.db_service.claim_detected_book("claim-once", source="abs")
+        self.assertNotEqual(second_token, first_token)
+        self.assertTrue(self.db_service.complete_detected_book("claim-once", second_token, source="abs"))
         self.assertEqual(self.db_service.get_detected_book("claim-once", source="abs").status, "resolved")
+
+    def test_discovery_upsert_preserves_live_claim_until_owner_completes(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claimed-save", title="Before", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("claimed-save", source="abs")
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claimed-save", title="After", progress_percentage=0.4)
+        )
+
+        claimed = self.db_service.get_detected_book("claimed-save", source="abs")
+        self.assertEqual(claimed.status, "processing")
+        self.assertEqual(claimed.processing_token, token)
+        self.assertTrue(self.db_service.complete_detected_book("claimed-save", token, source="abs"))
+
+    def test_expired_claim_reappears_and_can_be_reclaimed(self):
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="expired-claim", title="Expired", progress_percentage=0.2)
+        )
+        old_token = self.db_service.claim_detected_book("expired-claim", source="abs")
+        with self.db_service.get_session() as session:
+            row = session.query(DetectedBook).filter_by(source="abs", source_id="expired-claim").one()
+            row.processing_started_at = datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE - timedelta(seconds=1)
+
+        active_ids = {row.source_id for row in self.db_service.get_active_detected_books()}
+        self.assertIn("expired-claim", active_ids)
+        visible = self.db_service.get_detected_book("expired-claim", source="abs")
+        self.assertEqual(visible.status, "detected")
+        self.assertIsNone(visible.processing_token)
+
+        new_token = self.db_service.claim_detected_book("expired-claim", source="abs")
+        self.assertIsInstance(new_token, str)
+        self.assertNotEqual(new_token, old_token)
 
     def test_dismiss_detected_book_sets_status_on_existing_row(self):
         """Dismissing an existing detected book sets status to dismissed and returns True."""

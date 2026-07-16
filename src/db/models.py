@@ -571,6 +571,8 @@ class DetectedBook(Base):
     first_detected_at = Column(DateTime, default=utc_now)
     last_seen_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     status = Column(String(20), default="detected")
+    processing_token = Column(String(64), nullable=True)
+    processing_started_at = Column(DateTime, nullable=True)
     matches_json = Column(Text, nullable=True)
     device = Column(String(128), nullable=True)
     ebook_filename = Column(String(500), nullable=True)

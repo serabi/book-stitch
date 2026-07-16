@@ -1,6 +1,9 @@
 """Repository for detected external books."""
 
-from datetime import UTC, datetime
+import secrets
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import and_, or_
 
 from .base_repository import BaseRepository
 from .models import DetectedBook
@@ -8,6 +11,8 @@ from .models import DetectedBook
 
 class DetectedRepository(BaseRepository):
     ACTIVE_STATUSES = ("detected",)
+    # ponytail: fixed ceiling keeps abandoned claims recoverable without config surface.
+    _PROCESSING_LEASE = timedelta(minutes=10)
 
     def get_detected_book(self, source_id, source="abs"):
         return self._get_one(
@@ -18,6 +23,7 @@ class DetectedRepository(BaseRepository):
 
     def get_active_detected_books(self, limit=None):
         with self.get_session() as session:
+            self._restore_expired_claims(session)
             query = (
                 session.query(DetectedBook)
                 .filter(DetectedBook.status.in_(self.ACTIVE_STATUSES))
@@ -28,7 +34,9 @@ class DetectedRepository(BaseRepository):
             return self._query_and_expunge(session, query, one=False)
 
     def get_active_detected_book_count(self):
-        return self._count(DetectedBook, DetectedBook.status.in_(self.ACTIVE_STATUSES))
+        with self.get_session() as session:
+            self._restore_expired_claims(session)
+            return session.query(DetectedBook).filter(DetectedBook.status.in_(self.ACTIVE_STATUSES)).count()
 
     def get_detected_book_count(self):
         return self._count(DetectedBook)
@@ -43,6 +51,8 @@ class DetectedRepository(BaseRepository):
         "progress_percentage",
         "source_updated_at",
         "status",
+        "processing_token",
+        "processing_started_at",
         "last_seen_at",
         "first_detected_at",
     )
@@ -71,6 +81,14 @@ class DetectedRepository(BaseRepository):
         """Reconcile incoming values against an existing row so an unconditional
         attribute copy preserves the original conditional update rules."""
         now = datetime.now(UTC)
+
+        if self._has_live_claim(existing, now):
+            detected_book.status = "processing"
+            detected_book.processing_token = existing.processing_token
+            detected_book.processing_started_at = existing.processing_started_at
+        else:
+            detected_book.processing_token = None
+            detected_book.processing_started_at = None
 
         if existing.status == "dismissed" and detected_book.status == "detected":
             detected_book.status = "dismissed"
@@ -106,6 +124,35 @@ class DetectedRepository(BaseRepository):
         else:
             detected_book.first_detected_at = existing.first_detected_at
 
+    def _has_live_claim(self, detected, now):
+        if detected.status != "processing" or not detected.processing_token or not detected.processing_started_at:
+            return False
+        started_at = detected.processing_started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=UTC)
+        return started_at > now - self._PROCESSING_LEASE
+
+    def _restore_expired_claims(self, session):
+        cutoff = datetime.now(UTC) - self._PROCESSING_LEASE
+        return (
+            session.query(DetectedBook)
+            .filter(
+                DetectedBook.status == "processing",
+                or_(
+                    DetectedBook.processing_started_at.is_(None),
+                    DetectedBook.processing_started_at <= cutoff,
+                ),
+            )
+            .update(
+                {
+                    DetectedBook.status: "detected",
+                    DetectedBook.processing_token: None,
+                    DetectedBook.processing_started_at: None,
+                },
+                synchronize_session=False,
+            )
+        )
+
     def _set_detected_status(self, source_id, source, status):
         """Set the status of a matching detected book, refreshing last_seen_at.
 
@@ -124,31 +171,72 @@ class DetectedRepository(BaseRepository):
             if not detected:
                 return False
             detected.status = status
+            detected.processing_token = None
+            detected.processing_started_at = None
             detected.last_seen_at = datetime.now(UTC)
             return True
 
-    def transition_detected_book(self, source_id, source, from_status, to_status):
-        """Atomically transition one detected row when its current status matches."""
+    def claim_detected_book(self, source_id, source="abs"):
+        """Atomically claim active or expired work and return its owner token."""
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(UTC)
+        cutoff = now - self._PROCESSING_LEASE
         with self.get_session() as session:
             updated = (
                 session.query(DetectedBook)
                 .filter(
                     DetectedBook.source_id == source_id,
                     DetectedBook.source == source,
-                    DetectedBook.status == from_status,
+                    or_(
+                        DetectedBook.status == "detected",
+                        and_(
+                            DetectedBook.status == "processing",
+                            or_(
+                                DetectedBook.processing_started_at.is_(None),
+                                DetectedBook.processing_started_at <= cutoff,
+                            ),
+                        ),
+                    ),
                 )
-                .update({DetectedBook.status: to_status, DetectedBook.last_seen_at: datetime.now(UTC)})
+                .update(
+                    {
+                        DetectedBook.status: "processing",
+                        DetectedBook.processing_token: token,
+                        DetectedBook.processing_started_at: now,
+                        DetectedBook.last_seen_at: now,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            return token if updated == 1 else None
+
+    def _finish_claim(self, source_id, processing_token, source, status):
+        with self.get_session() as session:
+            updated = (
+                session.query(DetectedBook)
+                .filter(
+                    DetectedBook.source_id == source_id,
+                    DetectedBook.source == source,
+                    DetectedBook.status == "processing",
+                    DetectedBook.processing_token == processing_token,
+                )
+                .update(
+                    {
+                        DetectedBook.status: status,
+                        DetectedBook.processing_token: None,
+                        DetectedBook.processing_started_at: None,
+                        DetectedBook.last_seen_at: datetime.now(UTC),
+                    },
+                    synchronize_session=False,
+                )
             )
             return updated == 1
 
-    def claim_detected_book(self, source_id, source="abs"):
-        return self.transition_detected_book(source_id, source, "detected", "processing")
+    def restore_detected_book(self, source_id, processing_token, source="abs"):
+        return self._finish_claim(source_id, processing_token, source, "detected")
 
-    def restore_detected_book(self, source_id, source="abs"):
-        return self.transition_detected_book(source_id, source, "processing", "detected")
-
-    def complete_detected_book(self, source_id, source="abs"):
-        return self.transition_detected_book(source_id, source, "processing", "resolved")
+    def complete_detected_book(self, source_id, processing_token, source="abs"):
+        return self._finish_claim(source_id, processing_token, source, "resolved")
 
     def dismiss_detected_book(self, source_id, source="abs"):
         return self._set_detected_status(source_id, source, "dismissed")
