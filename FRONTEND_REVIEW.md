@@ -2,6 +2,8 @@
 
 Date: 2026-07-15
 Branch: `prototype/frontend-cleanup-review`
+Status: Historical. The navigation and pairing findings here were
+addressed or superseded by PRs #114 and #115.
 
 ## Recommendation
 

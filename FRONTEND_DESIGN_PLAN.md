@@ -2,7 +2,10 @@
 
 Date: 2026-07-15
 Branch: `prototype/frontend-cleanup-review`
-Status: Ready for implementation
+Status: Superseded. Phase 1 (sidebar shell) shipped as planned; the
+remaining phases were replaced by the stacked Currently Reading work
+in PRs #114 and #115, which intentionally include the backend changes
+this plan listed as non-goals.
 
 ## Goal
 
