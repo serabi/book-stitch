@@ -174,8 +174,22 @@ def test_searchable_ebooks_keeps_same_filename_from_two_grimmory_servers(flask_a
     group = mock_container.mock_grimmory_client
     group.is_configured.return_value = True
     group.search_books.return_value = [
-        {"id": 11, "title": "Primary", "fileName": "same.epub", "_instance_id": "default"},
-        {"id": 22, "title": "Secondary", "fileName": "same.epub", "_instance_id": "2"},
+        {
+            "id": 11,
+            "bookFileId": 111,
+            "bookType": "EPUB",
+            "title": "Primary",
+            "fileName": "same.epub",
+            "_instance_id": "default",
+        },
+        {
+            "id": 22,
+            "bookFileId": 222,
+            "bookType": "EPUB",
+            "title": "Secondary",
+            "fileName": "same.epub",
+            "_instance_id": "2",
+        },
     ]
 
     with flask_app.app_context():
@@ -184,9 +198,31 @@ def test_searchable_ebooks_keeps_same_filename_from_two_grimmory_servers(flask_a
         results = get_searchable_ebooks("same")
 
     assert [(result.name, result.source_id) for result in results[:2]] == [
-        ("same.epub", "default:11"),
-        ("same.epub", "2:22"),
+        ("same.epub", "default:11:111"),
+        ("same.epub", "2:22:222"),
     ]
+
+
+def test_find_in_grimmory_uses_exact_book_file_identity(flask_app, mock_container):
+    secondary = Mock()
+    secondary.is_configured.return_value = True
+    secondary.find_book_file_by_source_id.return_value = {
+        "id": 22,
+        "bookFileId": 222,
+        "fileName": "same.epub",
+    }
+    mock_container.mock_grimmory_client.is_configured.return_value = True
+    mock_container.grimmory_client_2 = lambda: secondary
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import find_in_grimmory
+
+        book, client = find_in_grimmory("same.epub", "2:22:222")
+
+    assert book["_instance_id"] == "2"
+    assert book["bookFileId"] == 222
+    assert client is secondary
+    secondary.find_book_file_by_source_id.assert_called_once_with("2:22:222")
 
 
 # ── serialize_suggestion with None fields ─────────────────────────

@@ -46,13 +46,17 @@ def _review_query(detected, candidate_source="", candidate_source_id=""):
 
 
 @pytest.fixture
-def review_setup(mock_container):
+def review_setup(mock_container, monkeypatch):
     db = mock_container.mock_database_service
     db.get_book_by_kosync_id.return_value = None
     db.get_kosync_doc_by_grimmory_id.return_value = None
     db.get_book_by_ebook_filename.return_value = None
     db.get_all_books.return_value = []
     mock_container.mock_abs_service.get_audiobooks = lambda: [_abs_book()]
+    monkeypatch.setattr(
+        "src.blueprints.matching_bp.get_kosync_id_for_ebook",
+        lambda filename, *args, **kwargs: "hash-exact" if filename in {"exact.epub", "same.epub"} else None,
+    )
     return db
 
 
@@ -61,17 +65,17 @@ def test_abs_to_grimmory_review_preserves_and_preselects_exact_editions(client, 
         matches=[
             {
                 "source_family": "grimmory",
-                "source_key": "grimmory:2:exact.epub",
+                "source_key": "grimmory:2:44:441",
                 "filename": "exact.epub",
-                "id": "2:44",
+                "id": "2:44:441",
                 "title": "Exact Book",
                 "media_format": "ebook",
             }
         ]
     )
     review_setup.get_detected_book.return_value = detected
-    ebook = EbookResult("exact.epub", title="Exact Book", grimmory_id="2:44", source="Grimmory 2")
-    query = _review_query(detected, "grimmory", "grimmory:2:exact.epub")
+    ebook = EbookResult("exact.epub", title="Exact Book", grimmory_id="2:44:441", source="Grimmory 2")
+    query = _review_query(detected, "grimmory", "grimmory:2:44:441")
 
     with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]):
         response = client.get(f"/match?{query}")
@@ -80,10 +84,10 @@ def test_abs_to_grimmory_review_preserves_and_preselects_exact_editions(client, 
     assert response.status_code == 200
     assert page.count("<h1") == 1
     assert 'name="detected_source_id" value="abs-1"' in page
-    assert 'name="candidate_source_id" value="grimmory:2:exact.epub"' in page
+    assert 'name="candidate_source_id" value="grimmory:2:44:441"' in page
     assert 'name="audiobook_id" value="abs-1"' in page
     assert 'name="ebook_filename" value="exact.epub"' in page
-    assert 'id="input_ebook_source_id" value="2:44"' in page
+    assert 'id="input_ebook_source_id" value="2:44:441"' in page
     assert "Review match" in page
     assert "Link formats" in page
     assert "Search books" not in page
@@ -125,9 +129,103 @@ def test_grimmory_audiobook_review_revalidates_exact_identity_before_render(clie
     mock_container.mock_grimmory_client.find_audiobook_by_source_id.assert_called_with("2:10:99")
 
 
+def test_review_rejects_ebook_when_kosync_identity_changed(client, mock_container, review_setup):
+    detected = _detected(
+        source="grimmory",
+        source_id="2:10:99",
+        media_format="audiobook",
+        matches=[
+            {
+                "source_family": "kosync",
+                "source_key": "kosync:hash-exact",
+                "filename": "exact.epub",
+                "title": "Exact Book",
+                "media_format": "ebook",
+            }
+        ],
+    )
+    review_setup.get_detected_book.return_value = detected
+    mock_container.mock_grimmory_client.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 99,
+        "title": "Exact Book Audio",
+    }
+
+    with (
+        patch(
+            "src.blueprints.matching_bp.get_searchable_ebooks",
+            return_value=[EbookResult("exact.epub", title="Exact Book Ebook", source="Filesystem")],
+        ),
+        patch("src.blueprints.matching_bp.get_kosync_id_for_ebook", return_value="different-hash"),
+    ):
+        response = client.get(f"/match?{_review_query(detected, 'kosync', 'kosync:hash-exact')}")
+
+    page = response.get_data(as_text=True)
+    assert response.status_code == 409
+    assert "no longer matches the detected edition" in page
+    assert "Exact editions verified" not in page
+
+
+def test_manual_companion_picker_keeps_started_grimmory_audiobook(
+    client, mock_container, review_setup
+):
+    detected = _detected(
+        source="grimmory",
+        source_id="2:10:99",
+        media_format="audiobook",
+        matches=[],
+    )
+    review_setup.get_detected_book.return_value = detected
+    mock_container.mock_grimmory_client.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 99,
+        "title": "Exact Book Audio",
+    }
+    suggestion_service = Mock()
+    suggestion_service.find_companion_candidates.return_value = [
+        {
+            "source_family": "grimmory",
+            "source_key": "grimmory:2:44:441",
+            "id": "2:44:441",
+            "filename": "exact.epub",
+            "title": "Exact Book Ebook",
+            "author": "Exact Author",
+            "media_format": "ebook",
+        }
+    ]
+    mock_container.suggestion_service = lambda: suggestion_service
+
+    chooser = client.get(f"/match?{_review_query(detected)}")
+    chooser_page = chooser.get_data(as_text=True)
+
+    assert chooser.status_code == 200
+    assert "Started audiobook" in chooser_page
+    assert "Exact Book Ebook" in chooser_page
+    assert "candidate_source_id=grimmory:2:44:441" in chooser_page
+    assert 'name="detected_source_id" value="2:10:99"' in chooser_page
+    assert "Search books" not in chooser_page
+
+    ebook = EbookResult(
+        "exact.epub",
+        title="Exact Book Ebook",
+        grimmory_id="2:44:441",
+        source="Grimmory 2",
+    )
+    with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]):
+        selected = client.get(
+            f"/match?{_review_query(detected, 'grimmory', 'grimmory:2:44:441')}"
+        )
+
+    selected_page = selected.get_data(as_text=True)
+    assert selected.status_code == 200
+    assert 'name="audio_source_id" value="2:10:99"' in selected_page
+    assert 'value="2:44:441"' in selected_page
+    assert "Exact editions verified" in selected_page
+
+
 @pytest.mark.parametrize(
     ("detected_source", "detected_source_id", "ebook_source_id"),
-    [("kosync", "hash-exact", None), ("grimmory", "default:exact.epub", "default:44")],
+    [("kosync", "hash-exact", None), ("grimmory", "default:44:441", "default:44:441")],
 )
 def test_ebook_to_grimmory_audio_review_ignores_hidden_identity_and_uses_exact_stored_match(
     client, mock_container, review_setup, detected_source, detected_source_id, ebook_source_id
@@ -193,7 +291,7 @@ def test_ebook_to_grimmory_audio_review_ignores_hidden_identity_and_uses_exact_s
 
 @pytest.mark.parametrize(
     ("source", "source_id", "ebook_source_id"),
-    [("grimmory", "default:exact.epub", "default:44"), ("kosync", "hash-exact", "")],
+    [("grimmory", "default:44:441", "default:44:441"), ("kosync", "hash-exact", "")],
 )
 def test_ebook_to_abs_review_commits_through_intake_and_redirects_next(
     client, mock_container, review_setup, source, source_id, ebook_source_id
@@ -267,9 +365,9 @@ def test_stale_recommended_edition_clears_candidate_and_recovers_manual_review(c
         matches=[
             {
                 "source_family": "grimmory",
-                "source_key": "grimmory:default:gone.epub",
+                "source_key": "grimmory:default:99:999",
                 "filename": "gone.epub",
-                "id": "default:99",
+                "id": "default:99:999",
                 "media_format": "ebook",
             }
         ]
@@ -278,15 +376,15 @@ def test_stale_recommended_edition_clears_candidate_and_recovers_manual_review(c
 
     with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[]):
         response = client.get(
-            f"/match?{_review_query(detected, 'grimmory', 'grimmory:default:gone.epub')}"
+            f"/match?{_review_query(detected, 'grimmory', 'grimmory:default:99:999')}"
         )
 
     page = response.get_data(as_text=True)
     assert response.status_code == 409
     assert "selected ebook edition is no longer available" in page
-    assert 'name="candidate_source_id" value="grimmory:default:gone.epub"' not in page
+    assert 'name="candidate_source_id" value="grimmory:default:99:999"' not in page
     assert 'name="detected_source_id" value="abs-1"' in page
-    assert "Choose a different companion" in page
+    assert "Choose its companion" in page
 
 
 def test_post_error_keeps_exact_selections_and_inline_error(client, mock_container, review_setup):
@@ -294,15 +392,15 @@ def test_post_error_keeps_exact_selections_and_inline_error(client, mock_contain
         matches=[
             {
                 "source_family": "grimmory",
-                "source_key": "grimmory:default:exact.epub",
+                "source_key": "grimmory:default:44:441",
                 "filename": "exact.epub",
-                "id": "default:44",
+                "id": "default:44:441",
                 "media_format": "ebook",
             }
         ]
     )
     review_setup.get_detected_book.return_value = detected
-    ebook = EbookResult("exact.epub", grimmory_id="default:44", source="Grimmory")
+    ebook = EbookResult("exact.epub", grimmory_id="default:44:441", source="Grimmory")
     intake = Mock()
     intake.map_audiobook_ebook.return_value = IntakeResult(error="Edition changed", status_code=409)
     data = {
@@ -311,10 +409,10 @@ def test_post_error_keeps_exact_selections_and_inline_error(client, mock_contain
         "detected_source": "abs",
         "detected_source_id": "abs-1",
         "candidate_source": "grimmory",
-        "candidate_source_id": "grimmory:default:exact.epub",
+        "candidate_source_id": "grimmory:default:44:441",
         "audiobook_id": "abs-1",
         "ebook_filename": "exact.epub",
-        "ebook_source_id": "default:44",
+        "ebook_source_id": "default:44:441",
     }
 
     with (
@@ -328,7 +426,7 @@ def test_post_error_keeps_exact_selections_and_inline_error(client, mock_contain
     assert 'role="alert">Edition changed' in page
     assert 'name="audiobook_id" value="abs-1"' in page
     assert 'name="ebook_filename" value="exact.epub"' in page
-    assert 'name="candidate_source_id" value="grimmory:default:exact.epub"' in page
+    assert 'name="candidate_source_id" value="grimmory:default:44:441"' in page
 
 
 def test_existing_entry_collision_requires_distinct_confirmation(client, review_setup):

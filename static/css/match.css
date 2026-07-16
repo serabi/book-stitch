@@ -24,6 +24,39 @@
     font-size: 1.1rem;
 }
 
+.match-companion-choices {
+  display: grid;
+  gap: 12px;
+}
+
+.match-companion-choices h2,
+.match-companion-choices p {
+  margin: 0;
+}
+
+.match-companion-choice {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  color: inherit;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 16px;
+  text-decoration: none;
+}
+
+.match-companion-choice:hover,
+.match-companion-choice:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.match-companion-choice small {
+  display: block;
+  margin-top: 4px;
+}
+
 /* Override container width for match pages */
 .container {
   max-width: 1600px;

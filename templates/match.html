@@ -134,8 +134,30 @@
                     <input type="hidden" name="audiobook_id" value="{{ review_editions.audio_source_id }}">
                     <input type="hidden" name="ebook_filename" value="{{ review_editions.ebook_filename }}">
                     <input type="hidden" name="ebook_source_id" value="{{ review_editions.ebook_source_id or '' }}">
+                    <a class="btn btn-secondary" href="{{ url_for('matching.match', detected_id=pairing_review.detected.id, detected_source=pairing_review.detected.source, detected_source_id=pairing_review.detected.source_id, search=pairing_review.detected.title) }}">Choose a different companion</a>
+                {% else %}
+                    <article class="match-review-edition match-review-edition--started">
+                        <span class="source-badge">Started {{ review_started.format|lower }}</span>
+                        <strong>{{ review_started.title }}</strong>
+                        <span>{{ review_started.source_label }}</span>
+                    </article>
+                    <div class="match-companion-choices" aria-labelledby="companion-choice-heading">
+                        <h2 id="companion-choice-heading">Choose its companion</h2>
+                        {% if manual_companions %}
+                            {% for companion in manual_companions %}
+                            <a class="match-companion-choice" href="{{ companion.review_url }}">
+                                <span>
+                                    <strong>{{ companion.title }}</strong>
+                                    <small>{{ companion.author }} · {{ companion.source_label }}</small>
+                                </span>
+                                <span class="source-badge">{{ companion.format }}</span>
+                            </a>
+                            {% endfor %}
+                        {% else %}
+                            <p>No opposite-format companions were found. Rescan Currently Reading after your libraries sync.</p>
+                        {% endif %}
+                    </div>
                 {% endif %}
-                <a class="btn btn-secondary" href="{{ url_for('matching.match', search=pairing_review.detected.title) }}">Choose a different companion</a>
             </section>
             {% else %}
             <section class="match-workspace">
@@ -314,7 +336,7 @@
             {% if combine_conflict and combine_conflict.conflict_code == 'combine_required' %}
             <div class="match-combine-warning" role="status">
                 This ebook already belongs to <strong>{{ combine_conflict.conflict_book_title or 'another PageKeeper entry' }}</strong>.
-                Pairing will migrate its data into one canonical PageKeeper entry.
+                Linking will migrate its data into one canonical PageKeeper entry.
             </div>
             <input type="hidden" name="confirm_combine" value="1">
             <input type="hidden" name="combine_book_id" value="{{ combine_conflict.conflict_book_id }}">

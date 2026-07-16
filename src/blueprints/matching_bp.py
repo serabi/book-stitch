@@ -208,24 +208,42 @@ def _match_identity(match):
 
 
 def _supported_review_matches(detected):
+    return [match for match in detected.matches or [] if _is_supported_review_match(detected, match)]
+
+
+def _is_supported_review_match(detected, match):
     source_format = _explicit_media_format(detected)
-    supported = []
-    for match in detected.matches or []:
-        match_source = match.get("source_family") or match.get("source")
-        match_format = _explicit_media_format(match)
-        if (
-            detected.source in {"abs", "grimmory"}
-            and source_format == "audiobook"
-            and match_format == "ebook"
-            and match_source in {"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"}
-        ) or (
-            detected.source in {"grimmory", "kosync"}
-            and source_format == "ebook"
-            and match_format == "audiobook"
-            and match_source in {"abs", "abs_audiobook", "grimmory"}
-        ):
-            supported.append(match)
-    return supported
+    match_source = match.get("source_family") or match.get("source")
+    match_format = _explicit_media_format(match)
+    return (
+        detected.source in {"abs", "grimmory"}
+        and source_format == "audiobook"
+        and match_format == "ebook"
+        and match_source in {"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"}
+    ) or (
+        detected.source in {"grimmory", "kosync"}
+        and source_format == "ebook"
+        and match_format == "audiobook"
+        and match_source in {"abs", "abs_audiobook", "grimmory"}
+    )
+
+
+def _manual_companion_matches(container, detected):
+    provider = getattr(container, "suggestion_service", None)
+    if not callable(provider):
+        return []
+    try:
+        matches = provider().find_companion_candidates(
+            detected.title or "",
+            detected.author or "",
+            _explicit_media_format(detected),
+        )
+    except Exception as exc:
+        logger.warning("Manual companion search failed: %s", exc)
+        return []
+    if not isinstance(matches, list):
+        return []
+    return [match for match in matches if _is_supported_review_match(detected, match)]
 
 
 def _pairing_review_url(detected, match=None):
@@ -345,7 +363,7 @@ def _serialize_detected_pairing(detected, members=None):
         "source_summary": ", ".join(activity["source_label"] for activity in activities),
         "companions": list(companion_matches.values()),
         "review_url": _pairing_review_url(review_detected, top_match),
-        "find_companion_url": url_for("matching.match", search=detected.title or ""),
+        "find_companion_url": _pairing_review_url(review_detected),
         "review_supported": review_supported,
         "top_match": _serialize_detected_match(top_match) if top_match else None,
         "alternatives": [_serialize_detected_match(match) for match in supported_matches[1:]],
@@ -424,7 +442,7 @@ def _pairing_review_values(source):
     return {name: str(source.get(name, "") or "").strip() for name in _PAIRING_REVIEW_FIELDS}
 
 
-def _load_pairing_review(database_service, values, method="GET"):
+def _load_pairing_review(container, database_service, values, method="GET"):
     if not any(values.values()):
         return None, None, 200, False
     if not all(values[name] for name in _PAIRING_REVIEW_FIELDS[:3]):
@@ -469,10 +487,20 @@ def _load_pairing_review(database_service, values, method="GET"):
             None,
         )
         if not candidate:
+            candidate = next(
+                (
+                    match
+                    for match in _manual_companion_matches(container, detected)
+                    if (match.get("source_family") or match.get("source")) == values["candidate_source"]
+                    and str(_candidate_source_id(match) or "") == values["candidate_source_id"]
+                ),
+                None,
+            )
+        if not candidate:
             values = {**values, "candidate_source": "", "candidate_source_id": ""}
             warning = "The previous recommendation is no longer available. Choose a companion manually."
 
-    if candidate and candidate not in _supported_review_matches(detected):
+    if candidate and not _is_supported_review_match(detected, candidate):
         candidate = None
         values = {**values, "candidate_source": "", "candidate_source_id": ""}
         warning = "The previous recommendation is no longer available. Choose a companion manually."
@@ -587,21 +615,32 @@ def _exact_review_editions(container, review):
     ebook_source_id = None
     ebook_source = detected.source if ebook_item is detected else candidate.get("source_family") or candidate.get("source")
     if ebook_source == "grimmory":
-        expected_id = candidate.get("id") if ebook_item is candidate else None
-        if expected_id:
-            ebook = next((item for item in ebooks if str(item.grimmory_id or "") == str(expected_id)), None)
-        else:
-            instance_id = detected.source_id.split(":", 1)[0]
-            ebook = next(
-                (item for item in ebooks if str(item.grimmory_id or "").startswith(f"{instance_id}:")),
-                None,
-            )
+        expected_id = candidate.get("id") if ebook_item is candidate else detected.source_id
+        ebook = next((item for item in ebooks if str(item.grimmory_id or "") == str(expected_id)), None)
         if ebook:
             ebook_source_id = str(ebook.grimmory_id)
     else:
         ebook = ebooks[0] if ebooks else None
     if not ebook:
         return None, "The selected ebook edition is no longer available."
+
+    expected_kosync_id = _expected_review_kosync_id(review, ebook_filename)
+    if expected_kosync_id:
+        grimmory_book, grimmory_client = find_in_grimmory(ebook_filename, ebook_source_id)
+        book_id = grimmory_book.get("id") if grimmory_book else None
+        file_id = (
+            grimmory_book.get("bookFileId")
+            if grimmory_book and grimmory_book.get("isPrimary") is False
+            else None
+        )
+        actual_kosync_id = get_kosync_id_for_ebook(
+            ebook_filename,
+            book_id,
+            bl_client=grimmory_client,
+            grimmory_file_id=file_id,
+        )
+        if actual_kosync_id != expected_kosync_id:
+            return None, "The selected ebook no longer matches the detected edition."
 
     return {
         "audio_source": audio_identity[0],
@@ -625,13 +664,28 @@ def _render_match_page(
 ):
     defaults = _review_defaults(review)
     review_editions = None
+    manual_companions = []
+    review_started = None
     if review:
+        review_started = {
+            "title": review["detected"].title or "Untitled book",
+            "format": _source_format(review["detected"].source, _explicit_media_format(review["detected"])),
+            "source_label": _source_label(review["detected"].source, review["detected"].source_id),
+        }
         review_editions, edition_error = _exact_review_editions(container, review)
         if edition_error and not error:
             error = edition_error
             status_code = 409 if review.get("candidate") else 200
         if edition_error:
             review = {**review, "candidate": None, "candidate_source": "", "candidate_source_id": ""}
+        if not review_editions:
+            manual_companions = [
+                {
+                    **_serialize_detected_match(candidate),
+                    "review_url": _pairing_review_url(review["detected"], candidate),
+                }
+                for candidate in _manual_companion_matches(container, review["detected"])
+            ]
     search = str(values.get("search") or (review["detected"].title if review else "") or "").strip().lower()
     attach_to = str(values.get("attach_to", "") or "").strip()
     link_to = str(values.get("link_to", "") or "").strip()
@@ -805,6 +859,8 @@ def _render_match_page(
         pairing_values=pairing_values,
         pairing_error=error,
         review_editions=review_editions,
+        manual_companions=manual_companions,
+        review_started=review_started,
         combine_conflict=combine_conflict,
     )
     return (page, status_code) if status_code != 200 else page
@@ -920,7 +976,7 @@ def match():
     values = request.form if request.method == "POST" else request.args
     review_values = _pairing_review_values(values)
     pairing_review, review_error, review_status, terminal_error = _load_pairing_review(
-        database_service, review_values, request.method
+        container, database_service, review_values, request.method
     )
 
     if terminal_error:

@@ -75,10 +75,15 @@ def find_in_grimmory(filename, source_id=None):
     group = get_grimmory_client()
     if group.is_configured():
         if source_id and ":" in str(source_id):
-            instance_id, book_id = str(source_id).split(":", 1)
+            parts = str(source_id).split(":")
+            instance_id = parts[0]
             client = _resolve_grimmory_instance(instance_id)
             if not client or not client.is_configured():
                 return None, None
+            if len(parts) == 3:
+                book = client.find_book_file_by_source_id(source_id)
+                return ({**book, "_instance_id": instance_id}, client) if book else (None, None)
+            book_id = parts[1] if len(parts) == 2 else ""
             book = client.find_book_by_filename(filename)
             if book and str(book.get("id")) == book_id:
                 return {**book, "_instance_id": instance_id}, client
@@ -379,14 +384,18 @@ def get_searchable_ebooks(search_term):
                     fname = b.get("fileName", "")
                     if fname.lower().endswith(".epub"):
                         instance_id = str(b.get("_instance_id") or "default")
-                        dedupe_key = (instance_id, fname.lower())
+                        book_id = b.get("id")
+                        file_id = b.get("bookFileId")
+                        if book_id is None or file_id is None:
+                            continue
+                        qualified_id = f"{instance_id}:{book_id}:{file_id}"
+                        dedupe_key = qualified_id
                         if dedupe_key in found_grimmory:
                             continue
                         found_grimmory.add(dedupe_key)
                         found_filenames.add(fname.lower())
                         found_stems.add(Path(fname).stem.lower())
-                        bl_id = b.get("id")
-                        qualified_id = f"{instance_id}:{bl_id}" if bl_id is not None else None
+                        bl_id = book_id
                         label = _grimmory_label(instance_id)
                         cover_prefix = "grimmory2" if instance_id == "2" else "grimmory"
                         cover = f"/api/cover-proxy/{cover_prefix}/{bl_id}" if bl_id else None

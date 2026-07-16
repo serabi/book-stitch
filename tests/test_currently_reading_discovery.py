@@ -133,22 +133,30 @@ def test_grimmory_instances_with_same_filename_keep_separate_identity_and_progre
     db = _db()
     first = Mock(instance_id="default")
     first.is_configured.return_value = True
-    first.get_all_books.return_value = [{"id": 10, "title": "First", "fileName": "same.epub"}]
-    first.get_progress.return_value = (0.25, None)
+    first.get_all_books.return_value = [
+        {"id": 10, "bookFileId": 101, "bookType": "EPUB", "title": "First", "fileName": "same.epub"}
+    ]
+    first.get_book_file_progress.side_effect = lambda source_id: (
+        (0.25, None) if source_id.startswith("default:") else (None, None)
+    )
     second = Mock(instance_id="2")
     second.is_configured.return_value = True
-    second.get_all_books.return_value = [{"id": 20, "title": "Second", "fileName": "same.epub"}]
-    second.get_progress.return_value = (0.75, None)
+    second.get_all_books.return_value = [
+        {"id": 20, "bookFileId": 201, "bookType": "EPUB", "title": "Second", "fileName": "same.epub"}
+    ]
+    second.get_book_file_progress.side_effect = lambda source_id: (
+        (0.75, None) if source_id.startswith("2:") else (None, None)
+    )
 
     _service(db, grimmory=GrimmoryClientGroup([first, second]))._check_cross_ebook_suggestions()
 
     detected = [call.args[0] for call in db.save_detected_book.call_args_list]
     assert [(row.source_id, row.progress_percentage) for row in detected] == [
-        ("default:same.epub", 0.25),
-        ("2:same.epub", 0.75),
+        ("default:10:101", 0.25),
+        ("2:20:201", 0.75),
     ]
-    first.get_progress.assert_called_once_with("same.epub")
-    second.get_progress.assert_called_once_with("same.epub")
+    assert first.get_book_file_progress.call_args_list[0].args == ("default:10:101",)
+    second.get_book_file_progress.assert_called_once_with("2:20:201")
 
 
 def test_grimmory_audiobook_detection_uses_exact_book_and_file_identity():
@@ -165,7 +173,7 @@ def test_grimmory_audiobook_detection_uses_exact_book_and_file_identity():
             "_instance_id": "2",
         }
     ]
-    grimmory.get_audiobook_progress.return_value = (0.4, None)
+    grimmory.get_book_file_progress.return_value = (0.4, None)
 
     _service(db, grimmory=grimmory)._check_cross_ebook_suggestions()
 
@@ -173,7 +181,7 @@ def test_grimmory_audiobook_detection_uses_exact_book_and_file_identity():
     assert detected.source_id == "2:10:99"
     assert detected.media_format == "audiobook"
     assert detected.ebook_filename is None
-    grimmory.get_audiobook_progress.assert_called_once_with("2:10:99")
+    grimmory.get_book_file_progress.assert_called_once_with("2:10:99")
     grimmory.get_progress.assert_not_called()
 
 
@@ -245,22 +253,26 @@ def test_mapped_grimmory_server_does_not_hide_same_filename_on_other_server():
             storyteller_uuid=None,
         )
     ]
-    db.get_kosync_document.return_value = SimpleNamespace(source="grimmory", grimmory_id="2:20")
+    db.get_kosync_document.return_value = SimpleNamespace(source="grimmory", grimmory_id="2:20:201")
     first = Mock(instance_id="default")
     first.is_configured.return_value = True
-    first.get_all_books.return_value = [{"id": 10, "title": "First", "fileName": "same.epub"}]
-    first.get_progress.return_value = (0.25, None)
+    first.get_all_books.return_value = [
+        {"id": 10, "bookFileId": 101, "bookType": "EPUB", "title": "First", "fileName": "same.epub"}
+    ]
+    first.get_book_file_progress.return_value = (0.25, None)
     second = Mock(instance_id="2")
     second.is_configured.return_value = True
-    second.get_all_books.return_value = [{"id": 20, "title": "Second", "fileName": "same.epub"}]
-    second.get_progress.return_value = (0.75, None)
+    second.get_all_books.return_value = [
+        {"id": 20, "bookFileId": 201, "bookType": "EPUB", "title": "Second", "fileName": "same.epub"}
+    ]
+    second.get_book_file_progress.return_value = (0.75, None)
 
     _service(db, grimmory=GrimmoryClientGroup([first, second]))._check_cross_ebook_suggestions()
 
     detected = [call.args[0] for call in db.save_detected_book.call_args_list]
-    assert [(row.source, row.source_id) for row in detected] == [("grimmory", "default:same.epub")]
-    first.get_progress.assert_called_once_with("same.epub")
-    second.get_progress.assert_not_called()
+    assert [(row.source, row.source_id) for row in detected] == [("grimmory", "default:10:101")]
+    first.get_book_file_progress.assert_called_once_with("default:10:101")
+    second.get_book_file_progress.assert_not_called()
 
 
 def test_malformed_ebook_source_records_do_not_hide_later_healthy_records():
@@ -286,16 +298,23 @@ def test_malformed_ebook_source_records_do_not_hide_later_healthy_records():
     grimmory.is_configured.return_value = True
     grimmory.get_all_books.return_value = [
         None,
-        {"id": 10, "title": "Good Grimmory", "fileName": "good.epub", "_instance_id": "default"},
+        {
+            "id": 10,
+            "bookFileId": 101,
+            "bookType": "EPUB",
+            "title": "Good Grimmory",
+            "fileName": "good.epub",
+            "_instance_id": "default",
+        },
     ]
-    grimmory.get_progress.return_value = (0.2, None)
+    grimmory.get_book_file_progress.return_value = (0.2, None)
 
     _service(db, grimmory=grimmory, storyteller=storyteller)._check_cross_ebook_suggestions()
 
     detected = {(call.args[0].source, call.args[0].source_id) for call in db.save_detected_book.call_args_list}
     assert detected == {
         ("storyteller", "st-good"),
-        ("grimmory", "default:good.epub"),
+        ("grimmory", "default:10:101"),
         ("kosync", "good-hash"),
     }
 
