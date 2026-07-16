@@ -106,49 +106,61 @@
                 });
         });
 
+        function dismissCard(dismissButton, card, title) {
+            var identities = Array.prototype.map.call(
+                card.querySelectorAll('.pairing-activity'),
+                function (activity) { return activity.dataset; }
+            );
+            var cards = Array.prototype.slice.call(document.querySelectorAll('.pairing-card'));
+            var cardIndex = cards.indexOf(card);
+            var recoveryCard = cards[cardIndex + 1] || cards[cardIndex - 1];
+            dismissButton.disabled = true;
+            status.textContent = 'Dismissing ' + title + '...';
+            fetch('/api/detected/dismiss-group', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    identities: identities.map(function (identity) {
+                        return { source: identity.source, source_id: identity.sourceId };
+                    })
+                })
+            }).then(function (response) {
+                return response.json().then(function (data) {
+                    if (!response.ok || !data.success) throw new Error(data.error || 'Dismiss failed');
+                    return data;
+                });
+            })
+                .then(function () {
+                    var list = card.closest('.pairing-list');
+                    card.remove();
+                    updatePairingBadges(identities.length);
+                    status.textContent = 'Dismissed ' + title + '.';
+                    if (recoveryCard) {
+                        var recoveryAction = recoveryCard.querySelector('a, button');
+                        if (recoveryAction) recoveryAction.focus();
+                    } else if (!list.querySelector('.pairing-card')) {
+                        showCaughtUpState();
+                    }
+                })
+                .catch(function (error) {
+                    dismissButton.disabled = false;
+                    status.textContent = 'Could not dismiss ' + title + ': ' + (error.message || String(error));
+                });
+        }
+
         document.querySelectorAll('.pairing-dismiss').forEach(function (dismissButton) {
             dismissButton.addEventListener('click', function () {
                 var card = dismissButton.closest('.pairing-card');
-                var identities = Array.prototype.map.call(
-                    card.querySelectorAll('.pairing-activity'),
-                    function (activity) { return activity.dataset; }
-                );
                 var title = card.querySelector('h2').textContent;
-                var cards = Array.prototype.slice.call(document.querySelectorAll('.pairing-card'));
-                var cardIndex = cards.indexOf(card);
-                var recoveryCard = cards[cardIndex + 1] || cards[cardIndex - 1];
-                dismissButton.disabled = true;
-                status.textContent = 'Dismissing ' + title + '...';
-                fetch('/api/detected/dismiss-group', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        identities: identities.map(function (identity) {
-                            return { source: identity.source, source_id: identity.sourceId };
-                        })
-                    })
-                }).then(function (response) {
-                    return response.json().then(function (data) {
-                        if (!response.ok || !data.success) throw new Error(data.error || 'Dismiss failed');
-                        return data;
-                    });
-                })
-                    .then(function () {
-                        var list = card.closest('.pairing-list');
-                        card.remove();
-                        updatePairingBadges(identities.length);
-                        status.textContent = 'Dismissed ' + title + '.';
-                        if (recoveryCard) {
-                            var recoveryAction = recoveryCard.querySelector('a, button');
-                            if (recoveryAction) recoveryAction.focus();
-                        } else if (!list.querySelector('.pairing-card')) {
-                            showCaughtUpState();
-                        }
-                    })
-                    .catch(function (error) {
-                        dismissButton.disabled = false;
-                        status.textContent = 'Could not dismiss ' + title + ': ' + (error.message || String(error));
-                    });
+                PKModal.confirm({
+                    title: 'Dismiss Book?',
+                    message: '"' + title + '" will be removed from Currently Reading until new reading activity is detected.',
+                    confirmLabel: 'Dismiss',
+                    confirmClass: 'btn',
+                    onConfirm: function () {
+                        dismissCard(dismissButton, card, title);
+                    }
+                });
             });
         });
 

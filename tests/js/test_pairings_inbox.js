@@ -43,6 +43,7 @@ const responses = [
 let reloads = 0;
 const fetchedUrls = [];
 const fetchedRequests = [];
+const confirmCalls = [];
 
 function response(data) {
     return Promise.resolve({ ok: true, json: function () { return Promise.resolve(data); } });
@@ -77,6 +78,12 @@ const context = {
     },
     setTimeout: setTimeout,
     clearTimeout: clearTimeout,
+    PKModal: {
+        confirm: function (opts) {
+            confirmCalls.push(opts);
+            opts.onConfirm();
+        }
+    },
     window: {
         PK_PAGE_DATA: { pairingsInbox: true },
         location: { reload: function () { reloads += 1; } }
@@ -120,6 +127,8 @@ function flush() {
     dismissHandlers.click();
     await flush();
     await flush();
+    assert.equal(confirmCalls.length, 1, 'dismiss asks for confirmation first');
+    assert.equal(confirmCalls[0].confirmLabel, 'Dismiss');
     assert.equal(fetchedUrls.at(-1), '/api/detected/dismiss-group');
     assert.deepEqual(JSON.parse(fetchedRequests.at(-1).options.body), {
         identities: [

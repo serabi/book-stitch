@@ -188,9 +188,10 @@
             </div>
         </div>
 
-        {% include 'partials/confirm_modal.html' %}
     </main>
     {% endif %}
+
+    {% include 'partials/confirm_modal.html' %}
 
     {% if library_view %}
     <script>
@@ -199,11 +200,11 @@
             selectedSourceId: {{ selected_source_id|tojson }}
         };
     </script>
-    <script src="/static/js/utils.js"></script>
-    <script src="/static/js/confirm-modal.js"></script>
     {% else %}
     <script>window.PK_PAGE_DATA = { pairingsInbox: true };</script>
     {% endif %}
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/confirm-modal.js"></script>
     <script src="/static/js/suggestions.js"></script>
 </body>
 
