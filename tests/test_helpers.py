@@ -60,6 +60,18 @@ def test_get_kosync_id_downloads_selected_alternative_file(flask_app, mock_conta
     )
 
 
+def test_get_kosync_id_rejects_untrusted_remote_filename(flask_app):
+    bl_client = Mock()
+    bl_client.is_configured.return_value = True
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import get_kosync_id_for_ebook
+
+        assert get_kosync_id_for_ebook("../escape.epub", grimmory_id=10, bl_client=bl_client) is None
+
+    bl_client.download_book.assert_not_called()
+
+
 def test_get_kosync_id_abs_download_raises(flask_app, mock_container):
     """When ABS on-demand download raises, should return None gracefully."""
     mock_container.mock_abs_client.is_configured.return_value = True

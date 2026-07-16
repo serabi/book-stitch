@@ -15,6 +15,7 @@ from pathlib import Path
 
 from flask import abort, current_app
 
+from src.utils.path_utils import is_safe_path_within, sanitize_filename
 from src.utils.service_url_helper import get_hardcover_book_url, get_service_web_url  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -170,10 +171,15 @@ def audiobook_matches_search(ab, search_term):
 
 
 def find_ebook_file(filename, ebook_dir=None):
+    if sanitize_filename(filename) != filename:
+        logger.warning("Rejected unsafe ebook filename")
+        return None
     base = ebook_dir if ebook_dir is not None else get_ebook_dir()
     escaped_filename = glob_module.escape(filename)
-    matches = list(base.rglob(escaped_filename))
-    return matches[0] if matches else None
+    for match in base.rglob(escaped_filename):
+        if match.is_file() and is_safe_path_within(match, base):
+            return match
+    return None
 
 
 def get_kosync_id_for_ebook(
@@ -187,6 +193,12 @@ def get_kosync_id_for_ebook(
     Tries Grimmory API first (if configured and grimmory_id provided),
     falls back to filesystem if needed.
     """
+    if sanitize_filename(ebook_filename) != ebook_filename:
+        logger.warning("Rejected unsafe ebook filename while computing KoSync ID")
+        return None
+    if original_filename and sanitize_filename(original_filename) != original_filename:
+        original_filename = None
+
     container = get_container()
     EBOOK_DIR = get_ebook_dir()
 
@@ -217,7 +229,7 @@ def get_kosync_id_for_ebook(
     # Check Epub Cache explicitly
     epub_cache = container.epub_cache_dir()
     cached_path = epub_cache / ebook_filename
-    if cached_path.exists():
+    if is_safe_path_within(cached_path, epub_cache) and cached_path.is_file():
         return container.ebook_parser().get_kosync_id(cached_path)
 
     # On-Demand Fetching: ABS

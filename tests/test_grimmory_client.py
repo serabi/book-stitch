@@ -10,7 +10,7 @@ import pytest
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.api.grimmory_client import GrimmoryClient
+from src.api.grimmory_client import GrimmoryClient, GrimmoryClientGroup
 from src.db.models import GrimmoryBook
 
 
@@ -190,10 +190,8 @@ def test_refresh_migrates_cached_book_id_to_live_filename_casing(mock_db):
 
     assert set(client._book_cache) == {"Book.epub"}
     assert client.find_book_by_filename("book.epub", allow_refresh=False)["id"] == "777"
-    mock_db.delete_grimmory_book.assert_called_once_with(
-        "book.epub", server_id="default", book_id="777", file_id=None
-    )
-    saved_book = mock_db.save_grimmory_book.call_args[0][0]
+    mock_db.reconcile_grimmory_books.assert_called_once()
+    saved_book = mock_db.reconcile_grimmory_books.call_args.args[1][0]
     assert saved_book.filename == "Book.epub"
 
 
@@ -267,8 +265,8 @@ def test_save_to_db_on_fetch(mock_db):
         client._refresh_book_cache()
 
         # Verify processing happened
-        mock_db.save_grimmory_book.assert_called()
-        saved_book = mock_db.save_grimmory_book.call_args[0][0]
+        mock_db.reconcile_grimmory_books.assert_called_once()
+        saved_book = mock_db.reconcile_grimmory_books.call_args.args[1][0]
         assert saved_book.filename == "newbook.epub"
 
 
@@ -378,6 +376,14 @@ def test_processes_primary_and_alternative_formats_with_exact_file_identity(grim
     assert grimmory_client._book_id_cache[10]["fileName"] == detail["primaryFile"]["fileName"]
     assert grimmory_client.find_audiobook_by_source_id("default:10:42", allow_refresh=False)["fileName"] == "book.m4b"
     assert grimmory_client.find_book_by_filename("book.epub", allow_refresh=False)["bookFileId"] == 41
+    ebook_source_id = "default:10:41"
+    assert grimmory_client.find_book_file_by_source_id(ebook_source_id, allow_refresh=False)["bookType"] == "EPUB"
+    assert grimmory_client.find_audiobook_by_source_id(ebook_source_id, allow_refresh=False) is None
+    assert grimmory_client.get_book_file_progress(ebook_source_id) == (pytest.approx(0.2), None)
+
+    group = GrimmoryClientGroup([grimmory_client])
+    assert group.find_book_file_by_source_id(ebook_source_id, allow_refresh=False)["_instance_id"] == "default"
+    assert group.get_book_file_progress(ebook_source_id) == (pytest.approx(0.2), None)
 
 
 def test_downloads_exact_alternative_file_and_rejects_stale_identity(grimmory_client):
@@ -397,7 +403,9 @@ def test_downloads_exact_alternative_file_and_rejects_stale_identity(grimmory_cl
     assert grimmory_client.session.get.call_args.args[0].endswith("/api/v1/books/10/files/42/download")
 
     grimmory_client.session.get.reset_mock()
+    grimmory_client._refresh_book_cache = MagicMock(return_value=False)
     assert grimmory_client.download_book(10, file_id=99) is None
+    grimmory_client._refresh_book_cache.assert_called_once_with()
     grimmory_client.session.get.assert_not_called()
 
     grimmory_client.session.get.side_effect = [
@@ -428,9 +436,8 @@ def test_refresh_prunes_removed_alternative_without_removing_primary_ebook(grimm
     assert set(grimmory_client._book_cache) == {"book.epub"}
     assert grimmory_client.find_book_by_filename("book.epub", allow_refresh=False)["bookFileId"] == 41
     assert grimmory_client.find_audiobook_by_source_id("default:10:42", allow_refresh=False) is None
-    mock_db.delete_grimmory_book.assert_called_once_with(
-        "book.m4b", server_id="default", book_id=10, file_id=42
-    )
+    reconciled = mock_db.reconcile_grimmory_books.call_args.args[1]
+    assert [(book.remote_book_id, book.remote_file_id) for book in reconciled] == [("10", "41")]
 
 
 def test_reload_retains_duplicate_filenames_by_remote_identity(mock_db):
@@ -488,9 +495,8 @@ def test_refresh_prunes_only_exact_same_filename_identity(grimmory_client, mock_
 
     assert [book["id"] for book in grimmory_client.get_all_books()] == [20]
     assert grimmory_client.find_book_by_filename("shared.m4b", allow_refresh=False)["id"] == 20
-    mock_db.delete_grimmory_book.assert_called_once_with(
-        "shared.m4b", server_id="default", book_id=10, file_id=41
-    )
+    reconciled = mock_db.reconcile_grimmory_books.call_args.args[1]
+    assert [(book.remote_book_id, book.remote_file_id) for book in reconciled] == [("20", "42")]
 
 
 def test_target_library_filter_does_not_end_pagination_early(grimmory_client):
@@ -518,6 +524,66 @@ def test_target_library_filter_does_not_end_pagination_early(grimmory_client):
 
     assert grimmory_client._make_request.call_count == 2
     assert grimmory_client.find_book_by_filename("target.epub", allow_refresh=False)["id"] == 999
+
+
+def test_repeated_raw_list_page_stops_pagination(grimmory_client):
+    page = [
+        {
+            "id": index,
+            "primaryFile": {"id": index, "fileName": f"book-{index}.epub", "bookType": "EPUB"},
+        }
+        for index in range(200)
+    ]
+    response = MagicMock(status_code=200)
+    response.json.return_value = page
+    grimmory_client._make_request = MagicMock(return_value=response)
+
+    assert grimmory_client._refresh_book_cache() is True
+    assert grimmory_client._make_request.call_count == 2
+
+
+def test_pagination_has_hard_page_ceiling(grimmory_client):
+    responses = []
+    for page_number in range(2):
+        content = [
+            {
+                "id": page_number * 200 + index,
+                "primaryFile": {
+                    "id": page_number * 200 + index,
+                    "fileName": f"book-{page_number}-{index}.epub",
+                    "bookType": "EPUB",
+                },
+            }
+            for index in range(200)
+        ]
+        responses.append(MagicMock(status_code=200, **{"json.return_value": content}))
+    grimmory_client._make_request = MagicMock(side_effect=responses)
+
+    with patch("src.api.grimmory_client.GRIMMORY_MAX_PAGES", 2):
+        assert grimmory_client._refresh_book_cache() is True
+
+    assert grimmory_client._make_request.call_count == 2
+
+
+def test_large_refresh_uses_one_database_reconciliation_call(grimmory_client, mock_db):
+    content = [
+        {
+            "id": index,
+            "primaryFile": {"id": index, "fileName": f"book-{index}.epub", "bookType": "EPUB"},
+        }
+        for index in range(300)
+    ]
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"content": content, "last": True}
+    grimmory_client._make_request = MagicMock(return_value=response)
+    mock_db.reset_mock()
+
+    assert grimmory_client._refresh_book_cache() is True
+
+    mock_db.reconcile_grimmory_books.assert_called_once()
+    assert len(mock_db.reconcile_grimmory_books.call_args.args[1]) == 300
+    mock_db.save_grimmory_book.assert_not_called()
+    mock_db.delete_grimmory_book.assert_not_called()
 
 
 def test_update_progress_file_progress(grimmory_client):

@@ -1,5 +1,6 @@
 """Repository for Grimmory integration: book metadata cache."""
 
+import json
 import logging
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -61,6 +62,51 @@ class GrimmoryRepository(BaseRepository):
             session.refresh(target)
             session.expunge(target)
             return target
+
+    def reconcile_grimmory_books(self, server_id, incoming_books):
+        """Upsert a complete remote snapshot and prune stale rows in one transaction."""
+        with self.get_session() as session:
+            existing = session.query(GrimmoryBook).filter(GrimmoryBook.server_id == server_id).all()
+            exact_existing = {
+                (row.remote_book_id, row.remote_file_id): row
+                for row in existing
+                if row.remote_book_id is not None and row.remote_file_id is not None
+            }
+            desired = {
+                (str(book.remote_book_id), str(book.remote_file_id)): book
+                for book in incoming_books
+                if book.remote_book_id is not None and book.remote_file_id is not None
+            }
+
+            for identity, incoming in desired.items():
+                target = exact_existing.get(identity)
+                if target is None:
+                    target = incoming
+                    session.add(target)
+                for attr in ("filename", "title", "authors", "raw_metadata", "remote_book_id", "remote_file_id"):
+                    setattr(target, attr, getattr(incoming, attr))
+
+            for identity, row in exact_existing.items():
+                if identity not in desired:
+                    session.delete(row)
+
+            live_legacy_keys = {(book.remote_book_id, book.filename) for book in incoming_books}
+            legacy_rows = [
+                row for row in existing if row.remote_book_id is None or row.remote_file_id is None
+            ]
+            legacy_filename_counts = {}
+            for row in legacy_rows:
+                legacy_filename_counts[row.filename] = legacy_filename_counts.get(row.filename, 0) + 1
+            for row in legacy_rows:
+                try:
+                    metadata = json.loads(row.raw_metadata or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                legacy_key = (str(metadata.get("id")), row.filename)
+                if legacy_filename_counts[row.filename] == 1 and legacy_key not in live_legacy_keys:
+                    session.delete(row)
+
+            session.flush()
 
     def replace_grimmory_book_filename(self, old_filename, grimmory_book):
         """Atomically upsert *grimmory_book* and remove the old filename row.

@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from src.utils.logging_utils import sanitize_log_data
+from src.utils.path_utils import is_safe_path_within, sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, grimmory_client=No
     epub_cache_dir = Path(epub_cache_dir) if epub_cache_dir else Path("/tmp/epub_cache")
 
     # Reject filenames with path traversal components
-    if os.sep in ebook_filename or "/" in ebook_filename or ".." in ebook_filename:
+    if sanitize_filename(ebook_filename) != ebook_filename:
         logger.error(f"Invalid ebook filename rejected: {sanitize_log_data(ebook_filename)}")
         return None
 
@@ -32,7 +33,7 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, grimmory_client=No
     resolved_search_dir = books_search_dir.resolve()
     filesystem_matches = list(books_search_dir.glob(f"**/{escaped_filename}"))
     for candidate in filesystem_matches:
-        if candidate.resolve().is_relative_to(resolved_search_dir):
+        if candidate.is_file() and is_safe_path_within(candidate, resolved_search_dir):
             logger.info(f"Found EPUB on filesystem: {candidate}")
             return candidate
     if filesystem_matches:
@@ -43,7 +44,7 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, grimmory_client=No
     cache_root = epub_cache_dir.resolve()
     cached_path = epub_cache_dir / ebook_filename
     # Prevent path traversal via untrusted filenames (e.g., ../../etc/passwd)
-    if not cached_path.resolve().is_relative_to(cache_root):
+    if not is_safe_path_within(cached_path, cache_root):
         logger.error(f"Invalid filename detected: {sanitize_log_data(ebook_filename)}")
         return None
     if cached_path.exists():

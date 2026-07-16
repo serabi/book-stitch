@@ -16,6 +16,7 @@ from src.utils.logging_utils import sanitize_log_data
 logger = logging.getLogger(__name__)
 
 GRIMMORY_AUDIO_BOOK_TYPES = {"AUDIOBOOK"}
+GRIMMORY_MAX_PAGES = 1000
 
 
 class GrimmoryClient:
@@ -378,12 +379,13 @@ class GrimmoryClient:
             return
 
         all_books_list = []
+        seen_page_identities = set()
         page = 0
         batch_size = 200
 
         logger.info("Grimmory: Starting full library scan...")
 
-        while True:
+        while page < GRIMMORY_MAX_PAGES:
             endpoint = f"/api/v1/books?page={page}&size={batch_size}"
             response = self._make_request("GET", endpoint)
 
@@ -408,6 +410,17 @@ class GrimmoryClient:
             if not current_batch:
                 break
 
+            raw_identities = {
+                (str(book.get("id")), str(book_file.get("id") or book_file.get("fileName")))
+                for book in current_batch
+                for book_file, _is_primary in self._iter_book_files(book)
+                if book.get("id") is not None and (book_file.get("id") is not None or book_file.get("fileName"))
+            }
+            if isinstance(data, list) and page > 0 and not (raw_identities - seen_page_identities):
+                logger.warning("Grimmory: Stopping pagination after repeated raw list page %s", page)
+                break
+            seen_page_identities.update(raw_identities)
+
             if self.target_library_id and current_batch:
                 filtered_batch = []
                 for b in current_batch:
@@ -430,9 +443,17 @@ class GrimmoryClient:
 
             page += 1
 
+        if page >= GRIMMORY_MAX_PAGES:
+            logger.warning("Grimmory: Stopped library scan at the %s-page safety ceiling", GRIMMORY_MAX_PAGES)
+
         if not all_books_list:
             logger.debug("Grimmory: No books found in library")
             self._reset_book_caches()
+            if self.db:
+                try:
+                    self.db.reconcile_grimmory_books(self.instance_id, [])
+                except Exception as e:
+                    logger.error(f"Failed to reconcile empty Grimmory book cache: {e}")
             self._cache_timestamp = time.time()
             return True
 
@@ -467,22 +488,18 @@ class GrimmoryClient:
                 continue
             stale_count += 1
             self._remove_cached_identity(identity)
-            if self.db:
-                try:
-                    self.db.delete_grimmory_book(
-                        filename,
-                        server_id=self.instance_id,
-                        book_id=book_id,
-                        file_id=file_id,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to prune stale book {filename}: {e}")
 
         if stale_count:
             logger.info(f"Grimmory: Pruned {stale_count} stale books from database.")
 
+        persisted_books = []
         for book in all_books_list:
-            self._process_book_detail(book)
+            persisted_books.extend(self._process_book_detail(book, persist=False))
+        if self.db:
+            try:
+                self.db.reconcile_grimmory_books(self.instance_id, persisted_books)
+            except Exception as e:
+                logger.error(f"Failed to reconcile Grimmory book cache: {e}")
 
         self._cache_timestamp = time.time()
         return True
@@ -512,12 +529,14 @@ class GrimmoryClient:
             seen.add(identity)
             yield book_file, is_primary
 
-    def _process_book_detail(self, detail):
+    def _process_book_detail(self, detail, persist=True):
         """Cache every actual file attached to one Grimmory Book DTO."""
         if self.target_library_id:
             lid = detail.get("libraryId")
             if lid is not None and str(lid) != str(self.target_library_id):
-                return
+                return []
+
+        persisted_books = []
 
         metadata = detail.get("metadata") or {}
         authors = metadata.get("authors") or []
@@ -554,21 +573,22 @@ class GrimmoryClient:
             }
 
             self._cache_book_info(filename, book_info)
-            if self.db:
+            model = GrimmoryBook(
+                filename=filename,
+                title=title,
+                authors=author_str,
+                raw_metadata=json.dumps(book_info),
+                server_id=self.instance_id,
+                remote_book_id=detail.get("id"),
+                remote_file_id=book_file.get("id"),
+            )
+            persisted_books.append(model)
+            if self.db and persist:
                 try:
-                    self.db.save_grimmory_book(
-                        GrimmoryBook(
-                            filename=filename,
-                            title=title,
-                            authors=author_str,
-                            raw_metadata=json.dumps(book_info),
-                            server_id=self.instance_id,
-                            remote_book_id=detail.get("id"),
-                            remote_file_id=book_file.get("id"),
-                        )
-                    )
+                    self.db.save_grimmory_book(model)
                 except Exception as e:
                     logger.error(f"Failed to persist book {filename} to DB: {e}")
+        return persisted_books
 
     def extract_progress(self, book_info: dict) -> tuple[float | None, str | None]:
         """Extract (percentage_as_fraction, cfi) from any book type's progress."""
@@ -587,14 +607,18 @@ class GrimmoryClient:
         """Return the exact instance/book/file identity for a Grimmory audiobook."""
         if (book_info.get("bookType") or "").upper() not in GRIMMORY_AUDIO_BOOK_TYPES:
             return None
+        return self.book_file_source_id(book_info)
+
+    def book_file_source_id(self, book_info: dict) -> str | None:
+        """Return the exact instance/book/file identity for any Grimmory BookFile."""
         book_id = book_info.get("id")
         file_id = book_info.get("bookFileId")
         if book_id is None or file_id is None:
             return None
         return f"{getattr(self, 'instance_id', 'default')}:{book_id}:{file_id}"
 
-    def find_audiobook_by_source_id(self, source_id, allow_refresh=True):
-        """Resolve an exact qualified audiobook identity without filename matching."""
+    def find_book_file_by_source_id(self, source_id, allow_refresh=True):
+        """Resolve any exact qualified BookFile identity without filename matching."""
         try:
             instance_id, book_id, file_id = str(source_id).split(":", 2)
         except ValueError:
@@ -604,9 +628,20 @@ class GrimmoryClient:
 
         self._ensure_fresh_cache(allow_refresh)
         book = self._book_file_cache.get((book_id, file_id))
-        if not book or self.audio_source_id(book) != str(source_id):
+        if not book or self.book_file_source_id(book) != str(source_id):
             return None
         return book
+
+    def find_audiobook_by_source_id(self, source_id, allow_refresh=True):
+        """Resolve an exact qualified audiobook identity without filename matching."""
+        book = self.find_book_file_by_source_id(source_id, allow_refresh=allow_refresh)
+        if not book or (book.get("bookType") or "").upper() not in GRIMMORY_AUDIO_BOOK_TYPES:
+            return None
+        return book
+
+    def get_book_file_progress(self, source_id):
+        book = self.find_book_file_by_source_id(source_id)
+        return self.extract_progress(book) if book else (None, None)
 
     def get_audiobook_progress(self, source_id):
         book = self.find_audiobook_by_source_id(source_id)
@@ -725,6 +760,9 @@ class GrimmoryClient:
         headers = {"Authorization": f"Bearer {token}"}
         if file_id is not None:
             selected = self._book_file_cache.get((str(book_id), str(file_id)))
+            if not selected:
+                self._refresh_book_cache()
+                selected = self._book_file_cache.get((str(book_id), str(file_id)))
             if not selected or str(selected.get("id")) != str(book_id) or str(selected.get("bookFileId")) != str(file_id):
                 logger.warning("Grimmory: Refusing download for stale book/file identity %s/%s", book_id, file_id)
                 return None
@@ -1005,6 +1043,20 @@ class GrimmoryClientGroup:
             if book:
                 return {**book, "_instance_id": client.instance_id}
         return None
+
+    def find_book_file_by_source_id(self, source_id, allow_refresh=True):
+        for client in self._active:
+            book = client.find_book_file_by_source_id(source_id, allow_refresh=allow_refresh)
+            if book:
+                return {**book, "_instance_id": client.instance_id}
+        return None
+
+    def get_book_file_progress(self, source_id):
+        for client in self._active:
+            pct, locator = client.get_book_file_progress(source_id)
+            if pct is not None:
+                return pct, locator
+        return None, None
 
     def get_audiobook_progress(self, source_id):
         for client in self._active:

@@ -183,6 +183,53 @@ def test_remote_identity_retains_same_filename_rows_and_deletes_exactly_one(repo
     assert [(row.remote_book_id, row.remote_file_id) for row in rows] == [("20", "42")]
 
 
+def test_bulk_reconcile_upserts_snapshot_and_prunes_stale_exact_rows(repository):
+    repository.save_grimmory_book(
+        GrimmoryBook(
+            filename="old.epub",
+            title="Old",
+            server_id="test",
+            remote_book_id="10",
+            remote_file_id="41",
+        )
+    )
+    repository.save_grimmory_book(
+        GrimmoryBook(
+            filename="stale.epub",
+            title="Stale",
+            server_id="test",
+            remote_book_id="20",
+            remote_file_id="42",
+        )
+    )
+
+    repository.reconcile_grimmory_books(
+        "test",
+        [
+            GrimmoryBook(
+                filename="renamed.epub",
+                title="Updated",
+                server_id="test",
+                remote_book_id="10",
+                remote_file_id="41",
+            ),
+            GrimmoryBook(
+                filename="new.epub",
+                title="New",
+                server_id="test",
+                remote_book_id="30",
+                remote_file_id="43",
+            ),
+        ],
+    )
+
+    rows = repository.get_all_grimmory_books(server_id="test")
+    assert sorted((row.remote_book_id, row.remote_file_id, row.filename) for row in rows) == [
+        ("10", "41", "renamed.epub"),
+        ("30", "43", "new.epub"),
+    ]
+
+
 def test_save_grimmory_book_updates_preexisting_row(repository):
     """A row already committed by another writer is updated in place rather
     than duplicated when save sees the same identity."""

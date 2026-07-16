@@ -4,7 +4,6 @@ Handles EPUB discovery, hash-to-book linking, auto-discovery, and
 document management. Route handlers in kosync_server.py delegate here.
 """
 
-import json
 import logging
 import re
 import threading
@@ -13,7 +12,7 @@ from pathlib import Path
 from src.db.models import Book, KosyncDocument
 from src.services.kosync_progress_service import KosyncProgressService
 from src.utils.logging_utils import sanitize_log_data
-from src.utils.path_utils import is_safe_path_within
+from src.utils.path_utils import is_safe_path_within, sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -257,32 +256,38 @@ class KosyncService:
 
             logger.info(f"Scanning {len(books)} books from Grimmory DB cache...")
 
+            checked_identities = set()
+            checked_count = 0
             for book in books:
-                raw_id = book.raw_metadata_dict.get("id") if getattr(book, "raw_metadata_dict", None) else None
-                book_id = str(raw_id) if raw_id is not None else None
-                if not book_id:
-                    try:
-                        meta = json.loads(book.raw_metadata)
-                        fallback_id = meta.get("id")
-                        book_id = str(fallback_id) if fallback_id is not None else None
-                    except (json.JSONDecodeError, AttributeError, TypeError) as e:
-                        logger.debug(f"Failed to parse raw_metadata JSON: {e}")
-                        continue
-
-                if not book_id:
+                metadata = book.raw_metadata_dict if getattr(book, "raw_metadata_dict", None) else {}
+                if (metadata.get("bookType") or "").upper() != "EPUB":
+                    continue
+                book_id = getattr(book, "remote_book_id", None)
+                file_id = getattr(book, "remote_file_id", None)
+                identity = (str(book.server_id), str(book_id), str(file_id))
+                if book_id is None or file_id is None or identity in checked_identities:
+                    continue
+                checked_identities.add(identity)
+                checked_count += 1
+                if sanitize_filename(book.filename) != book.filename:
+                    logger.warning("Rejected unsafe Grimmory EPUB filename")
                     continue
 
                 qualified_id = f"{book.server_id}:{book_id}"
+                qualified_file_id = f"{qualified_id}:{file_id}"
 
                 # Check if we have a KosyncDocument for this Grimmory ID
-                cached_doc = self._db.get_kosync_doc_by_grimmory_id(qualified_id)
+                cached_doc = self._db.get_kosync_doc_by_grimmory_id(qualified_file_id)
                 if cached_doc:
                     if cached_doc.document_hash == doc_hash:
+                        if sanitize_filename(cached_doc.filename) != cached_doc.filename:
+                            logger.warning("Rejected unsafe cached Grimmory EPUB filename")
+                            continue
                         logger.info(f"Matched EPUB via Grimmory ID in DB: {cached_doc.filename}")
                         return cached_doc.filename
 
                 try:
-                    book_content = bl_group.download_book(qualified_id)
+                    book_content = bl_group.download_book(qualified_id, file_id=file_id)
                     if book_content:
                         computed_hash = self._container.ebook_parser().get_kosync_id_from_bytes(
                             book.filename, book_content
@@ -301,7 +306,7 @@ class KosyncService:
                                 logger.info(f"Persisted Grimmory book to cache: {safe_title}")
 
                             self._upsert_kosync_metadata(
-                                computed_hash, safe_title, "grimmory", grimmory_id=qualified_id
+                                computed_hash, safe_title, "grimmory", grimmory_id=qualified_file_id
                             )
 
                             logger.info(f"Matched EPUB via Grimmory download: {safe_title}")
@@ -309,7 +314,7 @@ class KosyncService:
                 except Exception as e:
                     logger.warning(f"Failed to check Grimmory book '{sanitize_log_data(book.title)}': {e}")
 
-            logger.info(f"Grimmory search finished. Checked {len(books)} books. No match found")
+            logger.info(f"Grimmory search finished. Checked {checked_count} EPUB files. No match found")
 
         except Exception as e:
             logger.debug(f"Error querying Grimmory for EPUB matching: {e}")
