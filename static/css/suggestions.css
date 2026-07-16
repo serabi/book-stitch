@@ -9,7 +9,7 @@
 }
 
 .pairings-inbox .sg-page-kicker {
-  color: #c7c3d8 !important;
+  color: #c7c3d8;
 }
 
 .pairings-inbox .btn-primary {
@@ -214,9 +214,9 @@
   border-color: var(--color-border-light);
 }
 
-.pairing-eyebrow {
-  margin-bottom: 7px !important;
-  color: #c7c3d8 !important;
+.pairing-recommendation .pairing-eyebrow {
+  margin-bottom: 7px;
+  color: #c7c3d8;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.08em;

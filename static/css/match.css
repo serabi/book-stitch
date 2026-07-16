@@ -553,29 +553,7 @@ input[type="radio"] {
   color: var(--color-text-muted);
 }
 
-.match-storyteller-toggle-arrow {
-  margin-left: auto;
-  display: inline-block;
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 6px solid var(--color-text-muted);
-  transition: transform var(--transition);
-}
-
-.match-storyteller-toggle-arrow.expanded {
-  transform: rotate(180deg);
-}
-
 .match-storyteller-body {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease;
-}
-
-.match-storyteller-body.expanded {
-  max-height: 800px;
   padding: 0 18px 18px;
 }
 
