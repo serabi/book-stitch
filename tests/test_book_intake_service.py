@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from src.services.book_intake_service import BookIntakeService
 from src.services.storyteller_submission_service import SubmissionResult
 
@@ -80,7 +82,7 @@ def _run_storyteller_submission_synchronously(service, *, abs_id="abs-story", ti
         service._submit_to_storyteller_async(abs_id, title, ebook)
 
 
-def test_map_audiobook_ebook_preserves_existing_kosync_hash():
+def test_map_audiobook_ebook_uses_selected_edition_hash_over_existing_abs_hash():
     db = Mock()
     db.get_book_by_ref.return_value = _book_ref(abs_id="abs-1", kosync_doc_id="hash-existing")
     service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="hash-new")
@@ -93,8 +95,8 @@ def test_map_audiobook_ebook_preserves_existing_kosync_hash():
     )
 
     assert result.error is None
-    assert result.book.kosync_doc_id == "hash-existing"
-    db.resolve_suggestion.assert_any_call("hash-existing")
+    assert result.book.kosync_doc_id == "hash-new"
+    db.resolve_suggestion.assert_any_call("hash-new")
 
 
 def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
@@ -112,6 +114,9 @@ def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
     db = Mock()
     db.get_book_by_ref.return_value = None
     db.get_book_by_kosync_id.return_value = existing
+    db.migrate_book_data.side_effect = lambda _book_id, target_abs, overrides: SimpleNamespace(
+        id=22, abs_id=target_abs, **overrides
+    )
     service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-dup")
 
     result = service.map_audiobook_ebook(
@@ -119,6 +124,8 @@ def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
         title="Merged Book",
         ebook_filename="new.epub",
         duration=456,
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
     )
 
     assert result.error is None
@@ -126,7 +133,7 @@ def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
     assert result.book.ebook_item_id == "ebook-item"
     assert result.book.custom_cover_url == "https://cover"
     assert result.book.read_count == 3
-    db.migrate_book_data.assert_called_once_with("ebook-source", "abs-new")
+    assert db.migrate_book_data.call_args.args == (22, "abs-new")
     db.delete_book.assert_not_called()
     abs_service.add_to_collection.assert_called_once_with("abs-new", "Synced")
 
@@ -141,6 +148,9 @@ def test_map_audiobook_ebook_merges_ebook_only_book_by_integer_id():
     db = Mock()
     db.get_book_by_ref.return_value = None
     db.get_book_by_kosync_id.return_value = existing
+    db.migrate_book_data.side_effect = lambda _book_id, target_abs, overrides: SimpleNamespace(
+        id=22, abs_id=target_abs, **overrides
+    )
     service, db, _abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-dup")
 
     result = service.map_audiobook_ebook(
@@ -148,10 +158,12 @@ def test_map_audiobook_ebook_merges_ebook_only_book_by_integer_id():
         title="Merged Book",
         ebook_filename="new.epub",
         duration=456,
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
     )
 
     assert result.error is None
-    db.migrate_book_data.assert_called_once_with(22, "abs-new")
+    assert db.migrate_book_data.call_args.args == (22, "abs-new")
 
 
 def test_storyteller_reservation_happens_before_async_submission_thread():
@@ -306,7 +318,7 @@ def test_pairing_review_rejects_changed_kosync_edition_before_write():
     abs_service.add_to_collection.assert_not_called()
 
 
-def test_pairing_review_resolves_exact_detection_and_double_submit_is_noop():
+def test_pairing_review_same_mapping_retry_reconciles_side_effects_before_completion():
     existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
     db = Mock()
     db.get_book_by_ref.return_value = existing
@@ -322,8 +334,164 @@ def test_pairing_review_resolves_exact_detection_and_double_submit_is_noop():
         detected_source_id="abs-1",
     )
 
+    assert result.error is None
+    db.save_book.assert_called_once()
+    abs_service.add_to_collection.assert_called_once_with("abs-1", "Synced")
+    hc.assert_called_once()
+    db.claim_detected_book.assert_called_once_with("abs-1", source="abs")
+    db.complete_detected_book.assert_called_once_with("abs-1", source="abs")
+
+
+def test_combine_conflict_claims_then_restores_before_any_write_or_side_effect():
+    current = _book_ref(id=10, abs_id="abs-1", kosync_doc_id="old-hash")
+    merge_source = _book_ref(id=22, abs_id=None, kosync_doc_id="selected-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = current
+    db.get_book_by_kosync_id.return_value = merge_source
+    db.claim_detected_book.return_value = True
+    service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="selected-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="selected.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.conflict_code == "combine_required"
+    assert result.conflict_book_id == 22
+    db.restore_detected_book.assert_called_once_with("abs-1", source="abs")
+    db.save_book.assert_not_called()
+    db.migrate_book_data.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+
+
+def test_confirmed_combine_migrates_captured_exact_book_id_with_null_target_hash():
+    current = _book_ref(id=10, abs_id="abs-1", kosync_doc_id=None)
+    merge_source = _book_ref(id=22, abs_id=None, kosync_doc_id="selected-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = current
+    db.get_book_by_kosync_id.return_value = merge_source
+    db.claim_detected_book.return_value = True
+    db.complete_detected_book.return_value = True
+    db.migrate_book_data.side_effect = lambda _book_id, target_abs, overrides: SimpleNamespace(
+        id=22, abs_id=target_abs, **overrides
+    )
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="selected-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="selected.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
+    )
+
+    assert result.error is None
+    assert db.migrate_book_data.call_args.args == (22, "abs-1")
+    assert db.migrate_book_data.call_args.kwargs["overrides"]["kosync_doc_id"] == "selected-hash"
+    db.save_book.assert_not_called()
+
+
+def test_changed_merge_row_requires_new_confirmation():
+    merge_source = _book_ref(id=23, abs_id=None, kosync_doc_id="selected-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = merge_source
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="selected-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="selected.epub",
+        duration=100,
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
+    )
+
+    assert result.conflict_book_id == 23
+    db.migrate_book_data.assert_not_called()
+
+
+def test_partial_side_effect_failure_restores_detection_and_retry_reconciles():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = True
+    db.complete_detected_book.return_value = True
+    abs_service = Mock()
+    abs_service.add_to_collection.side_effect = [RuntimeError("ABS unavailable"), None]
+    service, db, _abs, _bl, _hc = _make_service(
+        db=db, abs_service=abs_service, kosync_id="hash-exact"
+    )
+    kwargs = {
+        "abs_id": "abs-1",
+        "title": "Exact Book",
+        "ebook_filename": "exact.epub",
+        "duration": 100,
+        "detected_source": "abs",
+        "detected_source_id": "abs-1",
+    }
+
+    with pytest.raises(RuntimeError, match="ABS unavailable"):
+        service.map_audiobook_ebook(**kwargs)
+    result = service.map_audiobook_ebook(**kwargs)
+
+    assert result.error is None
+    assert db.save_book.call_count == 2
+    assert abs_service.add_to_collection.call_count == 2
+    db.restore_detected_book.assert_called_once_with("abs-1", source="abs")
+    db.complete_detected_book.assert_called_once_with("abs-1", source="abs")
+
+
+def test_resolved_retry_requires_exact_existing_mapping():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = False
+    db.get_detected_book.return_value = SimpleNamespace(status="resolved")
+    service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
     assert result.book is existing
     db.save_book.assert_not_called()
     abs_service.add_to_collection.assert_not_called()
-    hc.assert_not_called()
-    db.resolve_detected_book.assert_called_once_with("abs-1", source="abs")
+
+
+def test_concurrent_processing_claim_loser_returns_conflict_without_write():
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = False
+    db.get_detected_book.return_value = SimpleNamespace(status="processing")
+    service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.status_code == 409
+    assert "already being processed" in result.error
+    db.save_book.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()

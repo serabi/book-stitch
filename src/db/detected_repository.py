@@ -127,6 +127,29 @@ class DetectedRepository(BaseRepository):
             detected.last_seen_at = datetime.now(UTC)
             return True
 
+    def transition_detected_book(self, source_id, source, from_status, to_status):
+        """Atomically transition one detected row when its current status matches."""
+        with self.get_session() as session:
+            updated = (
+                session.query(DetectedBook)
+                .filter(
+                    DetectedBook.source_id == source_id,
+                    DetectedBook.source == source,
+                    DetectedBook.status == from_status,
+                )
+                .update({DetectedBook.status: to_status, DetectedBook.last_seen_at: datetime.now(UTC)})
+            )
+            return updated == 1
+
+    def claim_detected_book(self, source_id, source="abs"):
+        return self.transition_detected_book(source_id, source, "detected", "processing")
+
+    def restore_detected_book(self, source_id, source="abs"):
+        return self.transition_detected_book(source_id, source, "processing", "detected")
+
+    def complete_detected_book(self, source_id, source="abs"):
+        return self.transition_detected_book(source_id, source, "processing", "resolved")
+
     def dismiss_detected_book(self, source_id, source="abs"):
         return self._set_detected_status(source_id, source, "dismissed")
 

@@ -278,7 +278,9 @@
                 var ready = hasText;
                 btn.type = 'submit';
                 btn.disabled = !ready;
-                btn.textContent = 'Create Mapping';
+                btn.textContent = hasExistingEntryCollision
+                    ? 'Combine existing entries and pair'
+                    : 'Create Mapping';
                 document.getElementById('input_action').value = '';
                 status.textContent = ready
                     ? 'Ready to create mapping.'

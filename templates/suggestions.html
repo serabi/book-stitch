@@ -35,7 +35,11 @@
     {% endif %}
 
     <div class="pairing-actions">
+        {% if pairing.review_supported %}
         <a class="btn btn-primary" href="{{ pairing.review_url }}">Review pairing</a>
+        {% else %}
+        <span class="pairing-unavailable">Pairing for this source is not available yet.</span>
+        {% endif %}
         <button class="btn btn-secondary pairing-dismiss" type="button">Dismiss</button>
         {% if pairing.alternatives %}
         <details class="pairing-alternatives">

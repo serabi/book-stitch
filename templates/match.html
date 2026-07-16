@@ -277,12 +277,13 @@
                 {% endif %}
             </section>
 
-            {% if existing_entry_collision %}
+            {% if combine_conflict and combine_conflict.conflict_code == 'combine_required' %}
             <div class="match-combine-warning" role="status">
-                This ebook already belongs to <strong>{{ existing_entry_collision.title or 'another PageKeeper entry' }}</strong>.
+                This ebook already belongs to <strong>{{ combine_conflict.conflict_book_title or 'another PageKeeper entry' }}</strong>.
                 Pairing will migrate its data into one canonical PageKeeper entry.
             </div>
             <input type="hidden" name="confirm_combine" value="1">
+            <input type="hidden" name="combine_book_id" value="{{ combine_conflict.conflict_book_id }}">
             {% endif %}
 
             {# ── Sticky action footer ── #}
@@ -305,11 +306,11 @@
                 </button>
                 {% elif pairing_review %}
                 <button type="submit" class="btn btn-success" id="actionBtn" disabled>
-                    {% if existing_entry_collision %}Combine existing entries and pair{% else %}Pair formats{% endif %}
+                    {% if combine_conflict and combine_conflict.conflict_code == 'combine_required' %}Combine existing entries and pair{% else %}Pair formats{% endif %}
                 </button>
                 {% else %}
                 <button type="submit" class="btn btn-success" id="actionBtn" disabled>
-                    Create Mapping
+                    {% if combine_conflict and combine_conflict.conflict_code == 'combine_required' %}Combine existing entries and pair{% else %}Create Mapping{% endif %}
                 </button>
                 {% endif %}
             </div>
@@ -327,7 +328,7 @@
             absConfigured: {{ 'true' if abs_configured|default(true) else 'false' }},
             hasEbookSources: {{ 'true' if has_ebook_sources|default(true) else 'false' }},
             isPairingReview: {{ 'true' if pairing_review else 'false' }},
-            hasExistingEntryCollision: {{ 'true' if existing_entry_collision else 'false' }}
+            hasExistingEntryCollision: {{ 'true' if combine_conflict and combine_conflict.conflict_code == 'combine_required' else 'false' }}
         };
     </script>
     <script src="/static/js/utils.js"></script>

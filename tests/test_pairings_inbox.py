@@ -118,6 +118,19 @@ def test_currently_reading_empty_states_use_existing_configuration(client, mock_
     assert "All caught up" in resolved
 
 
+def test_storyteller_only_detection_does_not_offer_unsupported_review_action(client, mock_container):
+    detected = _detected("story-1", "Storyteller Book", [])
+    detected.source = "storyteller"
+    db = mock_container.mock_database_service
+    db.get_active_detected_books.return_value = [detected]
+    db.get_detected_book_count.return_value = 1
+
+    page = client.get("/suggestions").get_data(as_text=True)
+
+    assert "Pairing for this source is not available yet." in page
+    assert "Review pairing" not in page
+
+
 def test_source_scoped_detected_dismiss_endpoint(client, mock_container):
     db = mock_container.mock_database_service
     db.dismiss_detected_book.return_value = True

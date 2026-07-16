@@ -141,11 +141,12 @@ def test_stale_detected_id_is_inline_and_preserves_identifiers(client, review_se
 
     assert response.status_code == 409
     assert 'role="alert"' in page
-    assert "stale or has already been handled" in page
-    assert 'name="detected_source_id" value="abs-1"' in page
+    assert "no longer available" in page
+    assert 'name="detected_source_id"' not in page
+    assert 'href="/suggestions"' in page
 
 
-def test_stale_recommended_edition_is_rejected_inline(client, review_setup):
+def test_stale_recommended_edition_clears_candidate_and_recovers_manual_review(client, review_setup):
     detected = _detected(
         matches=[
             {
@@ -163,8 +164,12 @@ def test_stale_recommended_edition_is_rejected_inline(client, review_setup):
             f"/match?{_review_query(detected, 'grimmory', 'grimmory:default:gone.epub')}"
         )
 
-    assert response.status_code == 409
-    assert "recommended ebook edition is no longer available" in response.get_data(as_text=True)
+    page = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "recommended ebook was removed" in page
+    assert 'name="candidate_source_id" value="grimmory:default:gone.epub"' not in page
+    assert 'name="detected_source_id" value="abs-1"' in page
+    assert "Pair formats" in page
 
 
 def test_post_error_keeps_exact_selections_and_inline_error(client, mock_container, review_setup):
@@ -216,10 +221,20 @@ def test_existing_entry_collision_requires_distinct_confirmation(client, review_
         matches=[{"source": "abs_audiobook", "abs_id": "abs-1"}],
     )
     review_setup.get_detected_book.return_value = detected
-    review_setup.get_book_by_kosync_id.return_value = SimpleNamespace(id=22, abs_id=None, title="Existing Ebook")
     ebook = EbookResult("exact.epub", source="Filesystem")
+    intake = Mock()
+    intake.inspect_audiobook_ebook.return_value = IntakeResult(
+        error="This ebook already belongs to another PageKeeper entry",
+        status_code=409,
+        conflict_code="combine_required",
+        conflict_book_id=22,
+        conflict_book_title="Existing Ebook",
+    )
 
-    with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]):
+    with (
+        patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]),
+        patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake),
+    ):
         response = client.get(f"/match?{_review_query(detected, 'abs_audiobook', 'abs-1')}")
 
     page = response.get_data(as_text=True)
@@ -227,6 +242,122 @@ def test_existing_entry_collision_requires_distinct_confirmation(client, review_
     assert "one canonical PageKeeper entry" in page
     assert "Combine existing entries and pair" in page
     assert 'name="confirm_combine" value="1"' in page
+    assert 'name="combine_book_id" value="22"' in page
+
+
+def test_abs_to_kosync_recommendation_passes_exact_hash_to_service(client, review_setup):
+    detected = _detected(
+        matches=[
+            {
+                "source_family": "kosync",
+                "source_key": "kosync:hash-exact",
+                "filename": "same.epub",
+            }
+        ]
+    )
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+    intake.map_audiobook_ebook.return_value = IntakeResult(book=SimpleNamespace(id=1))
+    data = {
+        "detected_id": "7",
+        "detected_source": "abs",
+        "detected_source_id": "abs-1",
+        "candidate_source": "kosync",
+        "candidate_source_id": "kosync:hash-exact",
+        "audiobook_id": "abs-1",
+        "ebook_filename": "same.epub",
+    }
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=data)
+
+    assert response.status_code == 302
+    assert intake.map_audiobook_ebook.call_args.kwargs["expected_ebook_kosync_id"] == "hash-exact"
+
+
+def test_removed_candidate_post_recovers_with_manual_companion(client, review_setup):
+    detected = _detected(matches=[])
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+    intake.map_audiobook_ebook.return_value = IntakeResult(book=SimpleNamespace(id=1))
+    data = {
+        "detected_id": "7",
+        "detected_source": "abs",
+        "detected_source_id": "abs-1",
+        "candidate_source": "grimmory",
+        "candidate_source_id": "grimmory:default:removed.epub",
+        "audiobook_id": "abs-1",
+        "ebook_filename": "manual.epub",
+    }
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=data)
+
+    assert response.status_code == 302
+    assert intake.map_audiobook_ebook.call_args.kwargs["expected_ebook_kosync_id"] is None
+
+
+def test_storyteller_detection_is_terminal_and_left_active(client, review_setup):
+    detected = _detected(source="storyteller", source_id="story-1")
+    review_setup.get_detected_book.return_value = detected
+
+    response = client.get(f"/match?{_review_query(detected)}")
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 409
+    assert "cannot yet be paired" in page
+    assert 'name="detected_source_id"' not in page
+    review_setup.resolve_detected_book.assert_not_called()
+
+
+def test_resolved_detection_get_is_terminal_but_post_verifies_mapping_retry(client, review_setup):
+    detected = _detected()
+    detected.status = "resolved"
+    review_setup.get_detected_book.return_value = detected
+
+    terminal = client.get(f"/match?{_review_query(detected)}")
+    assert terminal.status_code == 409
+    assert 'name="detected_source_id"' not in terminal.get_data(as_text=True)
+
+    intake = Mock()
+    intake.map_audiobook_ebook.return_value = IntakeResult(book=SimpleNamespace(id=1))
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        retry = client.post(
+            "/match",
+            data={
+                "detected_id": "7",
+                "detected_source": "abs",
+                "detected_source_id": "abs-1",
+                "audiobook_id": "abs-1",
+                "ebook_filename": "exact.epub",
+            },
+        )
+
+    assert retry.status_code == 302
+    assert retry.headers["Location"].endswith("/suggestions")
+
+
+def test_legacy_match_renders_service_combine_conflict(client, mock_container, review_setup):
+    intake = Mock()
+    intake.map_audiobook_ebook.return_value = IntakeResult(
+        error="This ebook already belongs to another PageKeeper entry",
+        status_code=409,
+        conflict_code="combine_required",
+        conflict_book_id=22,
+        conflict_book_title="Existing Ebook",
+    )
+    mock_container.mock_abs_service.get_audiobooks = lambda: [_abs_book()]
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post(
+            "/match",
+            data={"audiobook_id": "abs-1", "ebook_filename": "exact.epub"},
+        )
+
+    page = response.get_data(as_text=True)
+    assert response.status_code == 409
+    assert "Combine existing entries and pair" in page
+    assert 'name="combine_book_id" value="22"' in page
 
 
 def test_match_accessibility_and_mobile_guards_are_scoped_to_touched_flow():
@@ -240,5 +371,5 @@ def test_match_accessibility_and_mobile_guards_are_scoped_to_touched_flow():
     assert "<details" in template and "<summary" in template
     assert 'aria-live="polite"' in template and 'role="alert"' in template
     assert ".batch-select-card:focus-within" in css
-    assert "bottom: calc(68px + env(safe-area-inset-bottom, 0px))" in css
+    assert ".match-action-footer {\n    position: static;" in css
     assert "actionBtn.disabled = true" in javascript

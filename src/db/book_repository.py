@@ -188,7 +188,7 @@ class BookRepository(BaseRepository):
                 return True
             return False
 
-    def migrate_book_data(self, old_abs_id, new_abs_id):
+    def migrate_book_data(self, old_abs_id, new_abs_id, overrides=None):
         """Migrate a book identity while preserving the source Book row.
 
         The existing book is the canonical row because child state, journals,
@@ -268,6 +268,10 @@ class BookRepository(BaseRepository):
                     session.delete(target_book)
                     session.flush()
 
+                for attr, value in (overrides or {}).items():
+                    if attr in _BOOK_MERGE_METADATA_ATTRS:
+                        setattr(book, attr, value)
+
                 # Update the book's abs_id — child rows follow via book_id FK
                 book.abs_id = new_abs_id
 
@@ -308,6 +312,10 @@ class BookRepository(BaseRepository):
                 )
 
                 logger.info(f"Migrated book identity from '{old_abs_id}' to '{new_abs_id}'")
+                session.flush()
+                session.refresh(book)
+                session.expunge(book)
+                return book
             except Exception as e:
                 logger.error(f"Failed to migrate book data: {e}")
                 raise

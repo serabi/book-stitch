@@ -18,6 +18,21 @@ class IntakeResult:
     book: Book | None = None
     error: str | None = None
     status_code: int = 400
+    conflict_code: str | None = None
+    conflict_book_id: int | None = None
+    conflict_book_title: str | None = None
+
+
+@dataclass(frozen=True)
+class _PreparedMapping:
+    abs_id: str
+    ebook_filename: str
+    ebook_source_id: str | None
+    kosync_doc_id: str
+    current_book: Book | None
+    merge_book: Book | None
+    grimmory_book: dict | None
+    grimmory_client: object | None
 
 
 class BookIntakeService:
@@ -198,36 +213,134 @@ class BookIntakeService:
         detected_source=None,
         detected_source_id=None,
         expected_ebook_kosync_id=None,
+        confirm_combine=False,
+        confirmed_merge_book_id=None,
     ) -> IntakeResult:
+        prepared = self._prepare_mapping(abs_id, ebook_filename, ebook_source_id, expected_ebook_kosync_id)
+        if isinstance(prepared, IntakeResult):
+            return prepared
+
+        claimed = False
+        if detected_source and detected_source_id:
+            claimed = self.database_service.claim_detected_book(detected_source_id, source=detected_source)
+            if not claimed:
+                detected = self.database_service.get_detected_book(detected_source_id, source=detected_source)
+                if getattr(detected, "status", None) == "resolved" and self._mapping_matches(prepared):
+                    return IntakeResult(book=prepared.current_book)
+                return IntakeResult(error="This pairing is already being processed or is no longer active", status_code=409)
+
+        confirmed_merge_id = None
+        try:
+            confirmed_merge_id = int(confirmed_merge_book_id) if confirmed_merge_book_id is not None else None
+        except (TypeError, ValueError):
+            pass
+        merge_unconfirmed = prepared.merge_book and (
+            not confirm_combine or confirmed_merge_id != prepared.merge_book.id
+        )
+        if merge_unconfirmed:
+            if claimed:
+                self.database_service.restore_detected_book(detected_source_id, source=detected_source)
+            return self._combine_conflict(prepared.merge_book)
+
+        try:
+            result = self._apply_mapping(
+                prepared,
+                title=title,
+                duration=duration,
+                storyteller_uuid=storyteller_uuid,
+                storyteller_submit=storyteller_submit,
+                author=author,
+                subtitle=subtitle,
+                resolve_detected=not claimed,
+            )
+            if claimed and not self.database_service.complete_detected_book(
+                detected_source_id, source=detected_source
+            ):
+                raise RuntimeError("Detected book claim was lost before completion")
+            return result
+        except Exception:
+            if claimed:
+                self.database_service.restore_detected_book(detected_source_id, source=detected_source)
+            raise
+
+    def inspect_audiobook_ebook(
+        self,
+        *,
+        abs_id,
+        ebook_filename,
+        ebook_source_id=None,
+        expected_ebook_kosync_id=None,
+    ) -> IntakeResult:
+        prepared = self._prepare_mapping(abs_id, ebook_filename, ebook_source_id, expected_ebook_kosync_id)
+        if isinstance(prepared, IntakeResult):
+            return prepared
+        if prepared.merge_book:
+            return self._combine_conflict(prepared.merge_book)
+        return IntakeResult(book=prepared.current_book)
+
+    def _prepare_mapping(self, abs_id, ebook_filename, ebook_source_id, expected_ebook_kosync_id):
         bl_match, bl_match_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
         if ebook_source_id and not bl_match:
             return IntakeResult(error="Selected Grimmory book was not found", status_code=404)
         grimmory_id = bl_match.get("id") if bl_match else None
-
         kosync_doc_id = self.get_kosync_id_for_ebook(ebook_filename, grimmory_id, bl_client=bl_match_client)
         if not kosync_doc_id:
             logger.warning("Cannot compute KOSync ID for '%s'", sanitize_log_data(ebook_filename))
             return IntakeResult(error="Could not compute KOSync ID for ebook", status_code=404)
-
         if expected_ebook_kosync_id and kosync_doc_id != expected_ebook_kosync_id:
             return IntakeResult(error="The selected ebook no longer matches the detected edition", status_code=409)
 
-        current_book_entry = self.database_service.get_book_by_ref(abs_id)
-        if self._is_same_mapping(current_book_entry, ebook_filename, ebook_source_id, kosync_doc_id):
-            self._resolve_exact_detection(detected_source, detected_source_id)
-            return IntakeResult(book=current_book_entry)
-
-        if current_book_entry and current_book_entry.kosync_doc_id:
-            logger.info("Preserving existing hash '%s' for '%s'", current_book_entry.kosync_doc_id, abs_id)
-            kosync_doc_id = current_book_entry.kosync_doc_id
-
+        current_book = self.database_service.get_book_by_ref(abs_id)
         existing_book = self.database_service.get_book_by_kosync_id(kosync_doc_id)
-        migration_source_id = None
-        original_ebook_filename = None
+        if not isinstance(getattr(existing_book, "id", None), int):
+            existing_book = None
+        merge_book = existing_book if existing_book and getattr(existing_book, "id", None) != getattr(current_book, "id", None) else None
+        return _PreparedMapping(
+            abs_id=abs_id,
+            ebook_filename=ebook_filename,
+            ebook_source_id=ebook_source_id,
+            kosync_doc_id=kosync_doc_id,
+            current_book=current_book,
+            merge_book=merge_book,
+            grimmory_book=bl_match,
+            grimmory_client=bl_match_client,
+        )
 
-        if existing_book and existing_book.abs_id != abs_id:
-            logger.info("Merging existing '%s' into '%s'", existing_book.abs_id, abs_id)
-            migration_source_id = existing_book.abs_id or existing_book.id
+    @staticmethod
+    def _combine_conflict(book):
+        return IntakeResult(
+            error="This ebook already belongs to another PageKeeper entry",
+            status_code=409,
+            conflict_code="combine_required",
+            conflict_book_id=book.id,
+            conflict_book_title=getattr(book, "title", None),
+        )
+
+    def _mapping_matches(self, prepared):
+        book = prepared.current_book
+        if not book or book.ebook_filename != prepared.ebook_filename or book.kosync_doc_id != prepared.kosync_doc_id:
+            return False
+        if not prepared.ebook_source_id:
+            return True
+        doc = self.database_service.get_kosync_document(prepared.kosync_doc_id)
+        return bool(doc and doc.grimmory_id == prepared.ebook_source_id)
+
+    def _apply_mapping(
+        self,
+        prepared,
+        *,
+        title,
+        duration,
+        storyteller_uuid,
+        storyteller_submit,
+        author,
+        subtitle,
+        resolve_detected,
+    ):
+        existing_book = prepared.merge_book
+        original_ebook_filename = None
+        if existing_book:
+            logger.info("Merging exact book id=%s into '%s'", existing_book.id, prepared.abs_id)
             ebook_item_id = existing_book.ebook_item_id or existing_book.abs_ebook_item_id or existing_book.abs_id
             original_ebook_filename = existing_book.original_ebook_filename or existing_book.ebook_filename
             merge_metadata = self._copy_book_merge_metadata(
@@ -247,11 +360,11 @@ class BookIntakeService:
                 "ebook_item_id": None,
             }
 
-        book = Book(
-            abs_id=abs_id,
+        desired = Book(
+            abs_id=prepared.abs_id,
             title=title,
-            ebook_filename=ebook_filename,
-            kosync_doc_id=kosync_doc_id,
+            ebook_filename=prepared.ebook_filename,
+            kosync_doc_id=prepared.kosync_doc_id,
             transcript_file=None,
             status="pending",
             duration=duration,
@@ -259,42 +372,56 @@ class BookIntakeService:
             subtitle=subtitle,
             **merge_metadata,
         )
-        self.database_service.save_book(book, is_new=True)
-        ensure_kosync_document(book, self.database_service)
-        self._record_grimmory_source(kosync_doc_id, ebook_source_id)
-
-        if storyteller_submit:
-            self._create_storyteller_reservation(abs_id)
-
-        if migration_source_id:
-            self._migrate_source_identity(migration_source_id, abs_id)
-            self.abs_service.add_to_collection(abs_id, self.collection_name)
+        if existing_book:
+            overrides = {
+                attr: getattr(desired, attr)
+                for attr in (
+                    "title",
+                    "author",
+                    "subtitle",
+                    "ebook_filename",
+                    "original_ebook_filename",
+                    "kosync_doc_id",
+                    "transcript_file",
+                    "status",
+                    "duration",
+                    "sync_mode",
+                    "storyteller_uuid",
+                    "abs_ebook_item_id",
+                    "ebook_item_id",
+                    "custom_cover_url",
+                    "started_at",
+                    "finished_at",
+                    "rating",
+                    "read_count",
+                )
+            }
+            book = self.database_service.migrate_book_data(existing_book.id, prepared.abs_id, overrides=overrides)
+            if not book:
+                raise RuntimeError(f"Exact merge source book id={existing_book.id} disappeared")
         else:
-            self.abs_service.add_to_collection(abs_id, self.collection_name)
+            book = self.database_service.save_book(desired, is_new=True)
 
-        self.attempt_hardcover_automatch(self.container, book)
-
-        if bl_match_client:
-            self._add_to_grimmory_shelf(bl_match_client, original_ebook_filename or ebook_filename)
-
+        ensure_kosync_document(book, self.database_service)
+        self._record_grimmory_source(prepared.kosync_doc_id, prepared.ebook_source_id)
         if storyteller_submit:
-            self._submit_to_storyteller_async(abs_id, title, ebook_filename)
-
-        self._resolve_mapping_suggestions(abs_id, kosync_doc_id, ebook_filename, ebook_source_id)
-        self._resolve_exact_detection(detected_source, detected_source_id)
+            self._create_storyteller_reservation(prepared.abs_id)
+        self.abs_service.add_to_collection(prepared.abs_id, self.collection_name)
+        self.attempt_hardcover_automatch(self.container, book)
+        if prepared.grimmory_client:
+            self._add_to_grimmory_shelf(
+                prepared.grimmory_client, original_ebook_filename or prepared.ebook_filename
+            )
+        if storyteller_submit:
+            self._submit_to_storyteller_async(prepared.abs_id, title, prepared.ebook_filename)
+        self._resolve_mapping_suggestions(
+            prepared.abs_id,
+            prepared.kosync_doc_id,
+            prepared.ebook_filename,
+            prepared.ebook_source_id,
+            resolve_detected=resolve_detected,
+        )
         return IntakeResult(book=book)
-
-    def _is_same_mapping(self, book, ebook_filename, ebook_source_id, kosync_doc_id):
-        if not book or book.ebook_filename != ebook_filename or book.kosync_doc_id != kosync_doc_id:
-            return False
-        if not ebook_source_id:
-            return True
-        doc = self.database_service.get_kosync_document(kosync_doc_id)
-        return bool(doc and doc.grimmory_id == ebook_source_id)
-
-    def _resolve_exact_detection(self, source, source_id):
-        if source and source_id:
-            self.database_service.resolve_detected_book(source_id, source=source)
 
     def _create_storyteller_reservation(self, abs_id):
         book = self.database_service.get_book_by_ref(abs_id)
@@ -374,18 +501,28 @@ class BookIntakeService:
         except Exception as e:
             logger.warning("Grimmory add_to_shelf failed for '%s': %s", sanitize_log_data(ebook_filename), e)
 
-    def _resolve_mapping_suggestions(self, abs_id, kosync_doc_id, ebook_filename, ebook_source_id=None):
+    def _resolve_mapping_suggestions(
+        self,
+        abs_id,
+        kosync_doc_id,
+        ebook_filename,
+        ebook_source_id=None,
+        *,
+        resolve_detected=True,
+    ):
         self.database_service.resolve_suggestion(abs_id)
         self.database_service.resolve_suggestion(kosync_doc_id)
-        self.database_service.resolve_detected_book(abs_id, source="abs")
-        if kosync_doc_id:
-            self.database_service.resolve_detected_book(kosync_doc_id, source="kosync")
-        self._resolve_grimmory_detection(ebook_filename, ebook_source_id)
+        if resolve_detected:
+            self.database_service.resolve_detected_book(abs_id, source="abs")
+            if kosync_doc_id:
+                self.database_service.resolve_detected_book(kosync_doc_id, source="kosync")
+            self._resolve_grimmory_detection(ebook_filename, ebook_source_id)
         try:
             device_doc = self.database_service.get_kosync_doc_by_filename(ebook_filename)
             if device_doc and device_doc.document_hash != kosync_doc_id:
                 self.database_service.resolve_suggestion(device_doc.document_hash)
-                self.database_service.resolve_detected_book(device_doc.document_hash, source="kosync")
+                if resolve_detected:
+                    self.database_service.resolve_detected_book(device_doc.document_hash, source="kosync")
         except Exception as e:
             logger.warning("Failed to check/resolve device hash: %s", e)
 

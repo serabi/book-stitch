@@ -185,7 +185,21 @@ def _pairing_review_url(detected, match=None):
 
 def _serialize_detected_pairing(detected):
     matches = list(detected.matches or [])
-    top_match = matches[0] if matches else None
+    review_supported = detected.source in {"abs", "grimmory", "kosync"}
+    if detected.source == "abs":
+        supported_matches = [
+            match
+            for match in matches
+            if (match.get("source_family") or match.get("source"))
+            in {"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"}
+        ]
+    else:
+        supported_matches = [
+            match
+            for match in matches
+            if (match.get("source_family") or match.get("source")) in {"abs", "abs_audiobook"}
+        ]
+    top_match = supported_matches[0] if supported_matches else None
     last_seen = detected.last_seen_at
     source = detected.source or "unknown"
     return {
@@ -201,8 +215,9 @@ def _serialize_detected_pairing(detected):
         "last_seen": f"{last_seen.strftime('%b')} {last_seen.day}, {last_seen.year}" if last_seen else None,
         "device": detected.device,
         "review_url": _pairing_review_url(detected, top_match),
+        "review_supported": review_supported,
         "top_match": _serialize_detected_match(top_match) if top_match else None,
-        "alternatives": [_serialize_detected_match(match) for match in matches[1:]],
+        "alternatives": [_serialize_detected_match(match) for match in supported_matches[1:]],
     }
 
 
@@ -230,30 +245,36 @@ def _pairing_review_values(source):
     return {name: str(source.get(name, "") or "").strip() for name in _PAIRING_REVIEW_FIELDS}
 
 
-def _load_pairing_review(database_service, values):
+def _load_pairing_review(database_service, values, method="GET"):
     if not any(values.values()):
-        return None, None, 200
+        return None, None, 200, False
     if not all(values[name] for name in _PAIRING_REVIEW_FIELDS[:3]):
-        return None, "This pairing link is incomplete. Return to Currently Reading and try again.", 400
+        return None, "This pairing link is incomplete.", 400, True
     if bool(values["candidate_source"]) != bool(values["candidate_source_id"]):
-        return None, "This pairing recommendation is incomplete. Return to Currently Reading and try again.", 400
+        values = {**values, "candidate_source": "", "candidate_source_id": ""}
 
     try:
         detected_id = int(values["detected_id"])
     except ValueError:
-        return None, "This pairing link is invalid. Return to Currently Reading and try again.", 400
+        return None, "This pairing link is invalid.", 400, True
 
     detected = database_service.get_detected_book(
         values["detected_source_id"], source=values["detected_source"]
     )
-    if (
-        not detected
-        or getattr(detected, "id", None) != detected_id
-        or getattr(detected, "status", "detected") != "detected"
-    ):
-        return None, "This detected book is stale or has already been handled.", 409
+    if not detected or getattr(detected, "id", None) != detected_id:
+        return None, "This detected book is no longer available.", 409, True
+    if detected.source not in {"abs", "grimmory", "kosync"}:
+        return None, "This source cannot yet be paired with the current write path.", 409, True
+
+    status = getattr(detected, "status", "detected")
+    if status != "detected" and method != "POST":
+        message = "This pairing has already been completed." if status == "resolved" else "This pairing is not active."
+        return None, message, 409, True
+    if status not in {"detected", "processing", "resolved"}:
+        return None, "This pairing is not active.", 409, True
 
     candidate = None
+    warning = None
     if values["candidate_source"]:
         candidate = next(
             (
@@ -265,9 +286,10 @@ def _load_pairing_review(database_service, values):
             None,
         )
         if not candidate:
-            return None, "This recommended edition is stale. Search for a companion again.", 409
+            values = {**values, "candidate_source": "", "candidate_source_id": ""}
+            warning = "The previous recommendation is no longer available. Choose a companion manually."
 
-    return {"detected": detected, "candidate": candidate, **values}, None, 200
+    return {"detected": detected, "candidate": candidate, **values}, warning, 200, False
 
 
 def _review_defaults(review):
@@ -295,29 +317,6 @@ def _review_defaults(review):
     return defaults
 
 
-def _existing_entry_collision(database_service, review, abs_id, ebook_filename, ebook_source_id):
-    if not review or not abs_id or not ebook_filename:
-        return None
-
-    detected = review["detected"]
-    existing = None
-    if detected.source == "kosync" and ebook_filename == detected.ebook_filename:
-        existing = database_service.get_book_by_kosync_id(detected.source_id)
-    elif ebook_source_id:
-        doc = database_service.get_kosync_doc_by_grimmory_id(ebook_source_id)
-        document_hash = getattr(doc, "document_hash", None)
-        if isinstance(document_hash, str):
-            existing = database_service.get_book_by_kosync_id(document_hash)
-    if not existing:
-        existing = database_service.get_book_by_ebook_filename(ebook_filename)
-
-    existing_id = getattr(existing, "id", None)
-    existing_abs_id = getattr(existing, "abs_id", None)
-    if isinstance(existing_id, int) and existing_abs_id != abs_id:
-        return existing
-    return None
-
-
 def _progress_sources_configured(container):
     try:
         if get_abs_service().is_available():
@@ -338,7 +337,34 @@ def _progress_sources_configured(container):
         return False
 
 
-def _render_match_page(container, manager, database_service, values, review=None, error=None, status_code=200):
+def _render_terminal_review_error(message, status_code):
+    return render_template("match_review_error.html", pairing_error=message), status_code
+
+
+def _expected_review_kosync_id(review, ebook_filename):
+    if not review:
+        return None
+    detected = review["detected"]
+    if detected.source == "kosync" and ebook_filename == detected.ebook_filename:
+        return detected.source_id
+    candidate = review.get("candidate") or {}
+    candidate_source = candidate.get("source_family") or candidate.get("source")
+    if candidate_source == "kosync" and ebook_filename == candidate.get("filename"):
+        source_key = str(_candidate_source_id(candidate) or "")
+        return source_key.split(":", 1)[1] if source_key.startswith("kosync:") else source_key
+    return None
+
+
+def _render_match_page(
+    container,
+    manager,
+    database_service,
+    values,
+    review=None,
+    error=None,
+    status_code=200,
+    combine_conflict=None,
+):
     defaults = _review_defaults(review)
     search = str(values.get("search") or (review["detected"].title if review else "") or "").strip().lower()
     attach_to = str(values.get("attach_to", "") or "").strip()
@@ -439,12 +465,22 @@ def _render_match_page(container, manager, database_service, values, review=None
         elif candidate_source in {"abs", "abs_audiobook"} and not any(
             ab["id"] == candidate.get("abs_id") for ab in audiobooks
         ):
-            error, status_code = "The recommended audiobook edition is no longer available.", 409
+            selected_abs_id = detected.source_id if detected.source == "abs" else ""
+            review = {**review, "candidate": None, "candidate_source": "", "candidate_source_id": ""}
+            candidate = None
+            error, status_code = "The recommended audiobook was removed. Choose another manually.", 200
         elif candidate_source == "grimmory" and not any(
             eb.name == candidate_filename and str(eb.grimmory_id or "") == str(candidate.get("id") or "")
             for eb in ebooks
         ):
-            error, status_code = "The recommended ebook edition is no longer available.", 409
+            if detected.source == "abs":
+                selected_ebook_filename = ""
+                selected_ebook_source_id = ""
+                for ebook in ebooks:
+                    ebook.is_selected = False
+            review = {**review, "candidate": None, "candidate_source": "", "candidate_source_id": ""}
+            candidate = None
+            error, status_code = "The recommended ebook was removed. Choose another manually.", 200
 
     storyteller_submit_available = False
     try:
@@ -473,14 +509,18 @@ def _render_match_page(container, manager, database_service, values, review=None
         library_ebook_filenames = {b.ebook_filename for b in all_books if b.ebook_filename}
         library_ebook_filenames |= {b.original_ebook_filename for b in all_books if b.original_ebook_filename}
 
-    collision = _existing_entry_collision(
-        database_service,
-        review,
-        selected_abs_id,
-        selected_ebook_filename,
-        selected_ebook_source_id,
-    )
-    pairing_values = _pairing_review_values(values)
+    expected_kosync_id = _expected_review_kosync_id(review, selected_ebook_filename)
+    if not combine_conflict and selected_abs_id and selected_ebook_filename and not error:
+        inspection = _get_book_intake_service(container).inspect_audiobook_ebook(
+            abs_id=selected_abs_id,
+            ebook_filename=selected_ebook_filename,
+            ebook_source_id=selected_ebook_source_id or None,
+            expected_ebook_kosync_id=expected_kosync_id,
+        )
+        if inspection.conflict_code == "combine_required":
+            combine_conflict = inspection
+
+    pairing_values = _pairing_review_values(review if review else values)
     page = render_template(
         "match.html",
         audiobooks=audiobooks,
@@ -505,7 +545,7 @@ def _render_match_page(container, manager, database_service, values, review=None
         pairing_review=review,
         pairing_values=pairing_values,
         pairing_error=error,
-        existing_entry_collision=collision,
+        combine_conflict=combine_conflict,
     )
     return (page, status_code) if status_code != 200 else page
 
@@ -513,7 +553,7 @@ def _render_match_page(container, manager, database_service, values, review=None
 def _post_pairing_review(container, manager, database_service, review):
     values = request.form
 
-    def render_error(message, status_code=400):
+    def render_error(message, status_code=400, combine_conflict=None):
         return _render_match_page(
             container,
             manager,
@@ -522,6 +562,7 @@ def _post_pairing_review(container, manager, database_service, review):
             review=review,
             error=message,
             status_code=status_code,
+            combine_conflict=combine_conflict,
         )
 
     abs_id = str(values.get("audiobook_id", "") or "").strip()
@@ -545,13 +586,6 @@ def _post_pairing_review(container, manager, database_service, review):
     if not selected_ab:
         return render_error("The selected audiobook edition is no longer available.", 409)
 
-    collision = _existing_entry_collision(database_service, review, abs_id, ebook_filename, ebook_source_id)
-    if collision and values.get("confirm_combine") != "1":
-        return render_error(
-            "This ebook already belongs to another PageKeeper entry. Confirm that you want to combine the entries.",
-            409,
-        )
-
     metadata = selected_ab.get("media", {}).get("metadata", {})
     result = _get_book_intake_service(container).map_audiobook_ebook(
         abs_id=abs_id,
@@ -565,10 +599,12 @@ def _post_pairing_review(container, manager, database_service, review):
         subtitle=metadata.get("subtitle") or None,
         detected_source=detected.source,
         detected_source_id=detected.source_id,
-        expected_ebook_kosync_id=detected.source_id if detected.source == "kosync" else None,
+        expected_ebook_kosync_id=_expected_review_kosync_id(review, ebook_filename),
+        confirm_combine=values.get("confirm_combine") == "1",
+        confirmed_merge_book_id=values.get("combine_book_id"),
     )
     if result.error:
-        return render_error(result.error, result.status_code)
+        return render_error(result.error, result.status_code, combine_conflict=result)
     return redirect(url_for("matching.suggestions"))
 
 
@@ -628,9 +664,14 @@ def match():
     database_service = get_database_service()
     values = request.form if request.method == "POST" else request.args
     review_values = _pairing_review_values(values)
-    pairing_review, review_error, review_status = _load_pairing_review(database_service, review_values)
+    pairing_review, review_error, review_status, terminal_error = _load_pairing_review(
+        database_service, review_values, request.method
+    )
 
-    if review_error:
+    if terminal_error:
+        return _render_terminal_review_error(review_error, review_status)
+
+    if review_error and not pairing_review:
         return _render_match_page(
             container,
             manager,
@@ -747,9 +788,8 @@ def match():
             return "Audiobook not found", 404
 
         _ab_meta = selected_ab.get("media", {}).get("metadata", {})
-        book, error = _create_book_mapping(
-            container,
-            abs_id,
+        result = intake_service.map_audiobook_ebook(
+            abs_id=abs_id,
             title=manager.get_audiobook_title(selected_ab),
             ebook_filename=ebook_filename,
             ebook_source_id=ebook_source_id,
@@ -758,9 +798,19 @@ def match():
             storyteller_submit=bool(storyteller_submit),
             author=get_audiobook_author(selected_ab),
             subtitle=_ab_meta.get("subtitle") or None,
+            confirm_combine=request.form.get("confirm_combine") == "1",
+            confirmed_merge_book_id=request.form.get("combine_book_id"),
         )
-        if error:
-            return _plain_error_response(error, 404)
+        if result.error:
+            return _render_match_page(
+                container,
+                manager,
+                database_service,
+                request.form,
+                error=result.error,
+                status_code=result.status_code,
+                combine_conflict=result,
+            )
 
         return redirect(url_for("dashboard.index"))
 
@@ -770,6 +820,8 @@ def match():
         database_service,
         request.args,
         review=pairing_review,
+        error=review_error,
+        status_code=review_status,
     )
 
 

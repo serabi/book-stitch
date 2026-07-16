@@ -125,6 +125,21 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertEqual(resolved.status, "resolved")
         self.assertEqual(still_active.status, "detected")
 
+    def test_detected_book_claim_is_compare_and_set_and_restorable(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claim-once", title="Claim", progress_percentage=0.2)
+        )
+
+        self.assertTrue(self.db_service.claim_detected_book("claim-once", source="abs"))
+        self.assertFalse(self.db_service.claim_detected_book("claim-once", source="abs"))
+        self.assertEqual(self.db_service.get_detected_book("claim-once", source="abs").status, "processing")
+        self.assertTrue(self.db_service.restore_detected_book("claim-once", source="abs"))
+        self.assertTrue(self.db_service.claim_detected_book("claim-once", source="abs"))
+        self.assertTrue(self.db_service.complete_detected_book("claim-once", source="abs"))
+        self.assertEqual(self.db_service.get_detected_book("claim-once", source="abs").status, "resolved")
+
     def test_dismiss_detected_book_sets_status_on_existing_row(self):
         """Dismissing an existing detected book sets status to dismissed and returns True."""
         from src.db.models import DetectedBook
