@@ -161,6 +161,28 @@ def test_save_grimmory_book_distinguishes_by_server_id(repository):
     assert repository.get_grimmory_book("shared.epub", server_id="b").title == "Server B"
 
 
+def test_remote_identity_retains_same_filename_rows_and_deletes_exactly_one(repository):
+    for book_id, file_id in (("10", "41"), ("20", "42")):
+        repository.save_grimmory_book(
+            GrimmoryBook(
+                filename="shared.m4b",
+                title=f"Book {book_id}",
+                raw_metadata=json.dumps({"id": book_id, "bookFileId": file_id}),
+                server_id="test",
+                remote_book_id=book_id,
+                remote_file_id=file_id,
+            )
+        )
+
+    assert repository.get_grimmory_book("shared.m4b", server_id="test") is None
+    assert repository.get_grimmory_book_by_remote_id("10", "41", server_id="test").title == "Book 10"
+    assert repository.delete_grimmory_book(
+        "shared.m4b", server_id="test", book_id="10", file_id="41"
+    )
+    rows = repository.get_all_grimmory_books(server_id="test")
+    assert [(row.remote_book_id, row.remote_file_id) for row in rows] == [("20", "42")]
+
+
 def test_save_grimmory_book_updates_preexisting_row(repository):
     """A row already committed by another writer is updated in place rather
     than duplicated when save sees the same identity."""

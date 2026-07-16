@@ -8,6 +8,7 @@ from typing import Callable
 
 from sqlalchemy.exc import IntegrityError
 
+from src.db.book_repository import KoSyncOwnershipConflict
 from src.db.models import Book, StorytellerSubmission
 from src.services.kosync_service import ensure_kosync_document
 from src.utils.logging_utils import sanitize_log_data
@@ -391,9 +392,9 @@ class BookIntakeService:
                 target.kosync_doc_id = prepared.kosync_doc_id
                 target.grimmory_audio_source_id = audio_source_id
                 target.sync_mode = "audiobook"
-                book = self.database_service.save_book(target)
+                book = self.database_service.save_book_with_kosync_ownership(target)
             else:
-                book = self.database_service.save_book(
+                book = self.database_service.save_book_with_kosync_ownership(
                     Book(
                         title=audio_info.get("title") or Path(prepared.ebook_filename).stem,
                         author=audio_info.get("authors") or None,
@@ -402,10 +403,9 @@ class BookIntakeService:
                         grimmory_audio_source_id=audio_source_id,
                         status="pending",
                         sync_mode="audiobook",
-                    ),
-                    is_new=True,
+                    )
                 )
-        except IntegrityError:
+        except (IntegrityError, KoSyncOwnershipConflict):
             restore_claim()
             return IntakeResult(error="The audiobook or ebook was linked by another request", status_code=409)
         except Exception:

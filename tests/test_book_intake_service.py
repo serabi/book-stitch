@@ -1,9 +1,13 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from src.db.book_repository import BookRepository
+from src.db.models import Base, DatabaseManager
 from src.services.book_intake_service import BookIntakeService
 from src.services.storyteller_submission_service import SubmissionResult
 
@@ -52,6 +56,7 @@ def _make_service(*, db=None, abs_service=None, bl_match=None, bl_client=None, k
         return book
 
     db.save_book.side_effect = save_book
+    db.save_book_with_kosync_ownership.side_effect = save_book
 
     abs_service = abs_service or Mock()
     bl_client = bl_client or Mock()
@@ -136,7 +141,7 @@ def test_link_grimmory_audiobook_creates_book_without_abs_side_effects():
     db.resolve_detected_book.assert_any_call("default:10:42", source="grimmory")
     db.resolve_detected_book.assert_any_call("ebook-hash", source="kosync")
     method_names = [call[0] for call in db.method_calls]
-    assert method_names.index("save_book") < method_names.index("complete_detected_book")
+    assert method_names.index("save_book_with_kosync_ownership") < method_names.index("complete_detected_book")
 
 
 def test_link_grimmory_audiobook_updates_ebook_book_and_preserves_abs():
@@ -249,7 +254,7 @@ def test_link_grimmory_audiobook_returns_conflict_on_concurrent_unique_claim():
     db.get_book_by_kosync_id.return_value = None
     db.claim_detected_book.return_value = "owner-token"
     db.renew_detected_book_claim.return_value = True
-    db.save_book.side_effect = IntegrityError("unique", {}, None)
+    db.save_book_with_kosync_ownership.side_effect = IntegrityError("unique", {}, None)
 
     result = service.link_grimmory_audiobook_ebook(
         audio_source_id="default:10:42",
@@ -262,6 +267,52 @@ def test_link_grimmory_audiobook_returns_conflict_on_concurrent_unique_claim():
     db.restore_detected_book.assert_called_once_with(
         "default:10:42", "owner-token", source="grimmory"
     )
+
+
+def test_concurrent_grimmory_links_cannot_create_two_books_for_one_kosync_hash(tmp_path):
+    manager = DatabaseManager(str(tmp_path / "concurrent-intake.db"))
+    Base.metadata.create_all(manager.engine)
+    repository = BookRepository(manager)
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_kosync_doc_by_filename.return_value = None
+    db.get_kosync_document.return_value = None
+    db.claim_detected_book.side_effect = lambda source_id, source: f"claim-{source_id}"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+    prepare_barrier = threading.Barrier(2)
+
+    def lookup_kosync(kosync_id):
+        prepare_barrier.wait(timeout=5)
+        return repository.get_book_by_kosync_id(kosync_id)
+
+    db.get_book_by_kosync_id.side_effect = lookup_kosync
+    service, _, _, _, _ = _make_service(db=db, kosync_id="shared-hash")
+    db.save_book_with_kosync_ownership.side_effect = repository.save_book_with_kosync_ownership
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.side_effect = (
+        lambda source_id: {"id": source_id.split(":")[1], "title": "Book"}
+    )
+
+    def link(audio_source_id):
+        return service.link_grimmory_audiobook_ebook(
+            audio_source_id=audio_source_id,
+            ebook_filename="shared.epub",
+            detected_source="grimmory",
+            detected_source_id=audio_source_id,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(link, ["default:10:41", "default:20:42"]))
+
+        assert sorted(result.status_code for result in results) == [400, 409]
+        books = repository.get_all_books()
+        assert len(books) == 1
+        assert books[0].kosync_doc_id == "shared-hash"
+        db.restore_detected_book.assert_called_once()
+    finally:
+        manager.close()
 
 
 def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():

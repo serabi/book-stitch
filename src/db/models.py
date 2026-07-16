@@ -867,13 +867,24 @@ class GrimmoryBook(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     server_id = Column(String(50), nullable=False, default="default")
+    remote_book_id = Column(String(255), nullable=True)
+    remote_file_id = Column(String(255), nullable=True)
     filename = Column(String(500), nullable=False)
     title = Column(String(500))
     authors = Column(String(500))
     raw_metadata = Column(Text)
     last_updated = Column(DateTime, default=utc_now, onupdate=utc_now)
 
-    __table_args__ = (UniqueConstraint("server_id", "filename", name="uq_grimmory_server_filename"),)
+    __table_args__ = (
+        sa.Index(
+            "uq_grimmory_remote_file",
+            "server_id",
+            "remote_book_id",
+            "remote_file_id",
+            unique=True,
+            sqlite_where=sa.text("remote_book_id IS NOT NULL AND remote_file_id IS NOT NULL"),
+        ),
+    )
 
     @property
     def raw_metadata_dict(self):
@@ -891,8 +902,12 @@ class GrimmoryBook(Base):
         authors: str | None = None,
         raw_metadata: str | None = None,
         server_id: str = "default",
+        remote_book_id: str | None = None,
+        remote_file_id: str | None = None,
     ):
         self.server_id = server_id
+        self.remote_book_id = str(remote_book_id) if remote_book_id is not None else None
+        self.remote_file_id = str(remote_file_id) if remote_file_id is not None else None
         self.filename = filename
         self.title = title
         self.authors = authors

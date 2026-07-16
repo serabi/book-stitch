@@ -137,7 +137,7 @@ def test_load_cache_populates_case_insensitive_index_without_full_rebuild(mock_d
     assert client.find_book_by_filename("TWO.epub", allow_refresh=False)["id"] == "second"
 
 
-def test_cache_book_info_updates_same_exact_filename_without_marking_ambiguous(mock_db):
+def test_cache_book_info_updates_same_remote_identity_without_marking_ambiguous(mock_db):
     mock_db.get_all_grimmory_books.return_value = []
 
     with patch.dict(
@@ -146,10 +146,14 @@ def test_cache_book_info_updates_same_exact_filename_without_marking_ambiguous(m
     ):
         client = GrimmoryClient(database_service=mock_db)
 
-    client._cache_book_info("Book.epub", {"id": "old", "fileName": "Book.epub", "title": "Old"})
-    client._cache_book_info("Book.epub", {"id": "new", "fileName": "Book.epub", "title": "New"})
+    client._cache_book_info(
+        "Book.epub", {"id": "book", "bookFileId": "file", "fileName": "Book.epub", "title": "Old"}
+    )
+    client._cache_book_info(
+        "Book.epub", {"id": "book", "bookFileId": "file", "fileName": "Book.epub", "title": "New"}
+    )
 
-    assert client.find_book_by_filename("book.epub", allow_refresh=False)["id"] == "new"
+    assert client.find_book_by_filename("book.epub", allow_refresh=False)["id"] == "book"
     assert client.find_book_by_filename("BOOK.epub", allow_refresh=False)["title"] == "New"
 
 
@@ -186,7 +190,9 @@ def test_refresh_migrates_cached_book_id_to_live_filename_casing(mock_db):
 
     assert set(client._book_cache) == {"Book.epub"}
     assert client.find_book_by_filename("book.epub", allow_refresh=False)["id"] == "777"
-    mock_db.delete_grimmory_book.assert_called_once_with("book.epub", server_id="default")
+    mock_db.delete_grimmory_book.assert_called_once_with(
+        "book.epub", server_id="default", book_id="777", file_id=None
+    )
     saved_book = mock_db.save_grimmory_book.call_args[0][0]
     assert saved_book.filename == "Book.epub"
 
@@ -392,25 +398,113 @@ def test_refresh_prunes_removed_alternative_without_removing_primary_ebook(grimm
     assert set(grimmory_client._book_cache) == {"book.epub"}
     assert grimmory_client.find_book_by_filename("book.epub", allow_refresh=False)["bookFileId"] == 41
     assert grimmory_client.find_audiobook_by_source_id("default:10:42", allow_refresh=False) is None
-    mock_db.delete_grimmory_book.assert_called_once_with("book.m4b", server_id="default")
+    mock_db.delete_grimmory_book.assert_called_once_with(
+        "book.m4b", server_id="default", book_id=10, file_id=42
+    )
+
+
+def test_reload_retains_duplicate_filenames_by_remote_identity(mock_db):
+    rows = [
+        GrimmoryBook(
+            filename="shared.m4b",
+            raw_metadata=json.dumps(
+                {"id": 10, "bookFileId": 41, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"}
+            ),
+            remote_book_id=10,
+            remote_file_id=41,
+        ),
+        GrimmoryBook(
+            filename="shared.m4b",
+            raw_metadata=json.dumps(
+                {"id": 20, "bookFileId": 42, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"}
+            ),
+            remote_book_id=20,
+            remote_file_id=42,
+        ),
+    ]
+    rows[0].id, rows[1].id = 1, 2
+    mock_db.get_all_grimmory_books.return_value = rows
+
+    with patch.dict(
+        os.environ,
+        {"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p"},
+        clear=True,
+    ):
+        client = GrimmoryClient(database_service=mock_db)
+
+    assert len(client.get_all_books()) == 2
+    assert client.find_book_by_filename("shared.m4b", allow_refresh=False) is None
+    assert client.find_audiobook_by_source_id("default:10:41", allow_refresh=False)["id"] == 10
+    assert client.find_audiobook_by_source_id("default:20:42", allow_refresh=False)["id"] == 20
+
+
+def test_refresh_prunes_only_exact_same_filename_identity(grimmory_client, mock_db):
+    first = {
+        "id": 10,
+        "primaryFile": {"id": 41, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"},
+    }
+    second = {
+        "id": 20,
+        "primaryFile": {"id": 42, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"},
+    }
+    grimmory_client._process_book_detail(first)
+    grimmory_client._process_book_detail(second)
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"content": [second], "last": True}
+    grimmory_client._make_request = MagicMock(return_value=response)
+    mock_db.reset_mock()
+
+    assert grimmory_client._refresh_book_cache() is True
+
+    assert [book["id"] for book in grimmory_client.get_all_books()] == [20]
+    assert grimmory_client.find_book_by_filename("shared.m4b", allow_refresh=False)["id"] == 20
+    mock_db.delete_grimmory_book.assert_called_once_with(
+        "shared.m4b", server_id="default", book_id=10, file_id=41
+    )
+
+
+def test_target_library_filter_does_not_end_pagination_early(grimmory_client):
+    first_page = [
+        {
+            "id": index,
+            "libraryId": "other",
+            "primaryFile": {"id": index, "fileName": f"other-{index}.epub", "bookType": "EPUB"},
+        }
+        for index in range(200)
+    ]
+    target = {
+        "id": 999,
+        "libraryId": "target",
+        "primaryFile": {"id": 88, "fileName": "target.epub", "bookType": "EPUB"},
+    }
+    responses = [
+        MagicMock(status_code=200, **{"json.return_value": {"content": first_page, "last": False}}),
+        MagicMock(status_code=200, **{"json.return_value": {"content": [target], "last": True}}),
+    ]
+    grimmory_client._make_request = MagicMock(side_effect=responses)
+
+    with patch.dict(os.environ, {"GRIMMORY_LIBRARY_ID": "target"}):
+        assert grimmory_client._refresh_book_cache() is True
+
+    assert grimmory_client._make_request.call_count == 2
+    assert grimmory_client.find_book_by_filename("target.epub", allow_refresh=False)["id"] == 999
 
 
 def test_update_progress_file_progress(grimmory_client):
     """When bookFileId is present, use modern fileProgress payload."""
     from src.sync_clients.sync_client_interface import LocatorResult
 
-    grimmory_client._book_cache = {
-        "test.epub": {
-            "id": 10,
-            "fileName": "test.epub",
-            "bookType": "EPUB",
-            "bookFileId": 42,
-            "epubProgress": None,
-            "pdfProgress": None,
-            "cbxProgress": None,
-        }
+    book = {
+        "id": 10,
+        "fileName": "test.epub",
+        "bookType": "EPUB",
+        "bookFileId": 42,
+        "epubProgress": None,
+        "pdfProgress": None,
+        "cbxProgress": None,
     }
-    grimmory_client._book_id_cache = {10: grimmory_client._book_cache["test.epub"]}
+    grimmory_client._reset_book_caches()
+    grimmory_client._cache_book_info("test.epub", book)
     grimmory_client._cache_timestamp = 9999999999
 
     mock_resp = MagicMock()
@@ -432,17 +526,16 @@ def test_update_progress_file_progress(grimmory_client):
 
 def test_update_progress_legacy_fallback(grimmory_client):
     """When bookFileId is missing, fall back to legacy format."""
-    grimmory_client._book_cache = {
-        "test.epub": {
-            "id": 10,
-            "fileName": "test.epub",
-            "bookType": "EPUB",
-            "epubProgress": None,
-            "pdfProgress": None,
-            "cbxProgress": None,
-        }
+    book = {
+        "id": 10,
+        "fileName": "test.epub",
+        "bookType": "EPUB",
+        "epubProgress": None,
+        "pdfProgress": None,
+        "cbxProgress": None,
     }
-    grimmory_client._book_id_cache = {10: grimmory_client._book_cache["test.epub"]}
+    grimmory_client._reset_book_caches()
+    grimmory_client._cache_book_info("test.epub", book)
     grimmory_client._cache_timestamp = 9999999999
 
     mock_resp = MagicMock()
@@ -459,17 +552,16 @@ def test_update_progress_legacy_fallback(grimmory_client):
 
 def test_update_progress_no_page_field(grimmory_client):
     """PDF/CBX legacy payload must not include page field."""
-    grimmory_client._book_cache = {
-        "test.pdf": {
-            "id": 20,
-            "fileName": "test.pdf",
-            "bookType": "PDF",
-            "epubProgress": None,
-            "pdfProgress": None,
-            "cbxProgress": None,
-        }
+    book = {
+        "id": 20,
+        "fileName": "test.pdf",
+        "bookType": "PDF",
+        "epubProgress": None,
+        "pdfProgress": None,
+        "cbxProgress": None,
     }
-    grimmory_client._book_id_cache = {20: grimmory_client._book_cache["test.pdf"]}
+    grimmory_client._reset_book_caches()
+    grimmory_client._cache_book_info("test.pdf", book)
     grimmory_client._cache_timestamp = 9999999999
 
     mock_resp = MagicMock()
