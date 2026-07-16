@@ -188,13 +188,19 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.db_service.save_detected_book(
             DetectedBook(source="abs", source_id="claimed-status", title="Claim", progress_percentage=0.2)
         )
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="normal-status", title="Normal", progress_percentage=0.2)
+        )
         token = self.db_service.claim_detected_book("claimed-status", source="abs")
 
         self.assertFalse(self.db_service.dismiss_detected_book("claimed-status", source="abs"))
         self.assertFalse(self.db_service.resolve_detected_book("claimed-status", source="abs"))
+        self.assertTrue(self.db_service.dismiss_detected_book("normal-status", source="abs"))
         claimed = self.db_service.get_detected_book("claimed-status", source="abs")
+        normal = self.db_service.get_detected_book("normal-status", source="abs")
         self.assertEqual(claimed.status, "processing")
         self.assertEqual(claimed.processing_token, token)
+        self.assertEqual(normal.status, "dismissed")
         self.assertTrue(self.db_service.complete_detected_book("claimed-status", token, source="abs"))
 
     def test_expired_claim_reappears_and_can_be_reclaimed(self):

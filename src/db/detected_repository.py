@@ -160,22 +160,24 @@ class DetectedRepository(BaseRepository):
         False without inserting anything when none does.
         """
         with self.get_session() as session:
-            detected = (
+            updated = (
                 session.query(DetectedBook)
                 .filter(
                     DetectedBook.source_id == source_id,
                     DetectedBook.source == source,
                     DetectedBook.status != "processing",
                 )
-                .first()
+                .update(
+                    {
+                        DetectedBook.status: status,
+                        DetectedBook.processing_token: None,
+                        DetectedBook.processing_started_at: None,
+                        DetectedBook.last_seen_at: datetime.now(UTC),
+                    },
+                    synchronize_session=False,
+                )
             )
-            if not detected:
-                return False
-            detected.status = status
-            detected.processing_token = None
-            detected.processing_started_at = None
-            detected.last_seen_at = datetime.now(UTC)
-            return True
+            return updated == 1
 
     def claim_detected_book(self, source_id, source="abs"):
         """Atomically claim active or expired work and return its owner token."""
