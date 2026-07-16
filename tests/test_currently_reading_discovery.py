@@ -159,7 +159,7 @@ def test_grimmory_audiobook_detection_uses_exact_book_and_file_identity():
         {
             "id": 10,
             "bookFileId": 99,
-            "bookType": "M4B",
+            "bookType": "AUDIOBOOK",
             "title": "Audio Work",
             "fileName": "audio-work.m4b",
             "_instance_id": "2",
@@ -193,7 +193,7 @@ def test_mapped_grimmory_audio_identity_is_not_detected_again():
         {
             "id": 10,
             "bookFileId": 99,
-            "bookType": "M4B",
+            "bookType": "AUDIOBOOK",
             "title": "Mapped Audio",
             "fileName": "mapped.m4b",
             "_instance_id": "2",
