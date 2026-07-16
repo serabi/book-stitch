@@ -120,8 +120,8 @@ function flush() {
     await flush();
     await flush();
     assert.equal(reloads, 2, 'a partial rescan reloads successful source results');
-    assert.equal((script.match(/data\.phase === 'partial'/g) || []).length, 2,
-        'both inbox and catalog polling treat partial as terminal');
+    assert.equal((script.match(/data\.phase === 'partial'/g) || []).length, 1,
+        'inbox and catalog share one poller that treats partial as terminal');
 
     responses.push({ success: true });
     dismissHandlers.click();
@@ -141,7 +141,7 @@ function flush() {
     assert.equal(badgeRemoved, true);
     assert.equal(caughtUpAppended, true);
     assert.equal(caughtUpFocused, true);
-    assert.match(script, /pollFailures <= 3/);
+    assert.match(script, /failures <= 3/);
     console.log('pairings inbox JS checks passed');
 })().catch(function (error) {
     console.error(error);

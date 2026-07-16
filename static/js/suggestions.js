@@ -16,16 +16,58 @@
 
     var suggestionData = window.PK_PAGE_DATA.suggestionsData;
     var selectedSourceId = window.PK_PAGE_DATA.selectedSourceId;
-    var rescanPollTimer = null;
     var desktopMedia = window.matchMedia('(min-width: 961px)');
     var currentView = 'list';
+
+    function createRescanPoller(handlers) {
+        var timer = null;
+        var failures = 0;
+
+        function poll() {
+            fetch('/api/suggestions/rescan-status')
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (!data.success) throw new Error(data.error || 'Status failed');
+                    failures = 0;
+                    if (data.running) {
+                        handlers.onRunning(data);
+                        timer = setTimeout(poll, 1500);
+                    } else if (data.phase === 'complete' || data.phase === 'partial') {
+                        handlers.onComplete(data);
+                    } else {
+                        handlers.onIdle(data);
+                    }
+                })
+                .catch(function (error) {
+                    failures += 1;
+                    if (failures <= 3) {
+                        handlers.onRetry();
+                        timer = setTimeout(poll, 1000 * failures);
+                    } else {
+                        handlers.onError(error);
+                    }
+                });
+        }
+
+        return {
+            start: function () {
+                this.cancel();
+                failures = 0;
+                poll();
+            },
+            cancel: function () {
+                if (timer) {
+                    clearTimeout(timer);
+                    timer = null;
+                }
+            }
+        };
+    }
 
     function initPairingsInbox() {
         var button = document.getElementById('rescan-btn');
         var status = document.getElementById('rescan-status');
-        var timer = null;
         var scanObserved = false;
-        var pollFailures = 0;
 
         function updatePairingBadges(resolvedCount) {
             document.querySelectorAll('.nav-badge').forEach(function (badge) {
@@ -47,42 +89,39 @@
             heading.focus();
         }
 
-        function poll() {
-            fetch('/api/suggestions/rescan-status')
-                .then(function (response) { return response.json(); })
-                .then(function (data) {
-                    if (!data.success) throw new Error(data.error || 'Status failed');
-                    pollFailures = 0;
-                    if (data.running) {
-                        scanObserved = true;
-                        button.disabled = true;
-                        status.textContent = data.message || 'Rescan in progress...';
-                        timer = setTimeout(poll, 1500);
-                    } else if ((data.phase === 'complete' || data.phase === 'partial') && scanObserved) {
-                        scanObserved = false;
-                        window.location.reload();
-                    } else {
-                        button.disabled = false;
-                        status.textContent = data.message || '';
-                    }
-                })
-                .catch(function (error) {
-                    pollFailures += 1;
-                    if (pollFailures <= 3) {
-                        button.disabled = true;
-                        status.textContent = 'Connection interrupted. Retrying rescan status...';
-                        timer = setTimeout(poll, 1000 * pollFailures);
-                    } else {
-                        button.disabled = false;
-                        status.textContent = 'Could not confirm rescan status: ' + (error.message || String(error));
-                    }
-                });
+        function showIdleStatus(data) {
+            button.disabled = false;
+            status.textContent = data.message || '';
         }
 
+        var poller = createRescanPoller({
+            onRunning: function (data) {
+                scanObserved = true;
+                button.disabled = true;
+                status.textContent = data.message || 'Rescan in progress...';
+            },
+            onComplete: function (data) {
+                if (scanObserved) {
+                    scanObserved = false;
+                    window.location.reload();
+                } else {
+                    showIdleStatus(data);
+                }
+            },
+            onIdle: showIdleStatus,
+            onRetry: function () {
+                button.disabled = true;
+                status.textContent = 'Connection interrupted. Retrying rescan status...';
+            },
+            onError: function (error) {
+                button.disabled = false;
+                status.textContent = 'Could not confirm rescan status: ' + (error.message || String(error));
+            }
+        });
+
         button.addEventListener('click', function () {
-            if (timer) clearTimeout(timer);
+            poller.cancel();
             button.disabled = true;
-            pollFailures = 0;
             status.textContent = 'Queued source rescan...';
             fetch('/api/suggestions/rescan', {
                 method: 'POST',
@@ -97,7 +136,7 @@
                         button.disabled = false;
                     } else {
                         scanObserved = true;
-                        poll();
+                        poller.start();
                     }
                 })
                 .catch(function (error) {
@@ -164,7 +203,7 @@
             });
         });
 
-        poll();
+        poller.start();
     }
 
     /* ── helpers ── */
@@ -485,7 +524,7 @@
                     return;
                 }
                 status.textContent = data.message || 'Suggestions rescan started...';
-                pollRescanStatus();
+                catalogPoller.start();
             })
             .catch(function (err) {
                 status.textContent = err.message || String(err);
@@ -493,42 +532,32 @@
             });
     }
 
-    function pollRescanStatus() {
-        if (rescanPollTimer) {
-            clearTimeout(rescanPollTimer);
-            rescanPollTimer = null;
+    var catalogPoller = createRescanPoller({
+        onRunning: function (data) {
+            document.getElementById('rescan-status').textContent = data.message || 'Rescan in progress...';
+            document.getElementById('rescan-btn').disabled = true;
+        },
+        onComplete: function (data) {
+            refreshSuggestionsData(data.message || 'Rescan complete.');
+        },
+        onIdle: function (data) {
+            var status = document.getElementById('rescan-status');
+            if (data.rate_limited) {
+                status.textContent = data.message || ('Please wait ' + (data.next_allowed_in || 0) + 's before rescanning again.');
+            } else if (data.message) {
+                status.textContent = data.message;
+            }
+            document.getElementById('rescan-btn').disabled = false;
+        },
+        onRetry: function () {
+            document.getElementById('rescan-btn').disabled = true;
+            document.getElementById('rescan-status').textContent = 'Connection interrupted. Retrying rescan status...';
+        },
+        onError: function (err) {
+            document.getElementById('rescan-status').textContent = err.message || String(err);
+            document.getElementById('rescan-btn').disabled = false;
         }
-        fetch('/api/suggestions/rescan-status')
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                if (!data.success) throw new Error(data.error || 'Status failed');
-                var status = document.getElementById('rescan-status');
-                var btn = document.getElementById('rescan-btn');
-
-                if (data.running) {
-                    status.textContent = data.message || 'Rescan in progress...';
-                    btn.disabled = true;
-                    rescanPollTimer = setTimeout(pollRescanStatus, 1500);
-                    return;
-                }
-
-                if (data.phase === 'complete' || data.phase === 'partial') {
-                    refreshSuggestionsData(data.message || 'Rescan complete.');
-                    return;
-                }
-
-                if (data.rate_limited) {
-                    status.textContent = data.message || ('Please wait ' + (data.next_allowed_in || 0) + 's before rescanning again.');
-                } else if (data.message) {
-                    status.textContent = data.message;
-                }
-                btn.disabled = false;
-            })
-            .catch(function (err) {
-                document.getElementById('rescan-status').textContent = err.message || String(err);
-                document.getElementById('rescan-btn').disabled = false;
-            });
-    }
+    });
 
     function refreshSuggestionsData(statusMessage) {
         fetch('/api/suggestions')
@@ -586,7 +615,7 @@
     document.getElementById('rescan-btn').addEventListener('click', rescanSuggestions);
 
     renderSuggestions();
-    pollRescanStatus();
+    catalogPoller.start();
 
     /* ── expose functions called from inline onclick in rendered HTML ── */
     window.PK_Suggestions = {
