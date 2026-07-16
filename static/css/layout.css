@@ -351,6 +351,7 @@ body {
   }
 
   .mobile-nav-link {
+    position: relative;
     display: flex;
     min-width: 0;
     min-height: 54px;
@@ -367,6 +368,13 @@ body {
     font-size: 10px;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  .mobile-nav-link .nav-badge {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    margin: 0;
   }
 
   .mobile-nav-link.active,

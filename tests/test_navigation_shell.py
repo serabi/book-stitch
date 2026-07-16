@@ -44,3 +44,11 @@ def test_pairings_badge_counts_only_unresolved_detected_books(flask_app, mock_co
 
     assert html.count('<span class="nav-badge">3</span>') == 2
     mock_container.mock_database_service.get_pending_suggestion_count.assert_not_called()
+
+
+def test_mobile_pairings_badge_does_not_grow_bottom_navigation():
+    css = (Path(__file__).parent.parent / "static/css/layout.css").read_text()
+
+    assert ".mobile-nav-link {\n    position: relative;" in css
+    assert ".mobile-nav-link .nav-badge {\n    position: absolute;" in css
+    assert "margin: 0;" in css
