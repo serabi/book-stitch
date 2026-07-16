@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from src.services.book_intake_service import BookIntakeService
 from src.services.storyteller_submission_service import SubmissionResult
@@ -98,6 +99,169 @@ def test_map_audiobook_ebook_uses_selected_edition_hash_over_existing_abs_hash()
     assert result.error is None
     assert result.book.kosync_doc_id == "hash-new"
     db.resolve_suggestion.assert_any_call("hash-new")
+
+
+def test_link_grimmory_audiobook_creates_book_without_abs_side_effects():
+    service, db, abs_service, _bl, hc = _make_service(kosync_id="ebook-hash")
+    audio_group = service.container.grimmory_client_group.return_value
+    audio_group.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 42,
+        "title": "Audio Book",
+        "authors": "Author",
+    }
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.error is None
+    assert result.book.abs_id is None
+    assert result.book.kosync_doc_id == "ebook-hash"
+    assert result.book.grimmory_audio_source_id == "default:10:42"
+    assert result.book.sync_mode == "audiobook"
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+    db.complete_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
+    db.resolve_detected_book.assert_any_call("default:10:42", source="grimmory")
+    db.resolve_detected_book.assert_any_call("ebook-hash", source="kosync")
+    method_names = [call[0] for call in db.method_calls]
+    assert method_names.index("save_book") < method_names.index("complete_detected_book")
+
+
+def test_link_grimmory_audiobook_updates_ebook_book_and_preserves_abs():
+    ebook_book = _book_ref(
+        id=22,
+        abs_id="abs-existing",
+        kosync_doc_id="ebook-hash",
+        grimmory_audio_source_id=None,
+        sync_mode="ebook_only",
+    )
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = ebook_book
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+    service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="ebook-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 42,
+    }
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="kosync",
+        detected_source_id="ebook-hash",
+    )
+
+    assert result.book.id == 22
+    assert result.book.abs_id == "abs-existing"
+    assert result.book.grimmory_audio_source_id == "default:10:42"
+    assert result.book.sync_mode == "audiobook"
+    abs_service.add_to_collection.assert_not_called()
+
+
+def test_link_grimmory_audiobook_rejects_books_already_split_across_rows():
+    audio_book = _book_ref(id=11, grimmory_audio_source_id="default:10:42", kosync_doc_id=None)
+    ebook_book = _book_ref(id=22, grimmory_audio_source_id=None, kosync_doc_id="ebook-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = ebook_book
+    db.get_book_by_grimmory_audio_source_id.return_value = audio_book
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="ebook-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {"id": 10}
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    assert "different books" in result.error
+    db.claim_detected_book.assert_not_called()
+    db.save_book.assert_not_called()
+
+
+def test_link_grimmory_audiobook_restores_claim_when_exact_audio_changes():
+    service, db, _abs, _bl, _hc = _make_service(kosync_id="ebook-hash")
+    audio_group = service.container.grimmory_client_group.return_value
+    audio_group.find_audiobook_by_source_id.side_effect = [{"id": 10}, None]
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    db.restore_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
+    db.save_book.assert_not_called()
+
+
+def test_link_grimmory_audiobook_restores_claim_when_ebook_identity_changes():
+    service, db, _abs, _bl, _hc = _make_service(kosync_id="first-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {"id": 10}
+    service.get_kosync_id_for_ebook.side_effect = ["first-hash", "second-hash"]
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    assert "no longer matches" in result.error
+    db.restore_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
+    db.save_book.assert_not_called()
+
+
+def test_link_grimmory_audiobook_returns_conflict_on_concurrent_unique_claim():
+    service, db, _abs, _bl, _hc = _make_service(kosync_id="ebook-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {"id": 10}
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.save_book.side_effect = IntegrityError("unique", {}, None)
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    db.restore_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
 
 
 def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():

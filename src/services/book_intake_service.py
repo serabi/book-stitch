@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from sqlalchemy.exc import IntegrityError
+
 from src.db.models import Book, StorytellerSubmission
 from src.services.kosync_service import ensure_kosync_document
 from src.utils.logging_utils import sanitize_log_data
@@ -312,6 +314,136 @@ class BookIntakeService:
                     detected_source_id, processing_token, source=detected_source
                 )
             raise
+
+    def link_grimmory_audiobook_ebook(
+        self,
+        *,
+        audio_source_id,
+        ebook_filename,
+        ebook_source_id=None,
+        expected_ebook_kosync_id=None,
+        detected_source,
+        detected_source_id,
+    ) -> IntakeResult:
+        """Link an exact Grimmory audiobook to an ebook without ABS side effects."""
+        if not audio_source_id or not ebook_filename or not detected_source or not detected_source_id:
+            return IntakeResult(error="An audiobook, ebook, and detected source are required", status_code=400)
+
+        audio_group = self.container.grimmory_client_group()
+        audio_info = audio_group.find_audiobook_by_source_id(audio_source_id)
+        if not audio_info:
+            return IntakeResult(error="The selected Grimmory audiobook is no longer available", status_code=409)
+
+        prepared = self._prepare_mapping(None, ebook_filename, ebook_source_id, expected_ebook_kosync_id)
+        if isinstance(prepared, IntakeResult):
+            return prepared
+        initial_kosync_id = prepared.kosync_doc_id
+        target, conflict = self._grimmory_audio_target(audio_source_id, prepared.merge_book, prepared.kosync_doc_id)
+        if conflict:
+            return conflict
+
+        processing_token = self.database_service.claim_detected_book(detected_source_id, source=detected_source)
+        if not processing_token:
+            detected = self.database_service.get_detected_book(detected_source_id, source=detected_source)
+            if getattr(detected, "status", None) == "resolved" and target:
+                return IntakeResult(book=target)
+            return IntakeResult(error="This match is already being processed or is no longer active", status_code=409)
+
+        def restore_claim():
+            self.database_service.restore_detected_book(
+                detected_source_id,
+                processing_token,
+                source=detected_source,
+            )
+
+        try:
+            audio_info = audio_group.find_audiobook_by_source_id(audio_source_id)
+            if not audio_info:
+                restore_claim()
+                return IntakeResult(error="The selected Grimmory audiobook changed. Review the match again.", status_code=409)
+
+            prepared = self._prepare_mapping(
+                None,
+                ebook_filename,
+                ebook_source_id,
+                expected_ebook_kosync_id or initial_kosync_id,
+            )
+            if isinstance(prepared, IntakeResult):
+                restore_claim()
+                return prepared
+            target, conflict = self._grimmory_audio_target(
+                audio_source_id,
+                prepared.merge_book,
+                prepared.kosync_doc_id,
+            )
+            if conflict:
+                restore_claim()
+                return conflict
+            if not self.database_service.renew_detected_book_claim(
+                detected_source_id,
+                processing_token,
+                source=detected_source,
+            ):
+                return IntakeResult(error="This match lost its processing lease. Try again.", status_code=409)
+
+            if target:
+                target.ebook_filename = prepared.ebook_filename
+                target.kosync_doc_id = prepared.kosync_doc_id
+                target.grimmory_audio_source_id = audio_source_id
+                target.sync_mode = "audiobook"
+                book = self.database_service.save_book(target)
+            else:
+                book = self.database_service.save_book(
+                    Book(
+                        title=audio_info.get("title") or Path(prepared.ebook_filename).stem,
+                        author=audio_info.get("authors") or None,
+                        ebook_filename=prepared.ebook_filename,
+                        kosync_doc_id=prepared.kosync_doc_id,
+                        grimmory_audio_source_id=audio_source_id,
+                        status="pending",
+                        sync_mode="audiobook",
+                    ),
+                    is_new=True,
+                )
+        except IntegrityError:
+            restore_claim()
+            return IntakeResult(error="The audiobook or ebook was linked by another request", status_code=409)
+        except Exception:
+            restore_claim()
+            raise
+
+        try:
+            completed = self.database_service.complete_detected_book(
+                detected_source_id,
+                processing_token,
+                source=detected_source,
+            )
+        except Exception as exc:
+            logger.warning("Grimmory audiobook link committed but its detection could not be completed: %s", exc)
+            completed = False
+        if not completed:
+            return IntakeResult(book=book)
+
+        try:
+            self._record_grimmory_source(prepared.kosync_doc_id, prepared.ebook_source_id)
+            self.database_service.resolve_detected_book(audio_source_id, source="grimmory")
+            self.database_service.resolve_detected_book(prepared.kosync_doc_id, source="kosync")
+            self._resolve_grimmory_detection(prepared.ebook_filename, prepared.ebook_source_id)
+        except Exception as exc:
+            logger.warning("Grimmory audiobook link committed but companion cleanup failed: %s", exc)
+        return IntakeResult(book=book)
+
+    def _grimmory_audio_target(self, audio_source_id, ebook_book, kosync_doc_id):
+        audio_book = self.database_service.get_book_by_grimmory_audio_source_id(audio_source_id)
+        if audio_book and ebook_book and audio_book.id != ebook_book.id:
+            return None, IntakeResult(error="The audiobook and ebook already belong to different books", status_code=409)
+
+        target = audio_book or ebook_book
+        if target and getattr(target, "grimmory_audio_source_id", None) not in (None, audio_source_id):
+            return None, IntakeResult(error="The ebook already belongs to another Grimmory audiobook", status_code=409)
+        if target and getattr(target, "kosync_doc_id", None) not in (None, kosync_doc_id):
+            return None, IntakeResult(error="The audiobook already belongs to another ebook", status_code=409)
+        return target, None
 
     def inspect_audiobook_ebook(
         self,

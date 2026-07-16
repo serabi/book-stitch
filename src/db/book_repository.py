@@ -94,6 +94,11 @@ class BookRepository(BaseRepository):
     def get_book_by_storyteller_uuid(self, uuid):
         return self._get_one(Book, Book.storyteller_uuid == uuid)
 
+    def get_book_by_grimmory_audio_source_id(self, source_id):
+        if not source_id:
+            return None
+        return self._get_one(Book, Book.grimmory_audio_source_id == source_id)
+
     def get_all_books(self):
         return self._get_all(Book)
 
