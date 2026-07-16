@@ -19,7 +19,7 @@
     {% include 'partials/navbar.html' %}
     {% from 'partials/settings_macros.html' import service_urls, service_header, secret_field with context %}
 
-    <div class="container settings-page">
+    <div class="container settings-page" id="main" role="main">
         {% if message %}
         <div class="flash-bar {% if is_error %}flash-error{% else %}flash-success{% endif %}"{% if is_error %} role="alert"{% endif %}>
             {{ message }}

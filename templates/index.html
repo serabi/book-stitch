@@ -23,7 +23,7 @@
 <body>
     {% include 'partials/navbar.html' %}
 
-    <div class="container">
+    <div class="container" id="main" role="main">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         <div class="flash-messages mb-16">

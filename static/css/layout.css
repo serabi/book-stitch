@@ -153,6 +153,14 @@ body {
   border-color: var(--color-primary-border);
 }
 
+.sidebar-brand:focus-visible,
+.nav-icon-link:focus-visible,
+.sidebar-nav-link:focus-visible,
+.mobile-nav-link:focus-visible {
+  outline: 3px solid var(--color-primary-hover);
+  outline-offset: 3px;
+}
+
 .nav-item-icon {
   width: 20px;
   height: 20px;
@@ -173,7 +181,7 @@ body {
   margin-left: auto;
   padding: 0 6px;
   border-radius: 999px;
-  background: #0f5f5a;
+  background: var(--color-primary-strong);
   color: white;
   font-size: 11px;
   line-height: 1;

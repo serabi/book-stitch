@@ -13,7 +13,7 @@
 }
 
 .pairings-inbox .btn-primary {
-  background: #0f5f5a;
+  background: var(--color-primary-strong);
   color: #fff;
 }
 

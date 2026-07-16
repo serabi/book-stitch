@@ -65,7 +65,7 @@
     {% include 'partials/navbar.html' %}
 
     {% if not library_view %}
-    <main class="container suggestions-shell pairings-inbox">
+    <main id="main" class="container suggestions-shell pairings-inbox">
         <header class="pairings-header">
             <div>
                 <p class="sg-page-kicker">Reading activity</p>
@@ -105,7 +105,7 @@
         {% endif %}
     </main>
     {% else %}
-    <main class="container suggestions-shell">
+    <main id="main" class="container suggestions-shell">
         <nav class="pairings-library-nav" aria-label="Matching views">
             <a href="/suggestions">Currently Reading</a>
             <a href="/batch-match">Batch matching</a>
@@ -147,7 +147,7 @@
                     </button>
                 </div>
             </div>
-            <span class="help-note sg-toolbar-status" id="rescan-status"></span>
+            <span class="help-note sg-toolbar-status" id="rescan-status" role="status" aria-live="polite"></span>
         </div>
 
         <div class="stats-strip">

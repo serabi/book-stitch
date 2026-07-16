@@ -1049,7 +1049,7 @@ button.batch-select-card {
 }
 
 @media (max-width: 768px) {
-  body {
+  html {
     scroll-padding-bottom: calc(164px + env(safe-area-inset-bottom, 0px));
   }
 

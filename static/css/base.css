@@ -65,6 +65,23 @@ a:hover {
   border: 0;
 }
 
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-raised);
+  color: var(--color-text);
+  font-weight: 600;
+  transform: translateY(-250%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 .pe-none {
   pointer-events: none !important;
 }
