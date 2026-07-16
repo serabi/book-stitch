@@ -23,6 +23,15 @@ def test_navigation_shell_exposes_primary_and_utility_destinations(flask_app):
     assert '/static/grimmory-app.png' not in html
 
 
+def test_every_navigation_shell_has_a_skip_link_target():
+    templates = Path(__file__).parent.parent / "templates"
+
+    for template in templates.glob("*.html"):
+        markup = template.read_text()
+        if "{% include 'partials/navbar.html' %}" in markup:
+            assert 'id="main"' in markup, template.name
+
+
 @pytest.mark.parametrize("path", ["/suggestions", "/match", "/batch-match"])
 def test_pairing_routes_share_one_active_navigation_group(flask_app, path):
     html = render_navigation(flask_app, path)

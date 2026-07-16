@@ -276,6 +276,7 @@ class DetectedRepository(BaseRepository):
         """
         unique_identities = list(dict.fromkeys(identities))
         with self.get_session() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             rows = []
             for source, source_id in unique_identities:
                 row = (

@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from datetime import UTC, datetime, timedelta
@@ -159,6 +160,53 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
             self.db_service.get_detected_book("group-existing", source="abs").status,
             "dismissed",
         )
+
+    def test_group_dismiss_serializes_with_concurrent_claim(self):
+        from sqlalchemy import event
+
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="group-race", title="Group", progress_percentage=0.2)
+        )
+        dismiss_read = threading.Event()
+        claim_write = threading.Event()
+        release_dismiss = threading.Event()
+        results = {}
+
+        def coordinate_race(conn, cursor, statement, parameters, context, executemany):
+            if threading.current_thread().name == "group-dismiss" and statement.lstrip().startswith("SELECT"):
+                dismiss_read.set()
+                release_dismiss.wait(5)
+            elif threading.current_thread().name == "group-claim" and statement.lstrip().startswith("UPDATE"):
+                claim_write.set()
+
+        def dismiss():
+            results["dismissed"] = self.db_service.dismiss_detected_books([("abs", "group-race")])
+
+        def claim():
+            results["token"] = self.db_service.claim_detected_book("group-race", source="abs")
+
+        event.listen(self.db_service.db_manager.engine, "before_cursor_execute", coordinate_race)
+        try:
+            dismiss_thread = threading.Thread(target=dismiss, name="group-dismiss")
+            dismiss_thread.start()
+            self.assertTrue(dismiss_read.wait(5))
+            claim_thread = threading.Thread(target=claim, name="group-claim")
+            claim_thread.start()
+            self.assertTrue(claim_write.wait(5))
+            release_dismiss.set()
+            dismiss_thread.join(5)
+            claim_thread.join(5)
+        finally:
+            release_dismiss.set()
+            event.remove(self.db_service.db_manager.engine, "before_cursor_execute", coordinate_race)
+
+        self.assertFalse(dismiss_thread.is_alive())
+        self.assertFalse(claim_thread.is_alive())
+        self.assertTrue(results["dismissed"])
+        self.assertIsNone(results["token"])
+        self.assertEqual(self.db_service.get_detected_book("group-race", source="abs").status, "dismissed")
 
     def test_detected_book_claim_is_compare_and_set_and_restorable(self):
         from src.db.models import DetectedBook
