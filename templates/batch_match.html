@@ -75,6 +75,7 @@
             <input type="hidden" name="search" value="{{ search }}">
             <input type="hidden" name="audiobook_id" id="selected_audiobook_id">
             <input type="hidden" name="ebook_filename" id="selected_ebook_filename">
+            <input type="hidden" name="ebook_source_id" id="selected_ebook_source_id">
             <input type="hidden" name="ebook_display_name" id="selected_ebook_display_name" value="">
             <input type="hidden" name="storyteller_uuid" id="selected_storyteller_uuid" value="">
 
@@ -192,6 +193,7 @@
                                     data-select-group="ebook"
                                     data-value="{{ eb.name }}"
                                     data-display-name="{{ eb.display_name }}"
+                                    data-source-id="{{ eb.grimmory_id or '' }}"
                                     data-target-input="selected_ebook_filename"
                                     data-display-input="selected_ebook_display_name">
                                     {% if eb.cover_url %}

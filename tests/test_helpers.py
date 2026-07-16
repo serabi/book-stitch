@@ -117,6 +117,43 @@ def test_find_in_grimmory_no_match(flask_app, mock_container):
     assert client is None
 
 
+def test_find_in_grimmory_uses_qualified_server_and_book_id(flask_app, mock_container):
+    primary = mock_container.mock_grimmory_client
+    secondary = Mock()
+    primary.is_configured.return_value = True
+    secondary.is_configured.return_value = True
+    secondary.find_book_by_filename.return_value = {"id": 22, "fileName": "same.epub"}
+    mock_container.grimmory_client_2 = lambda: secondary
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import find_in_grimmory
+
+        book, client = find_in_grimmory("same.epub", "2:22")
+
+    assert book["_instance_id"] == "2"
+    assert client is secondary
+    primary.find_book_by_filename.assert_not_called()
+
+
+def test_searchable_ebooks_keeps_same_filename_from_two_grimmory_servers(flask_app, mock_container):
+    group = mock_container.mock_grimmory_client
+    group.is_configured.return_value = True
+    group.search_books.return_value = [
+        {"id": 11, "title": "Primary", "fileName": "same.epub", "_instance_id": "default"},
+        {"id": 22, "title": "Secondary", "fileName": "same.epub", "_instance_id": "2"},
+    ]
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import get_searchable_ebooks
+
+        results = get_searchable_ebooks("same")
+
+    assert [(result.name, result.source_id) for result in results[:2]] == [
+        ("same.epub", "default:11"),
+        ("same.epub", "2:22"),
+    ]
+
+
 # ── serialize_suggestion with None fields ─────────────────────────
 
 

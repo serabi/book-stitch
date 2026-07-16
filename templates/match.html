@@ -59,6 +59,7 @@
         <form method="POST" action="/match" id="mappingForm">
             <input type="hidden" name="action" id="input_action" value="">
             <input type="hidden" name="storyteller_title" id="input_storyteller_title" value="">
+            <input type="hidden" name="ebook_source_id" id="input_ebook_source_id" value="">
 
             {% if attach_to %}
             <input type="hidden" name="attach_abs_id" value="{{ attach_to }}">
@@ -208,7 +209,8 @@
                         <label
                             class="audiobook-option resource-card eb-option batch-select-card {% if single_eb_match %}selected{% endif %}"
                             data-source-type="{{ eb.source }}" data-source-path="{{ eb.path }}"
-                            data-source-id="{{ eb.source_id }}" onclick="selectItem(this, 'ebook_filename')">
+                            data-source-id="{{ eb.source_id }}" data-grimmory-id="{{ eb.grimmory_id or '' }}"
+                            onclick="selectItem(this, 'ebook_filename')">
                             <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match %}checked{% endif %}>
                             {% if eb.cover_url %}
                             <div class="resource-cover-container">

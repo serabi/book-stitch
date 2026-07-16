@@ -395,6 +395,63 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertAlmostEqual(row.progress_percentage, 0.8)
         self.assertEqual(row.source_updated_at.replace(tzinfo=UTC), newer)
 
+    def test_save_detected_book_compares_aware_timestamps_in_utc(self):
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="offset-progress",
+                title="Book",
+                progress_percentage=0.8,
+                source_updated_at=datetime(2026, 7, 15, 12, tzinfo=UTC),
+            )
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="offset-progress",
+                title="Book",
+                progress_percentage=0.2,
+                source_updated_at=datetime.fromisoformat("2026-07-15T08:30:00-04:00"),
+            )
+        )
+
+        row = self.db_service.get_detected_book("offset-progress", source="kosync")
+        self.assertAlmostEqual(row.progress_percentage, 0.2)
+        self.assertEqual(row.source_updated_at, datetime(2026, 7, 15, 12, 30))
+
+    def test_save_detected_book_missing_source_timestamp_preserves_progress(self):
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        timestamp = datetime(2026, 7, 15, 12, tzinfo=UTC)
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="missing-timestamp",
+                title="Book",
+                progress_percentage=0.8,
+                source_updated_at=timestamp,
+            )
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="missing-timestamp",
+                title="Book",
+                progress_percentage=0.1,
+                source_updated_at=None,
+            )
+        )
+
+        row = self.db_service.get_detected_book("missing-timestamp", source="kosync")
+        self.assertAlmostEqual(row.progress_percentage, 0.8)
+        self.assertEqual(row.source_updated_at, datetime(2026, 7, 15, 12))
+
     def test_save_detected_book_normalizes_against_concurrently_inserted_row(self):
         """Regression: a row that appears only inside the upsert transaction (not at
         any earlier pre-read) must still get detected-book normalization applied.
@@ -1796,6 +1853,52 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
         alembic_cfg.set_main_option("script_location", str(alembic_dir))
         alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
         return alembic_cfg
+
+    def test_detected_identity_migration_downgrade_has_deterministic_collision_policy(self):
+        import sqlite3
+
+        from alembic import command
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "detected_identity.db")
+            alembic_cfg = self._alembic_config(db_path)
+            command.upgrade(alembic_cfg, "head")
+
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "INSERT INTO detected_books (source, source_id, title, progress_percentage) VALUES (?, ?, ?, ?)",
+                ("grimmory", "2:same.epub", "Secondary", 0.7),
+            )
+            conn.execute(
+                "INSERT INTO detected_books (source, source_id, title, progress_percentage) VALUES (?, ?, ?, ?)",
+                ("grimmory", "default:same.epub", "Primary", 0.3),
+            )
+            conn.execute(
+                "INSERT INTO detected_books (source, source_id, title, progress_percentage) VALUES (?, ?, ?, ?)",
+                ("grimmory", "2:other.epub", "Other", 0.4),
+            )
+            conn.commit()
+            conn.close()
+
+            command.downgrade(alembic_cfg, "x5y6z7a8b9c0")
+
+            conn = sqlite3.connect(db_path)
+            rows = conn.execute(
+                "SELECT source_id, title FROM detected_books WHERE source = 'grimmory' ORDER BY source_id"
+            ).fetchall()
+            conn.close()
+            self.assertEqual(rows, [("other.epub", "Other"), ("same.epub", "Primary")])
+
+            command.upgrade(alembic_cfg, "head")
+            conn = sqlite3.connect(db_path)
+            source_ids = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT source_id FROM detected_books WHERE source = 'grimmory' ORDER BY source_id"
+                ).fetchall()
+            ]
+            conn.close()
+            self.assertEqual(source_ids, ["default:other.epub", "default:same.epub"])
 
     def test_legacy_db_does_not_crash_on_startup(self):
         """

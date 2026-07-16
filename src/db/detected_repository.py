@@ -48,6 +48,8 @@ class DetectedRepository(BaseRepository):
         so a concurrent insert of the same (source_id, source) cannot bypass the
         conditional update rules.
         """
+        if detected_book.source_updated_at is not None and detected_book.source_updated_at.tzinfo is not None:
+            detected_book.source_updated_at = detected_book.source_updated_at.astimezone(UTC).replace(tzinfo=None)
         return self._upsert(
             DetectedBook,
             [
@@ -75,10 +77,19 @@ class DetectedRepository(BaseRepository):
             detected_book.matches_json = existing.matches_json
 
         if detected_book.source_updated_at is None:
+            if existing.source_updated_at is not None:
+                detected_book.progress_percentage = existing.progress_percentage
             detected_book.source_updated_at = existing.source_updated_at
-        elif existing.source_updated_at is not None:
-            incoming = detected_book.source_updated_at.replace(tzinfo=None)
-            current = existing.source_updated_at.replace(tzinfo=None)
+        else:
+            incoming = detected_book.source_updated_at
+            if incoming.tzinfo is not None:
+                incoming = incoming.astimezone(UTC).replace(tzinfo=None)
+            detected_book.source_updated_at = incoming
+        if detected_book.source_updated_at is not None and existing.source_updated_at is not None:
+            incoming = detected_book.source_updated_at
+            current = existing.source_updated_at
+            if current.tzinfo is not None:
+                current = current.astimezone(UTC).replace(tzinfo=None)
             if incoming < current:
                 detected_book.progress_percentage = existing.progress_percentage
                 detected_book.source_updated_at = existing.source_updated_at

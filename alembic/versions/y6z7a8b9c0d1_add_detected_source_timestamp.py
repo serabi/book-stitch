@@ -26,8 +26,40 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Qualified identities collapse back to the legacy filename key. When both
+    # servers contain the same filename, keep the default-server row; otherwise
+    # keep the lowest row id. This makes the lossy downgrade deterministic.
     op.execute(
-        "UPDATE detected_books SET source_id = substr(source_id, 9) "
-        "WHERE source = 'grimmory' AND source_id LIKE 'default:%'"
+        """
+        DELETE FROM detected_books
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT
+                    id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY CASE
+                            WHEN source_id LIKE 'default:%' THEN substr(source_id, 9)
+                            WHEN source_id LIKE '2:%' THEN substr(source_id, 3)
+                            ELSE source_id
+                        END
+                        ORDER BY CASE
+                            WHEN source_id LIKE 'default:%' THEN 0
+                            WHEN source_id NOT LIKE '2:%' THEN 1
+                            ELSE 2
+                        END, id
+                    ) AS row_num
+                FROM detected_books
+                WHERE source = 'grimmory'
+            ) ranked
+            WHERE row_num > 1
+        )
+        """
+    )
+    op.execute(
+        "UPDATE detected_books SET source_id = CASE "
+        "WHEN source_id LIKE 'default:%' THEN substr(source_id, 9) "
+        "WHEN source_id LIKE '2:%' THEN substr(source_id, 3) "
+        "ELSE source_id END "
+        "WHERE source = 'grimmory'"
     )
     op.drop_column("detected_books", "source_updated_at")

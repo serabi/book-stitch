@@ -247,3 +247,41 @@ def test_map_audiobook_ebook_updates_abs_collection_and_grimmory_shelf():
     assert result.error is None
     abs_service.add_to_collection.assert_called_once_with("abs-side-effects", "Synced")
     bl_client.add_to_shelf.assert_called_once_with("side.epub")
+
+
+def test_map_audiobook_ebook_persists_and_resolves_qualified_grimmory_identity():
+    doc = SimpleNamespace(
+        document_hash="hash-server-2",
+        linked_book_id=100,
+        filename="same.epub",
+        source=None,
+        grimmory_id=None,
+    )
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.get_kosync_doc_by_filename.return_value = None
+    db.get_kosync_document.return_value = doc
+    service, db, _abs, bl_client, _hc = _make_service(
+        db=db,
+        bl_match={"id": "22", "fileName": "same.epub"},
+        kosync_id="hash-server-2",
+    )
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-server-2",
+        title="Server Two",
+        ebook_filename="same.epub",
+        ebook_source_id="2:22",
+        duration=100,
+    )
+
+    assert result.error is None
+    service.find_in_grimmory.assert_called_once_with("same.epub", "2:22")
+    service.get_kosync_id_for_ebook.assert_called_once_with("same.epub", "22", bl_client=bl_client)
+    assert (doc.source, doc.grimmory_id) == ("grimmory", "2:22")
+    db.resolve_detected_book.assert_any_call("2:same.epub", source="grimmory")
+    assert not any(
+        call.args == ("default:same.epub",) and call.kwargs == {"source": "grimmory"}
+        for call in db.resolve_detected_book.call_args_list
+    )

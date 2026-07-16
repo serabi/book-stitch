@@ -63,7 +63,7 @@ def get_grimmory_client():
     return get_container().grimmory_client_group()
 
 
-def find_in_grimmory(filename):
+def find_in_grimmory(filename, source_id=None):
     """Search Grimmory for a book by filename, return (book_info, client) or (None, None).
 
     When found via the group facade, resolves the owning single-instance client
@@ -73,6 +73,15 @@ def find_in_grimmory(filename):
         return None, None
     group = get_grimmory_client()
     if group.is_configured():
+        if source_id and ":" in str(source_id):
+            instance_id, book_id = str(source_id).split(":", 1)
+            client = _resolve_grimmory_instance(instance_id)
+            if not client or not client.is_configured():
+                return None, None
+            book = client.find_book_by_filename(filename)
+            if book and str(book.get("id")) == book_id:
+                return {**book, "_instance_id": instance_id}, client
+            return None, None
         book = group.find_book_by_filename(filename)
         if book:
             # Resolve the specific client that owns this book
@@ -87,7 +96,9 @@ def _resolve_grimmory_instance(instance_id):
     container = get_container()
     if instance_id == "2":
         return container.grimmory_client_2()
-    return container.grimmory_client()
+    if instance_id == "default":
+        return container.grimmory_client()
+    return None
 
 
 def get_enabled_grimmory_server_ids():
@@ -334,6 +345,7 @@ def get_searchable_ebooks(search_term):
 
     results = []
     found_filenames = set()
+    found_grimmory = set()
     found_stems = set()
 
     # 1. Grimmory (all configured servers)
@@ -345,12 +357,15 @@ def get_searchable_ebooks(search_term):
                 for b in books:
                     fname = b.get("fileName", "")
                     if fname.lower().endswith(".epub"):
-                        if fname.lower() in found_filenames:
+                        instance_id = str(b.get("_instance_id") or "default")
+                        dedupe_key = (instance_id, fname.lower())
+                        if dedupe_key in found_grimmory:
                             continue
+                        found_grimmory.add(dedupe_key)
                         found_filenames.add(fname.lower())
                         found_stems.add(Path(fname).stem.lower())
                         bl_id = b.get("id")
-                        instance_id = b.get("_instance_id", "default")
+                        qualified_id = f"{instance_id}:{bl_id}" if bl_id is not None else None
                         label = _grimmory_label(instance_id)
                         cover_prefix = "grimmory2" if instance_id == "2" else "grimmory"
                         cover = f"/api/cover-proxy/{cover_prefix}/{bl_id}" if bl_id else None
@@ -360,8 +375,9 @@ def get_searchable_ebooks(search_term):
                                 title=b.get("title"),
                                 subtitle=b.get("subtitle"),
                                 authors=b.get("authors"),
-                                grimmory_id=bl_id,
+                                grimmory_id=qualified_id,
                                 source=label,
+                                source_id=qualified_id,
                                 cover_url=cover,
                             )
                         )

@@ -70,6 +70,7 @@ def _create_book_mapping(
     title,
     ebook_filename,
     duration,
+    ebook_source_id=None,
     storyteller_uuid=None,
     storyteller_submit=False,
     author=None,
@@ -80,6 +81,7 @@ def _create_book_mapping(
         abs_id=abs_id,
         title=title,
         ebook_filename=ebook_filename,
+        ebook_source_id=ebook_source_id,
         duration=duration,
         storyteller_uuid=storyteller_uuid,
         storyteller_submit=storyteller_submit,
@@ -190,6 +192,7 @@ def match():
         # --- Ebook-only import (no audiobook required) ---
         if action == "ebook_only":
             ebook_filename = sanitize_filename(request.form.get("ebook_filename"))
+            ebook_source_id = request.form.get("ebook_source_id") or None
             ebook_display_name = request.form.get("ebook_display_name", "")
             storyteller_uuid = request.form.get("storyteller_uuid") or None
             storyteller_title = request.form.get("storyteller_title", "")
@@ -199,6 +202,7 @@ def match():
 
             result = intake_service.import_ebook_only(
                 ebook_filename=ebook_filename,
+                ebook_source_id=ebook_source_id,
                 ebook_display_name=ebook_display_name,
                 storyteller_uuid=storyteller_uuid,
                 storyteller_title=storyteller_title,
@@ -211,7 +215,12 @@ def match():
         if action == "attach_ebook":
             attach_abs_id = request.form.get("attach_abs_id")
             ebook_filename = sanitize_filename(request.form.get("ebook_filename"))
-            result = intake_service.attach_ebook(abs_id=attach_abs_id, ebook_filename=ebook_filename)
+            ebook_source_id = request.form.get("ebook_source_id") or None
+            result = intake_service.attach_ebook(
+                abs_id=attach_abs_id,
+                ebook_filename=ebook_filename,
+                ebook_source_id=ebook_source_id,
+            )
             if result.error:
                 return _plain_error_response(result.error, result.status_code)
             return redirect(url_for("dashboard.index"))
@@ -248,6 +257,7 @@ def match():
         abs_service = get_abs_service()
         abs_id = request.form.get("audiobook_id")
         ebook_filename = sanitize_filename(request.form.get("ebook_filename"))
+        ebook_source_id = request.form.get("ebook_source_id") or None
         storyteller_uuid = request.form.get("storyteller_uuid")
         storyteller_submit = request.form.get("storyteller_submit")
 
@@ -265,6 +275,7 @@ def match():
             abs_id,
             title=manager.get_audiobook_title(selected_ab),
             ebook_filename=ebook_filename,
+            ebook_source_id=ebook_source_id,
             duration=manager.get_duration(selected_ab),
             storyteller_uuid=storyteller_uuid,
             storyteller_submit=bool(storyteller_submit),
@@ -387,6 +398,7 @@ def batch_match():
             session.setdefault("queue", [])
             abs_id = request.form.get("audiobook_id") or ""
             ebook_filename = sanitize_filename(request.form.get("ebook_filename", "")) or ""
+            ebook_source_id = request.form.get("ebook_source_id", "")
             ebook_display_name = request.form.get("ebook_display_name", ebook_filename)
             storyteller_uuid = request.form.get("storyteller_uuid", "")
 
@@ -420,6 +432,7 @@ def batch_match():
                         "abs_id": abs_id,
                         "title": title,
                         "ebook_filename": ebook_filename,
+                        "ebook_source_id": ebook_source_id,
                         "ebook_display_name": ebook_display_name,
                         "storyteller_uuid": storyteller_uuid,
                         "storyteller_submit": bool(request.form.get("storyteller_submit")),
@@ -462,6 +475,7 @@ def batch_match():
                     if item.get("ebook_only"):
                         result = intake_service.import_ebook_only(
                             ebook_filename=item["ebook_filename"],
+                            ebook_source_id=item.get("ebook_source_id") or None,
                             ebook_display_name=item.get("ebook_display_name") or "",
                             storyteller_uuid=item.get("storyteller_uuid") or None,
                             storyteller_title=item.get("title", "Storyteller Book"),
@@ -479,6 +493,7 @@ def batch_match():
                         abs_id=item["abs_id"],
                         title=item["title"],
                         ebook_filename=item["ebook_filename"],
+                        ebook_source_id=item.get("ebook_source_id") or None,
                         duration=item["duration"],
                         storyteller_uuid=item.get("storyteller_uuid", ""),
                         storyteller_submit=bool(item.get("storyteller_submit")),

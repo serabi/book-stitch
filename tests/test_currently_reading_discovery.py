@@ -103,6 +103,70 @@ def test_grimmory_instances_with_same_filename_keep_separate_identity_and_progre
     second.get_progress.assert_called_once_with("same.epub")
 
 
+def test_mapped_grimmory_server_does_not_hide_same_filename_on_other_server():
+    db = _db()
+    db.get_all_books.return_value = [
+        SimpleNamespace(
+            ebook_filename="same.epub",
+            kosync_doc_id="mapped-hash",
+            storyteller_uuid=None,
+        )
+    ]
+    db.get_kosync_document.return_value = SimpleNamespace(source="grimmory", grimmory_id="2:20")
+    first = Mock(instance_id="default")
+    first.is_configured.return_value = True
+    first.get_all_books.return_value = [{"id": 10, "title": "First", "fileName": "same.epub"}]
+    first.get_progress.return_value = (0.25, None)
+    second = Mock(instance_id="2")
+    second.is_configured.return_value = True
+    second.get_all_books.return_value = [{"id": 20, "title": "Second", "fileName": "same.epub"}]
+    second.get_progress.return_value = (0.75, None)
+
+    _service(db, grimmory=GrimmoryClientGroup([first, second]))._check_cross_ebook_suggestions()
+
+    detected = [call.args[0] for call in db.save_detected_book.call_args_list]
+    assert [(row.source, row.source_id) for row in detected] == [("grimmory", "default:same.epub")]
+    first.get_progress.assert_called_once_with("same.epub")
+    second.get_progress.assert_not_called()
+
+
+def test_malformed_ebook_source_records_do_not_hide_later_healthy_records():
+    db = _db()
+    db.get_unlinked_kosync_documents.return_value = [
+        SimpleNamespace(document_hash="bad", filename="bad.epub", percentage="not-a-number", linked_abs_id=None),
+        SimpleNamespace(
+            document_hash="good-hash",
+            filename="Good KoSync.epub",
+            percentage=0.4,
+            device="KOReader",
+            timestamp=None,
+            linked_abs_id=None,
+        ),
+    ]
+    storyteller = Mock()
+    storyteller.is_configured.return_value = True
+    storyteller.get_all_positions_bulk.return_value = {
+        "broken": None,
+        "good storyteller": {"uuid": "st-good", "pct": 0.3},
+    }
+    grimmory = Mock()
+    grimmory.is_configured.return_value = True
+    grimmory.get_all_books.return_value = [
+        None,
+        {"id": 10, "title": "Good Grimmory", "fileName": "good.epub", "_instance_id": "default"},
+    ]
+    grimmory.get_progress.return_value = (0.2, None)
+
+    _service(db, grimmory=grimmory, storyteller=storyteller)._check_cross_ebook_suggestions()
+
+    detected = {(call.args[0].source, call.args[0].source_id) for call in db.save_detected_book.call_args_list}
+    assert detected == {
+        ("storyteller", "st-good"),
+        ("grimmory", "default:good.epub"),
+        ("kosync", "good-hash"),
+    }
+
+
 def test_kosync_scheduled_detection_uses_real_progress_and_timestamp():
     db = _db()
     source_time = datetime(2026, 7, 15, 12, tzinfo=UTC)

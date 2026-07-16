@@ -73,6 +73,7 @@ class BookIntakeService:
         self,
         *,
         ebook_filename=None,
+        ebook_source_id=None,
         ebook_display_name="",
         storyteller_uuid=None,
         storyteller_title="",
@@ -82,7 +83,9 @@ class BookIntakeService:
 
         kosync_doc_id = None
         if ebook_filename:
-            bl_book, bl_client = self.find_in_grimmory(ebook_filename)
+            bl_book, bl_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
+            if ebook_source_id and not bl_book:
+                return IntakeResult(error="Selected Grimmory book was not found", status_code=404)
             grimmory_id = bl_book.get("id") if bl_book else None
             kosync_doc_id = self.get_kosync_id_for_ebook(ebook_filename, grimmory_id, bl_client=bl_client)
             if not kosync_doc_id:
@@ -103,6 +106,7 @@ class BookIntakeService:
         )
         self.database_service.save_book(book, is_new=True)
         ensure_kosync_document(book, self.database_service)
+        self._record_grimmory_source(kosync_doc_id, ebook_source_id)
         if kosync_doc_id:
             self.database_service.resolve_suggestion(kosync_doc_id, source="kosync")
             self.database_service.resolve_detected_book(kosync_doc_id, source="kosync")
@@ -110,11 +114,10 @@ class BookIntakeService:
             self.database_service.resolve_suggestion(storyteller_uuid, source="storyteller")
             self.database_service.resolve_detected_book(storyteller_uuid, source="storyteller")
         if ebook_filename:
-            self.database_service.resolve_suggestion(ebook_filename, source="grimmory")
-            self.database_service.resolve_detected_book(ebook_filename, source="grimmory")
+            self._resolve_grimmory_detection(ebook_filename, ebook_source_id)
         return IntakeResult(book=book)
 
-    def attach_ebook(self, *, abs_id, ebook_filename) -> IntakeResult:
+    def attach_ebook(self, *, abs_id, ebook_filename, ebook_source_id=None) -> IntakeResult:
         if not abs_id or not ebook_filename:
             return IntakeResult(error="Missing book ID or ebook filename", status_code=400)
 
@@ -122,7 +125,9 @@ class BookIntakeService:
         if not book:
             return IntakeResult(error="Book not found", status_code=404)
 
-        bl_book, bl_client = self.find_in_grimmory(ebook_filename)
+        bl_book, bl_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
+        if ebook_source_id and not bl_book:
+            return IntakeResult(error="Selected Grimmory book was not found", status_code=404)
         grimmory_id = bl_book.get("id") if bl_book else None
         kosync_doc_id = self.get_kosync_id_for_ebook(ebook_filename, grimmory_id, bl_client=bl_client)
         if not kosync_doc_id:
@@ -133,9 +138,11 @@ class BookIntakeService:
         book.status = "pending"
         self.database_service.save_book(book)
         ensure_kosync_document(book, self.database_service)
+        self._record_grimmory_source(kosync_doc_id, ebook_source_id)
         self._add_to_grimmory_shelf(bl_client, ebook_filename)
         self.database_service.resolve_suggestion(kosync_doc_id)
         self.database_service.resolve_detected_book(kosync_doc_id, source="kosync")
+        self._resolve_grimmory_detection(ebook_filename, ebook_source_id)
         return IntakeResult(book=book)
 
     def attach_audiobook(self, *, source_book_id, abs_id, title, duration, author=None, subtitle=None) -> IntakeResult:
@@ -183,12 +190,15 @@ class BookIntakeService:
         title,
         ebook_filename,
         duration,
+        ebook_source_id=None,
         storyteller_uuid=None,
         storyteller_submit=False,
         author=None,
         subtitle=None,
     ) -> IntakeResult:
-        bl_match, bl_match_client = self.find_in_grimmory(ebook_filename)
+        bl_match, bl_match_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
+        if ebook_source_id and not bl_match:
+            return IntakeResult(error="Selected Grimmory book was not found", status_code=404)
         grimmory_id = bl_match.get("id") if bl_match else None
 
         kosync_doc_id = self.get_kosync_id_for_ebook(ebook_filename, grimmory_id, bl_client=bl_match_client)
@@ -241,6 +251,7 @@ class BookIntakeService:
         )
         self.database_service.save_book(book, is_new=True)
         ensure_kosync_document(book, self.database_service)
+        self._record_grimmory_source(kosync_doc_id, ebook_source_id)
 
         if storyteller_submit:
             self._create_storyteller_reservation(abs_id)
@@ -259,7 +270,7 @@ class BookIntakeService:
         if storyteller_submit:
             self._submit_to_storyteller_async(abs_id, title, ebook_filename)
 
-        self._resolve_mapping_suggestions(abs_id, kosync_doc_id, ebook_filename)
+        self._resolve_mapping_suggestions(abs_id, kosync_doc_id, ebook_filename, ebook_source_id)
         return IntakeResult(book=book)
 
     def _create_storyteller_reservation(self, abs_id):
@@ -340,14 +351,13 @@ class BookIntakeService:
         except Exception as e:
             logger.warning("Grimmory add_to_shelf failed for '%s': %s", sanitize_log_data(ebook_filename), e)
 
-    def _resolve_mapping_suggestions(self, abs_id, kosync_doc_id, ebook_filename):
+    def _resolve_mapping_suggestions(self, abs_id, kosync_doc_id, ebook_filename, ebook_source_id=None):
         self.database_service.resolve_suggestion(abs_id)
         self.database_service.resolve_suggestion(kosync_doc_id)
         self.database_service.resolve_detected_book(abs_id, source="abs")
         if kosync_doc_id:
             self.database_service.resolve_detected_book(kosync_doc_id, source="kosync")
-        if ebook_filename:
-            self.database_service.resolve_detected_book(ebook_filename, source="grimmory")
+        self._resolve_grimmory_detection(ebook_filename, ebook_source_id)
         try:
             device_doc = self.database_service.get_kosync_doc_by_filename(ebook_filename)
             if device_doc and device_doc.document_hash != kosync_doc_id:
@@ -355,6 +365,31 @@ class BookIntakeService:
                 self.database_service.resolve_detected_book(device_doc.document_hash, source="kosync")
         except Exception as e:
             logger.warning("Failed to check/resolve device hash: %s", e)
+
+    def _find_grimmory_book(self, ebook_filename, ebook_source_id):
+        if ebook_source_id:
+            return self.find_in_grimmory(ebook_filename, ebook_source_id)
+        return self.find_in_grimmory(ebook_filename)
+
+    def _record_grimmory_source(self, kosync_doc_id, ebook_source_id):
+        if not kosync_doc_id or not ebook_source_id:
+            return
+        doc = self.database_service.get_kosync_document(kosync_doc_id)
+        if doc:
+            doc.source = "grimmory"
+            doc.grimmory_id = ebook_source_id
+            self.database_service.save_kosync_document(doc)
+
+    def _resolve_grimmory_detection(self, ebook_filename, ebook_source_id):
+        if not ebook_filename:
+            return
+        if not ebook_source_id or ":" not in str(ebook_source_id):
+            self.database_service.resolve_suggestion(ebook_filename, source="grimmory")
+            return
+        instance_id = str(ebook_source_id).split(":", 1)[0]
+        detected_source_id = f"{instance_id}:{ebook_filename}"
+        self.database_service.resolve_suggestion(detected_source_id, source="grimmory")
+        self.database_service.resolve_detected_book(detected_source_id, source="grimmory")
 
     @staticmethod
     def _copy_book_merge_metadata(existing_book, overrides=None):

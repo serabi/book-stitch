@@ -904,8 +904,10 @@ class GrimmoryClientGroup:
             return c.base_url
         return None
 
-    def remove_from_shelf(self, ebook_filename, shelf_name=None):
+    def remove_from_shelf(self, ebook_filename, shelf_name=None, instance_id=None):
         for c in self._active:
+            if instance_id is not None and str(c.instance_id) != str(instance_id):
+                continue
             if c.remove_from_shelf(ebook_filename, shelf_name):
                 return True
         return False

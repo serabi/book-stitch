@@ -110,6 +110,10 @@
                 if (r) r.checked = false;
             });
         }
+        if (groupName === 'ebook_filename') {
+            var sourceInput = document.getElementById('input_ebook_source_id');
+            if (sourceInput) sourceInput.value = '';
+        }
     }
 
     function updateLayout() {
@@ -293,6 +297,10 @@
                 stInput.value = (radio && radio.value) ? (titleEl ? titleEl.textContent.trim() : '') : '';
             }
         }
+        if (groupName === 'ebook_filename') {
+            var sourceInput = document.getElementById('input_ebook_source_id');
+            if (sourceInput) sourceInput.value = element.dataset.grimmoryId || '';
+        }
 
         // In Match mode, selecting an audiobook advances to ebook phase
         if (groupName === 'audiobook_id' && currentMode === 'match' && currentPhase === 'select-audio') {
@@ -312,7 +320,11 @@
             var initialEb = document.querySelector('input[name="ebook_filename"]:checked');
             if (initialEb) {
                 var label = initialEb.closest('.eb-option');
-                if (label) label.classList.add('selected');
+                if (label) {
+                    label.classList.add('selected');
+                    var sourceInput = document.getElementById('input_ebook_source_id');
+                    if (sourceInput) sourceInput.value = label.dataset.grimmoryId || '';
+                }
             }
             var initialAb = document.querySelector('input[name="audiobook_id"]:checked');
             if (initialAb) {
@@ -378,6 +390,11 @@
             if (currentMode === 'match') {
                 setPhase('select-ebook');
             }
+        }
+        var preselectedEb = document.querySelector('.eb-option.selected');
+        if (preselectedEb) {
+            var sourceInput = document.getElementById('input_ebook_source_id');
+            if (sourceInput) sourceInput.value = preselectedEb.dataset.grimmoryId || '';
         }
 
         updateLayout();
