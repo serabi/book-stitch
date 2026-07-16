@@ -413,8 +413,8 @@ def batch_match():
                 if not selected_ab:
                     return redirect(url_for("matching.batch_match", search=_redirect_search_value()))
 
-            # Dedup key: abs_id if present, otherwise ebook_filename
-            queue_key = abs_id or ebook_filename
+            # Dedup key: audiobook, qualified ebook source, then legacy filename.
+            queue_key = abs_id or ebook_source_id or ebook_filename
             if not any(item.get("queue_key") == queue_key for item in session["queue"]):
                 is_ebook_only = not abs_id and (ebook_filename or storyteller_uuid)
                 is_audio_only = abs_id and not ebook_filename and not storyteller_uuid

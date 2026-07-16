@@ -129,6 +129,31 @@ def test_create_book_mapping_grimmory_add_to_shelf_fails(flask_app, mock_contain
 # ── Batch match: individual book failure continues ────────────────
 
 
+def test_batch_match_keeps_same_filename_from_two_grimmory_servers(flask_app, mock_container):
+    _setup_matching_db_defaults(mock_container.mock_database_service)
+
+    with flask_app.test_client() as test_client:
+        for source_id in ("default:11", "2:22"):
+            response = test_client.post(
+                "/batch-match",
+                data={
+                    "action": "add_to_queue",
+                    "ebook_filename": "same.epub",
+                    "ebook_source_id": source_id,
+                    "ebook_display_name": source_id,
+                },
+            )
+            assert response.status_code == 302
+
+        with test_client.session_transaction() as sess:
+            queue = sess["queue"]
+
+    assert [(item["queue_key"], item["ebook_source_id"]) for item in queue] == [
+        ("default:11", "default:11"),
+        ("2:22", "2:22"),
+    ]
+
+
 def test_batch_match_process_continues_on_individual_failure(flask_app, mock_container, client):
     """Batch match should continue processing remaining items when one fails."""
     _setup_matching_db_defaults(mock_container.mock_database_service)
