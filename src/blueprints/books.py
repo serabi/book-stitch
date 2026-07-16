@@ -174,9 +174,14 @@ def update_hash(book_ref):
         bl_book, matched_bl_client = find_in_grimmory(target_filename)
         if bl_book:
             grimmory_id = bl_book.get("id")
+        grimmory_file_id = bl_book.get("bookFileId") if bl_book and bl_book.get("isPrimary") is False else None
 
         recalc_hash = get_kosync_id_for_ebook(
-            target_filename, grimmory_id, original_filename=book.ebook_filename, bl_client=matched_bl_client
+            target_filename,
+            grimmory_id,
+            original_filename=book.ebook_filename,
+            bl_client=matched_bl_client,
+            grimmory_file_id=grimmory_file_id,
         )
 
         if recalc_hash:

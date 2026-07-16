@@ -112,8 +112,7 @@ class BookIntakeService:
             bl_book, bl_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
             if ebook_source_id and not bl_book:
                 return IntakeResult(error="Selected Grimmory book was not found", status_code=404)
-            grimmory_id = bl_book.get("id") if bl_book else None
-            kosync_doc_id = self.get_kosync_id_for_ebook(ebook_filename, grimmory_id, bl_client=bl_client)
+            kosync_doc_id = self._get_kosync_id_for_mapping(ebook_filename, bl_book, bl_client)
             if not kosync_doc_id:
                 return IntakeResult(error="Could not compute KOSync ID for ebook", status_code=404)
             title = ebook_display_name or (bl_book.get("title") if bl_book else None) or Path(ebook_filename).stem
@@ -154,8 +153,7 @@ class BookIntakeService:
         bl_book, bl_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
         if ebook_source_id and not bl_book:
             return IntakeResult(error="Selected Grimmory book was not found", status_code=404)
-        grimmory_id = bl_book.get("id") if bl_book else None
-        kosync_doc_id = self.get_kosync_id_for_ebook(ebook_filename, grimmory_id, bl_client=bl_client)
+        kosync_doc_id = self._get_kosync_id_for_mapping(ebook_filename, bl_book, bl_client)
         if not kosync_doc_id:
             return IntakeResult(error="Could not compute KOSync ID for ebook", status_code=404)
 
@@ -464,8 +462,7 @@ class BookIntakeService:
         bl_match, bl_match_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
         if ebook_source_id and not bl_match:
             return IntakeResult(error="Selected Grimmory book was not found", status_code=404)
-        grimmory_id = bl_match.get("id") if bl_match else None
-        kosync_doc_id = self.get_kosync_id_for_ebook(ebook_filename, grimmory_id, bl_client=bl_match_client)
+        kosync_doc_id = self._get_kosync_id_for_mapping(ebook_filename, bl_match, bl_match_client)
         if not kosync_doc_id:
             logger.warning("Cannot compute KOSync ID for '%s'", sanitize_log_data(ebook_filename))
             return IntakeResult(error="Could not compute KOSync ID for ebook", status_code=404)
@@ -754,6 +751,13 @@ class BookIntakeService:
         if ebook_source_id:
             return self.find_in_grimmory(ebook_filename, ebook_source_id)
         return self.find_in_grimmory(ebook_filename)
+
+    def _get_kosync_id_for_mapping(self, ebook_filename, grimmory_book, grimmory_client):
+        book_id = grimmory_book.get("id") if grimmory_book else None
+        kwargs = {"bl_client": grimmory_client}
+        if grimmory_book and grimmory_book.get("isPrimary") is False:
+            kwargs["grimmory_file_id"] = grimmory_book.get("bookFileId")
+        return self.get_kosync_id_for_ebook(ebook_filename, book_id, **kwargs)
 
     def _record_grimmory_source(self, kosync_doc_id, ebook_source_id):
         if not kosync_doc_id or not ebook_source_id:

@@ -477,7 +477,13 @@ def api_grimmory_link(book_ref):
     bl_book, bl_client = find_in_grimmory(filename)
     if bl_book:
         grimmory_id = bl_book.get("id")
-    kosync_doc_id = get_kosync_id_for_ebook(filename, grimmory_id, bl_client=bl_client)
+    grimmory_file_id = bl_book.get("bookFileId") if bl_book and bl_book.get("isPrimary") is False else None
+    kosync_doc_id = get_kosync_id_for_ebook(
+        filename,
+        grimmory_id,
+        bl_client=bl_client,
+        grimmory_file_id=grimmory_file_id,
+    )
     if kosync_doc_id:
         book.kosync_doc_id = kosync_doc_id
     book.original_ebook_filename = book.original_ebook_filename or filename

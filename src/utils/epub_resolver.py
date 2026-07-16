@@ -62,7 +62,12 @@ def get_local_epub(ebook_filename, books_dir, epub_cache_dir, grimmory_client=No
                 if not book_id:
                     logger.warning("Grimmory returned book without ID")
                 else:
-                    content = grimmory_client.download_book(book_id)
+                    file_id = book.get("bookFileId") if book.get("isPrimary") is False else None
+                    content = (
+                        grimmory_client.download_book(book_id, file_id=file_id)
+                        if file_id is not None
+                        else grimmory_client.download_book(book_id)
+                    )
                     if content:
                         cached_path.parent.mkdir(parents=True, exist_ok=True)
                         tmp_fd, tmp_path = tempfile.mkstemp(dir=cached_path.parent, suffix=".tmp")

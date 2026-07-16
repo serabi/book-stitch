@@ -380,6 +380,36 @@ def test_processes_primary_and_alternative_formats_with_exact_file_identity(grim
     assert grimmory_client.find_book_by_filename("book.epub", allow_refresh=False)["bookFileId"] == 41
 
 
+def test_downloads_exact_alternative_file_and_rejects_stale_identity(grimmory_client):
+    grimmory_client._process_book_detail(
+        {
+            "id": 10,
+            "primaryFile": {"id": 41, "fileName": "book.m4b", "bookType": "AUDIOBOOK"},
+            "alternativeFormats": [{"id": 42, "fileName": "book.epub", "bookType": "EPUB"}],
+        }
+    )
+    grimmory_client._token = "token"
+    grimmory_client._token_timestamp = 9999999999
+    response = MagicMock(status_code=200, content=b"alternative epub")
+    grimmory_client.session.get = MagicMock(return_value=response)
+
+    assert grimmory_client.download_book(10, file_id=42) == b"alternative epub"
+    assert grimmory_client.session.get.call_args.args[0].endswith("/api/v1/books/10/files/42/download")
+
+    grimmory_client.session.get.reset_mock()
+    assert grimmory_client.download_book(10, file_id=99) is None
+    grimmory_client.session.get.assert_not_called()
+
+    grimmory_client.session.get.side_effect = [
+        MagicMock(status_code=404),
+        MagicMock(status_code=200, content=b"primary file"),
+    ]
+    assert grimmory_client.download_book(10) == b"primary file"
+    requested_urls = [call.args[0] for call in grimmory_client.session.get.call_args_list]
+    assert requested_urls[0].endswith("/api/v1/books/10/download")
+    assert requested_urls[1].endswith("/api/v1/books/10/file")
+
+
 def test_refresh_prunes_removed_alternative_without_removing_primary_ebook(grimmory_client, mock_db):
     detail = {
         "id": 10,

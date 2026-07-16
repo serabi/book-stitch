@@ -716,20 +716,27 @@ class GrimmoryClient:
 
         return results
 
-    def download_book(self, book_id):
-        """Download book content by ID. Returns bytes or None."""
+    def download_book(self, book_id, file_id=None):
+        """Download a primary book file or an exact selected alternative."""
         token = self._get_fresh_token()
         if not token:
             return None
 
         headers = {"Authorization": f"Bearer {token}"}
-        url = f"{self.base_url}/api/v1/books/{book_id}/download"
+        if file_id is not None:
+            selected = self._book_file_cache.get((str(book_id), str(file_id)))
+            if not selected or str(selected.get("id")) != str(book_id) or str(selected.get("bookFileId")) != str(file_id):
+                logger.warning("Grimmory: Refusing download for stale book/file identity %s/%s", book_id, file_id)
+                return None
+            url = f"{self.base_url}/api/v1/books/{book_id}/files/{file_id}/download"
+        else:
+            url = f"{self.base_url}/api/v1/books/{book_id}/download"
         logger.debug(f"Downloading book from {url}")
 
         try:
             response = self.session.get(url, headers=headers, timeout=60)
 
-            if response.status_code == 404:
+            if file_id is None and response.status_code == 404:
                 file_url = f"{self.base_url}/api/v1/books/{book_id}/file"
                 logger.debug(f"404 on /download, trying fallback: {file_url}")
                 response = self.session.get(file_url, headers=headers, timeout=60)
@@ -1012,7 +1019,7 @@ class GrimmoryClientGroup:
                 return client.update_audiobook_progress(source_id, percentage)
         return False
 
-    def download_book(self, book_id):
+    def download_book(self, book_id, file_id=None):
         """Download from whichever client owns the book.
 
         book_id may be a plain int/str (legacy, tries all clients) or
@@ -1023,11 +1030,11 @@ class GrimmoryClientGroup:
             target_instance, raw_id = bid_str.split(":", 1)
             for c in self._active:
                 if c.instance_id == target_instance:
-                    return c.download_book(raw_id)
+                    return c.download_book(raw_id, file_id=file_id)
             return None
 
         for c in self._active:
-            result = c.download_book(book_id)
+            result = c.download_book(book_id, file_id=file_id)
             if result:
                 return result
         return None

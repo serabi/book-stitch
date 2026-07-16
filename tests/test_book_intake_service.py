@@ -1,7 +1,7 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -142,6 +142,57 @@ def test_link_grimmory_audiobook_creates_book_without_abs_side_effects():
     db.resolve_detected_book.assert_any_call("ebook-hash", source="kosync")
     method_names = [call[0] for call in db.method_calls]
     assert method_names.index("save_book_with_kosync_ownership") < method_names.index("complete_detected_book")
+
+
+def test_link_grimmory_audiobook_hashes_selected_alternative_epub_file():
+    alternative_epub = {
+        "id": 10,
+        "bookFileId": 42,
+        "fileName": "book.epub",
+        "bookType": "EPUB",
+        "isPrimary": False,
+    }
+    service, db, _abs, bl_client, _hc = _make_service(
+        bl_match=alternative_epub,
+        kosync_id="alternative-hash",
+    )
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 41,
+        "fileName": "book.m4b",
+        "bookType": "AUDIOBOOK",
+        "isPrimary": True,
+    }
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:41",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:41",
+    )
+
+    assert result.error is None
+    service.get_kosync_id_for_ebook.assert_has_calls(
+        [
+            call(
+                "book.epub",
+                10,
+                bl_client=bl_client,
+                grimmory_file_id=42,
+            ),
+            call(
+                "book.epub",
+                10,
+                bl_client=bl_client,
+                grimmory_file_id=42,
+            ),
+        ]
+    )
 
 
 def test_link_grimmory_audiobook_updates_ebook_book_and_preserves_abs():

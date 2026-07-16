@@ -37,6 +37,29 @@ def test_get_kosync_id_grimmory_download_returns_none(flask_app, mock_container)
     assert result is None
 
 
+def test_get_kosync_id_downloads_selected_alternative_file(flask_app, mock_container):
+    bl_client = Mock()
+    bl_client.is_configured.return_value = True
+    bl_client.download_book.return_value = b"selected alternative epub"
+    mock_container.mock_ebook_parser.get_kosync_id_from_bytes.return_value = "alternative-hash"
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import get_kosync_id_for_ebook
+
+        result = get_kosync_id_for_ebook(
+            "book.epub",
+            grimmory_id=10,
+            grimmory_file_id=42,
+            bl_client=bl_client,
+        )
+
+    assert result == "alternative-hash"
+    bl_client.download_book.assert_called_once_with(10, file_id=42)
+    mock_container.mock_ebook_parser.get_kosync_id_from_bytes.assert_called_once_with(
+        "book.epub", b"selected alternative epub"
+    )
+
+
 def test_get_kosync_id_abs_download_raises(flask_app, mock_container):
     """When ABS on-demand download raises, should return None gracefully."""
     mock_container.mock_abs_client.is_configured.return_value = True

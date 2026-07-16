@@ -176,7 +176,13 @@ def find_ebook_file(filename, ebook_dir=None):
     return matches[0] if matches else None
 
 
-def get_kosync_id_for_ebook(ebook_filename, grimmory_id=None, original_filename=None, bl_client=None):
+def get_kosync_id_for_ebook(
+    ebook_filename,
+    grimmory_id=None,
+    original_filename=None,
+    bl_client=None,
+    grimmory_file_id=None,
+):
     """Get KOSync document ID for an ebook.
     Tries Grimmory API first (if configured and grimmory_id provided),
     falls back to filesystem if needed.
@@ -187,7 +193,10 @@ def get_kosync_id_for_ebook(ebook_filename, grimmory_id=None, original_filename=
     # Try Grimmory API first — use the specific client that reported the ID
     if grimmory_id and bl_client and bl_client.is_configured():
         try:
-            content = bl_client.download_book(grimmory_id)
+            if grimmory_file_id is not None:
+                content = bl_client.download_book(grimmory_id, file_id=grimmory_file_id)
+            else:
+                content = bl_client.download_book(grimmory_id)
             if content:
                 kosync_id = container.ebook_parser().get_kosync_id_from_bytes(ebook_filename, content)
                 if kosync_id:
