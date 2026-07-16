@@ -1,0 +1,34 @@
+from pathlib import Path
+
+import pytest
+from flask import render_template
+
+
+def render_navigation(flask_app, path):
+    flask_app.template_folder = str(Path(__file__).parent.parent / "templates")
+    with flask_app.test_request_context(path):
+        return render_template("partials/navbar.html")
+
+
+def test_navigation_shell_exposes_primary_and_utility_destinations(flask_app):
+    html = render_navigation(flask_app, "/")
+
+    assert '<aside class="app-sidebar"' in html
+    assert '<nav class="mobile-bottom-nav"' in html
+    for destination in ("/", "/reading", "/suggestions", "/settings", "/match", "/logs"):
+        assert f'href="{destination}"' in html
+
+
+@pytest.mark.parametrize("path", ["/suggestions", "/match", "/batch-match"])
+def test_pairing_routes_share_one_active_navigation_group(flask_app, path):
+    html = render_navigation(flask_app, path)
+
+    assert 'href="/suggestions" class="sidebar-nav-link active" aria-current="page"' in html
+    assert 'href="/suggestions" class="mobile-nav-link active" aria-current="page"' in html
+
+
+def test_only_current_primary_destination_is_marked_active(flask_app):
+    html = render_navigation(flask_app, "/reading")
+
+    assert 'href="/reading" class="sidebar-nav-link active" aria-current="page"' in html
+    assert 'href="/" class="sidebar-nav-link active"' not in html
