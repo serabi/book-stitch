@@ -6,8 +6,9 @@ Branch: `prototype/frontend-cleanup-review`
 ## Recommendation
 
 Keep the dashboard's dark palette, typography, book-forward presentation, and
-single teal action color. Use **Direction A: Calm sidebar** as the implementation
-base, borrowing the dashboard-style content density from Direction B.
+single teal action color. Use **Direction A: Dashboard + sidebar** as the
+implementation base: move navigation into the sidebar while keeping the current
+dashboard card design as the visual source of truth.
 
 The main problem is information architecture rather than styling. PageKeeper
 currently exposes seven peer destinations in the header, while several are
@@ -88,15 +89,16 @@ KoSync's Healthy / Needs Attention / Stale grouping into this surface.
 
 ## Prototype directions
 
-- **A — Calm sidebar:** recommended. Four stable destinations, persistent health,
-  focused list/detail layouts, and the least header competition.
+- **A — Dashboard + sidebar:** selected. Four stable destinations in a sidebar,
+  with the current dashboard cards, controls, spacing, and density preserved.
 - **B — Dashboard native:** lowest implementation risk. Retains the top bar and
   standardizes every page around dashboard-style headers, toolbars, and cards.
 - **C — Guided workflows:** useful for first-run setup and empty states, but too
   opinionated as the only navigation model for experienced users.
 
-The likely production answer is A's navigation, B's content density, and C's
-guided setup/empty states.
+The selected production direction is A's sidebar around the existing dashboard
+visual system. Guided setup can still inform empty states without becoming the
+app's primary navigation model.
 
 ## Implementation order
 
