@@ -70,7 +70,7 @@
 
 <aside class="app-sidebar" aria-label="Application navigation">
     <a href="/" class="sidebar-brand">
-        <img src="/static/grimmory-app.png" alt="" class="app-icon" width="40" height="40">
+        <img src="/static/icon.png" alt="" class="app-icon" width="40" height="40">
         <span class="sidebar-brand-copy">
             <span class="sidebar-brand-name">PageKeeper</span>
             {% if is_dev_container %}<span class="env-badge env-badge-dev" title="Development container">DEV</span>{% endif %}
@@ -86,8 +86,8 @@
         <a href="/reading" class="sidebar-nav-link {% if is_active_path('/reading') %}active{% endif %}" {% if is_active_path('/reading') %}aria-current="page"{% endif %} title="Reading">
             {{ nav_icon('reading') }}<span class="sidebar-label">Reading</span>
         </a>
-        <a href="/suggestions" class="sidebar-nav-link {% if pairings_active %}active{% endif %}" {% if pairings_active %}aria-current="page"{% endif %} title="Currently Reading">
-            {{ nav_icon('pairings') }}<span class="sidebar-label">Currently Reading</span>{% if suggestion_count %}<span class="nav-badge">{{ suggestion_count }}</span>{% endif %}
+        <a href="/suggestions" class="sidebar-nav-link {% if pairings_active %}active{% endif %}" {% if pairings_active %}aria-current="page"{% endif %} title="Currently Reading" aria-label="Currently Reading{% if suggestion_count %}, {{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}{% endif %}">
+            {{ nav_icon('pairings') }}<span class="sidebar-label">Currently Reading</span>{% if suggestion_count %}<span class="nav-badge" aria-hidden="true" title="{{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}">{{ suggestion_count }}</span>{% endif %}
         </a>
         <a href="/settings" class="sidebar-nav-link {% if is_active_path('/settings') %}active{% endif %}" {% if is_active_path('/settings') %}aria-current="page"{% endif %} title="Settings">
             {{ nav_icon('settings') }}<span class="sidebar-label">Settings</span>
@@ -108,7 +108,7 @@
 <nav class="mobile-bottom-nav" aria-label="Primary">
     <a href="/" class="mobile-nav-link {% if is_active_path('/') %}active{% endif %}" {% if is_active_path('/') %}aria-current="page"{% endif %}>{{ nav_icon('dashboard') }}<span>Dashboard</span></a>
     <a href="/reading" class="mobile-nav-link {% if is_active_path('/reading') %}active{% endif %}" {% if is_active_path('/reading') %}aria-current="page"{% endif %}>{{ nav_icon('reading') }}<span>Reading</span></a>
-    <a href="/suggestions" class="mobile-nav-link {% if pairings_active %}active{% endif %}" {% if pairings_active %}aria-current="page"{% endif %}>{{ nav_icon('pairings') }}<span>Currently</span>{% if suggestion_count %}<span class="nav-badge">{{ suggestion_count }}</span>{% endif %}</a>
+    <a href="/suggestions" class="mobile-nav-link {% if pairings_active %}active{% endif %}" {% if pairings_active %}aria-current="page"{% endif %} aria-label="Currently Reading{% if suggestion_count %}, {{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}{% endif %}">{{ nav_icon('pairings') }}<span>Currently</span>{% if suggestion_count %}<span class="nav-badge" aria-hidden="true" title="{{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}">{{ suggestion_count }}</span>{% endif %}</a>
     <a href="/settings" class="mobile-nav-link {% if is_active_path('/settings') %}active{% endif %}" {% if is_active_path('/settings') %}aria-current="page"{% endif %}>{{ nav_icon('settings') }}<span>Settings</span></a>
     <details class="mobile-more">
         <summary class="mobile-nav-link">{{ nav_icon('more') }}<span>More</span></summary>

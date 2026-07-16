@@ -268,6 +268,39 @@ class DetectedRepository(BaseRepository):
     def dismiss_detected_book(self, source_id, source="abs"):
         return self._set_detected_status(source_id, source, "dismissed")
 
+    def dismiss_detected_books(self, identities):
+        """Dismiss a Currently Reading group in one transaction.
+
+        Missing or already-terminal rows are harmless stale-view successes. A
+        live processing claim rejects the entire group before anything changes.
+        """
+        unique_identities = list(dict.fromkeys(identities))
+        with self.get_session() as session:
+            rows = []
+            for source, source_id in unique_identities:
+                row = (
+                    session.query(DetectedBook)
+                    .filter(
+                        DetectedBook.source == source,
+                        DetectedBook.source_id == source_id,
+                    )
+                    .one_or_none()
+                )
+                if row is not None:
+                    rows.append(row)
+
+            if any(row.status == "processing" for row in rows):
+                return False
+
+            now = datetime.now(UTC)
+            for row in rows:
+                if row.status == "detected":
+                    row.status = "dismissed"
+                    row.processing_token = None
+                    row.processing_started_at = None
+                    row.last_seen_at = now
+            return True
+
     def resolve_detected_book(self, source_id, source="abs"):
         return self._set_detected_status(source_id, source, "resolved")
 

@@ -75,6 +75,34 @@ def dismiss_detected_book(source_id, source=None):
     return jsonify({"success": False, "error": "Not found"}), 404
 
 
+@api_bp.route("/api/detected/dismiss-group", methods=["POST"])
+def dismiss_detected_group():
+    """Atomically dismiss the exact source identities displayed in one card."""
+    payload = request.get_json(silent=True) or {}
+    raw_identities = payload.get("identities")
+    if not isinstance(raw_identities, list) or not 1 <= len(raw_identities) <= 50:
+        return jsonify({"success": False, "error": "identities must contain 1 to 50 items"}), 400
+
+    identities = []
+    for item in raw_identities:
+        if not isinstance(item, dict):
+            return jsonify({"success": False, "error": "Invalid identity"}), 400
+        source = item.get("source")
+        source_id = item.get("source_id")
+        if (
+            source not in _VALID_SUGGESTION_SOURCES
+            or not isinstance(source_id, str)
+            or not source_id
+            or len(source_id) > 500
+        ):
+            return jsonify({"success": False, "error": "Invalid identity"}), 400
+        identities.append((source, source_id))
+
+    if get_database_service().dismiss_detected_books(identities):
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "A book is currently being linked"}), 409
+
+
 @api_bp.route("/api/detected/<source_id>/resolve", methods=["POST"])
 def resolve_detected_book(source_id):
     """Mark a detected book as resolved (added to library)."""

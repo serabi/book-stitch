@@ -1,9 +1,9 @@
 {% macro pairing_card(pairing) %}
-<article class="pairing-card" data-source="{{ pairing.source }}" data-source-id="{{ pairing.source_id }}">
+<article class="pairing-card" data-source="{{ pairing.source }}" data-source-id="{{ pairing.source_id }}" aria-labelledby="currently-reading-{{ pairing.id }}">
     <div class="pairing-book">
         {% if pairing.cover_url %}<img src="{{ pairing.cover_url }}" alt="" class="pairing-cover" loading="lazy">{% else %}<div class="pairing-cover pairing-cover--empty" aria-hidden="true"></div>{% endif %}
         <div class="pairing-book-copy">
-            <h3>{{ pairing.title }}</h3>
+            <h2 id="currently-reading-{{ pairing.id }}">{{ pairing.title }}</h2>
             <p>{{ pairing.author }}</p>
             <ul class="pairing-activities" aria-label="Reading activity for {{ pairing.title }}">
                 {% for activity in pairing.activities %}
@@ -51,8 +51,8 @@
     <meta charset="UTF-8">
     <title>{{ title_prefix }}{{ 'Library Suggestions' if library_view else 'Currently Reading' }} - PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" href="/static/grimmory-app.png">
-    <link rel="apple-touch-icon" href="/static/grimmory-app.png">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/variables.css">
     <link rel="stylesheet" href="/static/css/base.css">
@@ -70,7 +70,7 @@
             <div>
                 <p class="sg-page-kicker">Reading activity</p>
                 <h1 class="sg-page-title">Currently Reading</h1>
-                <p class="sg-page-description">Pair books already in progress with their audiobook or ebook companion.</p>
+                <p class="sg-page-description">Link books already in progress with their audiobook or ebook companion.</p>
             </div>
             <div class="pairings-header-actions">
                 <button type="button" class="btn btn-secondary" id="rescan-btn">Rescan sources</button>
@@ -106,7 +106,7 @@
     </main>
     {% else %}
     <main class="container suggestions-shell">
-        <nav class="pairings-library-nav" aria-label="Pairing views">
+        <nav class="pairings-library-nav" aria-label="Matching views">
             <a href="/suggestions">Currently Reading</a>
             <a href="/batch-match">Batch matching</a>
         </nav>
@@ -123,7 +123,7 @@
 
         <div class="sg-toolbar" id="suggestions-toolbar">
             <div class="sg-toolbar-main">
-                <label class="visually-hidden" for="suggestion-search">Search pairing suggestions</label>
+                <label class="visually-hidden" for="suggestion-search">Search companion suggestions</label>
                 <input type="text" id="suggestion-search" class="search-box" placeholder="Filter by title, author, or candidate..." value="{{ initial_search }}">
                 <label class="visually-hidden" for="confidence-filter">Filter by match confidence</label>
                 <select id="confidence-filter">
@@ -169,11 +169,11 @@
             {% if not suggestions_enabled %}
             <p>Suggestions are disabled. Enable them in <a href="/settings?tab=general">Settings</a>.</p>
             {% elif bookfusion_enabled and bookfusion_catalog_count == 0 %}
-            <p>No pairings are ready yet. BookFusion is enabled, but its local catalog has not been synced into PageKeeper yet. Sync BookFusion highlights/library first, then run a rescan.</p>
+            <p>No matches are ready yet. BookFusion is enabled, but its local catalog has not been synced into PageKeeper yet. Sync BookFusion highlights/library first, then run a rescan.</p>
             {% elif bookfusion_enabled %}
-            <p>No visible pairings matched the current filters. Clear filters or expand Hidden below to manage hidden suggestions.</p>
+            <p>No visible matches fit the current filters. Clear filters or expand Hidden below to manage hidden suggestions.</p>
             {% else %}
-            <p>No visible pairing candidates were found. Clear filters or expand Hidden below to manage hidden suggestions.</p>
+            <p>No visible companion candidates were found. Clear filters or expand Hidden below to manage hidden suggestions.</p>
             {% endif %}
         </div>
 

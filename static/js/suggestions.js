@@ -25,6 +25,7 @@
         var status = document.getElementById('rescan-status');
         var timer = null;
         var scanObserved = false;
+        var pollFailures = 0;
 
         function updatePairingBadges(resolvedCount) {
             document.querySelectorAll('.nav-badge').forEach(function (badge) {
@@ -51,6 +52,7 @@
                 .then(function (response) { return response.json(); })
                 .then(function (data) {
                     if (!data.success) throw new Error(data.error || 'Status failed');
+                    pollFailures = 0;
                     if (data.running) {
                         scanObserved = true;
                         button.disabled = true;
@@ -65,14 +67,22 @@
                     }
                 })
                 .catch(function (error) {
-                    button.disabled = false;
-                    status.textContent = error.message || String(error);
+                    pollFailures += 1;
+                    if (pollFailures <= 3) {
+                        button.disabled = true;
+                        status.textContent = 'Connection interrupted. Retrying rescan status...';
+                        timer = setTimeout(poll, 1000 * pollFailures);
+                    } else {
+                        button.disabled = false;
+                        status.textContent = 'Could not confirm rescan status: ' + (error.message || String(error));
+                    }
                 });
         }
 
         button.addEventListener('click', function () {
             if (timer) clearTimeout(timer);
             button.disabled = true;
+            pollFailures = 0;
             status.textContent = 'Queued source rescan...';
             fetch('/api/suggestions/rescan', {
                 method: 'POST',
@@ -103,22 +113,26 @@
                     card.querySelectorAll('.pairing-activity'),
                     function (activity) { return activity.dataset; }
                 );
-                var title = card.querySelector('h3').textContent;
+                var title = card.querySelector('h2').textContent;
                 var cards = Array.prototype.slice.call(document.querySelectorAll('.pairing-card'));
                 var cardIndex = cards.indexOf(card);
                 var recoveryCard = cards[cardIndex + 1] || cards[cardIndex - 1];
                 dismissButton.disabled = true;
                 status.textContent = 'Dismissing ' + title + '...';
-                Promise.all(identities.map(function (identity) {
-                    return fetch('/api/detected/' + encodeURIComponent(identity.source) + '/' + encodeURIComponent(identity.sourceId) + '/dismiss', {
-                        method: 'POST'
-                    }).then(function (response) {
-                        return response.json().then(function (data) {
-                            if (!response.ok || !data.success) throw new Error(data.error || 'Dismiss failed');
-                            return data;
-                        });
+                fetch('/api/detected/dismiss-group', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        identities: identities.map(function (identity) {
+                            return { source: identity.source, source_id: identity.sourceId };
+                        })
+                    })
+                }).then(function (response) {
+                    return response.json().then(function (data) {
+                        if (!response.ok || !data.success) throw new Error(data.error || 'Dismiss failed');
+                        return data;
                     });
-                }))
+                })
                     .then(function () {
                         var list = card.closest('.pairing-list');
                         card.remove();
@@ -134,7 +148,6 @@
                     .catch(function (error) {
                         dismissButton.disabled = false;
                         status.textContent = 'Could not dismiss ' + title + ': ' + (error.message || String(error));
-                        if (identities.length > 1) window.location.reload();
                     });
             });
         });

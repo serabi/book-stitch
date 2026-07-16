@@ -446,14 +446,14 @@ def _load_pairing_review(container, database_service, values, method="GET"):
     if not any(values.values()):
         return None, None, 200, False
     if not all(values[name] for name in _PAIRING_REVIEW_FIELDS[:3]):
-        return None, "This pairing link is incomplete.", 400, True
+        return None, "This match link is incomplete.", 400, True
     if bool(values["candidate_source"]) != bool(values["candidate_source_id"]):
         values = {**values, "candidate_source": "", "candidate_source_id": ""}
 
     try:
         detected_id = int(values["detected_id"])
     except ValueError:
-        return None, "This pairing link is invalid.", 400, True
+        return None, "This match link is invalid.", 400, True
 
     detected = database_service.get_detected_book(
         values["detected_source_id"], source=values["detected_source"]
@@ -469,10 +469,10 @@ def _load_pairing_review(container, database_service, values, method="GET"):
 
     status = getattr(detected, "status", "detected")
     if status != "detected" and method != "POST":
-        message = "This pairing has already been completed." if status == "resolved" else "This pairing is not active."
+        message = "This match has already been completed." if status == "resolved" else "This match is not active."
         return None, message, 409, True
     if status not in {"detected", "processing", "resolved"}:
-        return None, "This pairing is not active.", 409, True
+        return None, "This match is not active.", 409, True
 
     candidate = None
     warning = None

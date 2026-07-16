@@ -19,7 +19,8 @@ def test_navigation_shell_exposes_primary_and_utility_destinations(flask_app):
         assert f'href="{destination}"' in html
     assert '<span class="sidebar-label">Currently Reading</span>' in html
     assert '<span>Currently</span>' in html
-    assert '/static/grimmory-app.png' in html
+    assert '/static/icon.png' in html
+    assert '/static/grimmory-app.png' not in html
 
 
 @pytest.mark.parametrize("path", ["/suggestions", "/match", "/batch-match"])
@@ -45,7 +46,8 @@ def test_pairings_badge_counts_only_unresolved_detected_books(flask_app, mock_co
 
     html = render_navigation(flask_app, "/suggestions")
 
-    assert html.count('<span class="nav-badge">3</span>') == 2
+    assert html.count('class="nav-badge" aria-hidden="true"') == 2
+    assert html.count('aria-label="Currently Reading, 3 source activities"') == 2
     mock_container.mock_database_service.get_pending_suggestion_count.assert_not_called()
 
 
@@ -65,3 +67,15 @@ def test_navigation_icons_share_one_outline_style(flask_app):
         assert f'id="nav-icon-{name}"' in html
     assert "stroke-width: 2;" in css
     assert 'use[href="#nav-icon-dashboard"]' not in css
+
+
+def test_confirm_modal_has_dialog_semantics_and_focus_management():
+    root = Path(__file__).parent.parent
+    markup = (root / "templates/partials/confirm_modal.html").read_text()
+    script = (root / "static/js/confirm-modal.js").read_text()
+
+    assert 'role="dialog"' in markup
+    assert 'aria-modal="true"' in markup
+    assert 'aria-labelledby="pk-modal-title"' in markup
+    assert "_focusableElements" in script
+    assert "_opener.focus()" in script

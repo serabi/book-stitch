@@ -126,6 +126,40 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertEqual(resolved.status, "resolved")
         self.assertEqual(still_active.status, "detected")
 
+    def test_group_dismiss_is_atomic_when_one_identity_is_processing(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="group-audio", title="Group", progress_percentage=0.2)
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(source="kosync", source_id="group-ebook", title="Group", progress_percentage=0.3)
+        )
+        self.assertIsNotNone(self.db_service.claim_detected_book("group-audio", source="abs"))
+
+        dismissed = self.db_service.dismiss_detected_books(
+            [("abs", "group-audio"), ("kosync", "group-ebook")]
+        )
+
+        self.assertFalse(dismissed)
+        self.assertEqual(self.db_service.get_detected_book("group-audio", source="abs").status, "processing")
+        self.assertEqual(self.db_service.get_detected_book("group-ebook", source="kosync").status, "detected")
+
+    def test_group_dismiss_is_idempotent_for_terminal_and_missing_identities(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="group-existing", title="Group", progress_percentage=0.2)
+        )
+        identities = [("abs", "group-existing"), ("kosync", "already-gone")]
+
+        self.assertTrue(self.db_service.dismiss_detected_books(identities))
+        self.assertTrue(self.db_service.dismiss_detected_books(identities))
+        self.assertEqual(
+            self.db_service.get_detected_book("group-existing", source="abs").status,
+            "dismissed",
+        )
+
     def test_detected_book_claim_is_compare_and_set_and_restorable(self):
         from src.db.models import DetectedBook
 

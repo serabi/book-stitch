@@ -42,6 +42,7 @@ const responses = [
 ];
 let reloads = 0;
 const fetchedUrls = [];
+const fetchedRequests = [];
 
 function response(data) {
     return Promise.resolve({ ok: true, json: function () { return Promise.resolve(data); } });
@@ -69,8 +70,9 @@ const context = {
             };
         }
     },
-    fetch: function (url) {
+    fetch: function (url, options) {
         fetchedUrls.push(url);
+        fetchedRequests.push({ url: url, options: options || {} });
         return response(responses.shift());
     },
     setTimeout: setTimeout,
@@ -114,19 +116,23 @@ function flush() {
     assert.equal((script.match(/data\.phase === 'partial'/g) || []).length, 2,
         'both inbox and catalog polling treat partial as terminal');
 
-    responses.push({ success: true }, { success: true });
+    responses.push({ success: true });
     dismissHandlers.click();
     await flush();
     await flush();
-    assert.deepEqual(fetchedUrls.slice(-2), [
-        '/api/detected/abs/audio%3A1/dismiss',
-        '/api/detected/kosync/shared%3Aid/dismiss'
-    ]);
+    assert.equal(fetchedUrls.at(-1), '/api/detected/dismiss-group');
+    assert.deepEqual(JSON.parse(fetchedRequests.at(-1).options.body), {
+        identities: [
+            { source: 'abs', source_id: 'audio:1' },
+            { source: 'kosync', source_id: 'shared:id' }
+        ]
+    });
     assert.equal(cardRemoved, true);
     assert.equal(status.textContent, 'Dismissed Dismiss Me.');
     assert.equal(badgeRemoved, true);
     assert.equal(caughtUpAppended, true);
     assert.equal(caughtUpFocused, true);
+    assert.match(script, /pollFailures <= 3/);
     console.log('pairings inbox JS checks passed');
 })().catch(function (error) {
     console.error(error);

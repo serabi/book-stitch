@@ -166,7 +166,7 @@
   min-width: 0;
 }
 
-.pairing-book-copy h3 {
+.pairing-book-copy h2 {
   margin: 0 0 3px;
   overflow-wrap: anywhere;
   color: var(--color-text);

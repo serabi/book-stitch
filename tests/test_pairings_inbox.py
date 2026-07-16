@@ -133,7 +133,7 @@ def test_configured_grimmory_instance_label_is_shown(client, mock_container):
     ("companion_source", "companion_source_id", "source_key"),
     [
         ("kosync", "hash-exact", "kosync:hash-exact"),
-        ("grimmory", "2:exact.epub", "grimmory:2:exact.epub"),
+        ("grimmory", "2:44:441", "grimmory:2:44:441"),
     ],
 )
 def test_explicit_high_confidence_activity_edge_renders_one_group_and_exact_review_url(
@@ -165,7 +165,8 @@ def test_explicit_high_confidence_activity_edge_renders_one_group_and_exact_revi
     page = client.get("/suggestions").get_data(as_text=True)
 
     assert page.count('class="pairing-card"') == 1
-    assert page.count("<h3>Exact Book</h3>") == 1
+    assert page.count(">Exact Book</h2>") == 1
+    assert re.search(r'aria-labelledby="currently-reading-\d+"', page)
     assert page.count('class="pairing-activity"') == 2
     assert 'aria-label="Review match for Exact Book from' in page
     assert 'aria-label="Dismiss Exact Book from' in page
@@ -382,6 +383,39 @@ def test_source_scoped_detected_dismiss_endpoint(client, mock_container):
     assert response.status_code == 200
     assert response.get_json() == {"success": True}
     db.dismiss_detected_book.assert_called_once_with("shared-id", source="kosync")
+
+
+def test_group_dismiss_endpoint_validates_and_dispatches_exact_identities(client, mock_container):
+    db = mock_container.mock_database_service
+    db.dismiss_detected_books.return_value = True
+    payload = {
+        "identities": [
+            {"source": "abs", "source_id": "audio:1"},
+            {"source": "kosync", "source_id": "hash:2"},
+        ]
+    }
+
+    response = client.post("/api/detected/dismiss-group", json=payload)
+
+    assert response.status_code == 200
+    assert response.get_json() == {"success": True}
+    db.dismiss_detected_books.assert_called_once_with([("abs", "audio:1"), ("kosync", "hash:2")])
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"identities": []},
+        {"identities": [{"source": "unknown", "source_id": "id"}]},
+        {"identities": [{"source": "abs", "source_id": ""}]},
+    ],
+)
+def test_group_dismiss_endpoint_rejects_invalid_identities(client, mock_container, payload):
+    response = client.post("/api/detected/dismiss-group", json=payload)
+
+    assert response.status_code == 400
+    mock_container.mock_database_service.dismiss_detected_books.assert_not_called()
 
 
 def test_mobile_focus_clearance_is_scoped_to_pairings():

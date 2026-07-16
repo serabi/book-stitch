@@ -120,6 +120,14 @@
     "kind": "api"
   },
   {
+    "rule": "/api/detected/dismiss-group",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.dismiss_detected_group",
+    "kind": "api"
+  },
+  {
     "rule": "/api/dnf/<book_ref>",
     "methods": [
       "POST"
