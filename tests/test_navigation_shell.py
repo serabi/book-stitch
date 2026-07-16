@@ -32,3 +32,15 @@ def test_only_current_primary_destination_is_marked_active(flask_app):
 
     assert 'href="/reading" class="sidebar-nav-link active" aria-current="page"' in html
     assert 'href="/" class="sidebar-nav-link active"' not in html
+
+
+def test_pairings_badge_counts_only_unresolved_detected_books(flask_app, mock_container):
+    from src import app_template_context
+
+    app_template_context._PAIRING_COUNT_CACHE["expires"] = 0
+    mock_container.mock_database_service.get_active_detected_book_count.return_value = 3
+
+    html = render_navigation(flask_app, "/suggestions")
+
+    assert '<span class="nav-badge">3</span>' in html
+    mock_container.mock_database_service.get_pending_suggestion_count.assert_not_called()

@@ -259,7 +259,7 @@ class TestSuggestionsFeature(unittest.TestCase):
             ),
         ]
 
-        response = self.client.get("/suggestions")
+        response = self.client.get("/suggestions?view=library")
 
         self.assertEqual(response.status_code, 200)
         page = response.get_data(as_text=True)

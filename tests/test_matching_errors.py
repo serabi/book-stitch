@@ -1,5 +1,6 @@
 """Tests for error paths in matching blueprint (src/blueprints/matching_bp.py)."""
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 
@@ -311,8 +312,9 @@ def test_suggestions_page_filters_no_matches(flask_app, mock_container):
     # Need ABS available for suggestions route
     flask_app.config["abs_service"] = Mock()
     flask_app.config["abs_service"].is_available.return_value = True
+    flask_app.template_folder = str(Path(__file__).parent.parent / "templates")
 
     with flask_app.test_client() as test_client:
-        response = test_client.get("/suggestions")
+        response = test_client.get("/suggestions?view=library")
 
     assert response.status_code == 200

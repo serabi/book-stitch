@@ -27,6 +27,12 @@ class DetectedRepository(BaseRepository):
                 query = query.limit(limit)
             return self._query_and_expunge(session, query, one=False)
 
+    def get_active_detected_book_count(self):
+        return self._count(DetectedBook, DetectedBook.status.in_(self.ACTIVE_STATUSES))
+
+    def get_detected_book_count(self):
+        return self._count(DetectedBook)
+
     UPSERT_ATTRS = (
         "title",
         "author",

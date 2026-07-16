@@ -4,6 +4,333 @@
   margin-bottom: 60px;
 }
 
+.pairings-inbox {
+  max-width: 1180px;
+}
+
+.pairings-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 8px;
+}
+
+.pairings-header-actions,
+.pairing-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pairings-status {
+  min-height: 24px;
+  margin: 0 0 18px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.pairings-advanced {
+  position: relative;
+}
+
+.pairings-advanced > summary,
+.pairing-alternatives > summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.pairings-advanced > summary {
+  padding: 9px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius);
+  list-style-position: inside;
+}
+
+.pairings-advanced nav {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 190px;
+  margin-top: 6px;
+  padding: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
+}
+
+.pairings-advanced nav a,
+.pairings-library-nav a {
+  padding: 9px 10px;
+  border-radius: 6px;
+  color: var(--color-text);
+}
+
+.pairings-advanced nav a:hover,
+.pairings-library-nav a:hover {
+  background: var(--color-surface-hover);
+}
+
+.pairings-library-nav {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.pairing-section + .pairing-section {
+  margin-top: 32px;
+}
+
+.pairing-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.pairing-section-heading h2 {
+  margin: 0 0 2px;
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+}
+
+.pairing-section-heading p,
+.pairing-recommendation p,
+.pairings-empty p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.pairing-section-heading > span {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.pairing-list {
+  display: grid;
+  gap: 12px;
+}
+
+.pairing-card {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.25fr) auto;
+  align-items: center;
+  gap: 20px;
+  padding: 18px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+}
+
+.pairing-book {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.pairing-cover {
+  width: 58px;
+  height: 86px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: var(--color-surface-hover);
+  object-fit: cover;
+}
+
+.pairing-book-copy {
+  min-width: 0;
+}
+
+.pairing-book-copy h3 {
+  margin: 0 0 3px;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.pairing-book-copy > p {
+  margin: 0 0 9px;
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
+}
+
+.pairing-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin: 0;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  list-style: none;
+}
+
+.pairing-facts li + li::before {
+  margin-right: 12px;
+  color: var(--color-text-faint);
+  content: "·";
+}
+
+.pairing-recommendation {
+  min-width: 0;
+  padding: 13px 14px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  border-radius: var(--radius);
+}
+
+.pairing-recommendation--empty {
+  background: rgba(255, 255, 255, 0.025);
+  border-color: var(--color-border-light);
+}
+
+.pairing-eyebrow {
+  margin-bottom: 7px !important;
+  color: var(--color-text-faint) !important;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pairing-match-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pairing-match-heading strong,
+.pairing-match-heading span {
+  display: block;
+}
+
+.pairing-match-heading strong {
+  color: var(--color-text);
+}
+
+.pairing-match-heading div > span,
+.pairing-match-meta {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.pairing-confidence {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--color-confidence-high-bg);
+  color: var(--color-confidence-high);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.pairing-match-meta {
+  margin-top: 8px !important;
+}
+
+.pairing-actions {
+  align-items: stretch;
+  flex-direction: column;
+  min-width: 145px;
+}
+
+.pairing-actions .btn {
+  width: 100%;
+}
+
+.pairing-alternatives {
+  font-size: 0.8rem;
+}
+
+.pairing-alternatives ul {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 10px 0 0 18px;
+  border-top: 1px solid var(--color-border-light);
+  color: var(--color-text);
+}
+
+.pairing-alternatives li span {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.pairings-empty {
+  padding: 48px 20px;
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-light);
+  border-radius: var(--radius-lg);
+}
+
+.pairings-empty h2 {
+  margin-bottom: 8px;
+  color: var(--color-text);
+}
+
+.pairings-inbox :focus-visible,
+.pairings-library-nav :focus-visible {
+  outline: 3px solid var(--color-primary-hover);
+  outline-offset: 3px;
+}
+
+@media (max-width: 960px) {
+  .pairing-card {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pairing-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+
+  .pairing-actions .btn {
+    width: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .pairings-header,
+  .pairings-header-actions,
+  .pairing-card {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .pairings-header,
+  .pairings-header-actions {
+    flex-direction: column;
+  }
+
+  .pairings-advanced nav {
+    left: 0;
+    right: auto;
+  }
+
+  .pairing-actions {
+    grid-column: auto;
+  }
+
+  .pairing-match-heading {
+    flex-direction: column;
+  }
+}
+
 .sg-page-header {
   display: flex;
   justify-content: space-between;

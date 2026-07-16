@@ -101,53 +101,20 @@
         </div>
         {% endif %}
 
-        {% if detected_books %}
-        <div class="book-section detected-section" id="detected-section">
-            <div class="section-header">
-                <h2>Detected</h2>
-            </div>
-            <p class="detected-help">Books PageKeeper has detected you started. Add them to your library.</p>
-            <div class="detected-grid">
-                {% for d in detected_books %}
-                <div class="detected-card" data-source="{{ d.source }}" data-source-id="{{ d.source_id }}">
-                    {% if d.cover_url %}
-                    <img src="{{ d.cover_url }}" class="detected-cover" alt="" loading="lazy" onerror="this.style.display='none'">
-                    {% endif %}
-                    <div class="detected-info">
-                        <div class="detected-title">{{ d.title }}</div>
-                        {% if d.author %}<div class="detected-author">{{ d.author }}</div>{% endif %}
-                        {% if d.progress_percentage > 0 %}
-                        <div class="detected-progress">{{ '%.0f'|format(d.progress_percentage * 100) }}%</div>
-                        {% endif %}
-                        <div class="detected-meta">
-                            <span class="chip chip--source-{{ d.source }}">{{ 'ABS' if d.source == 'abs' else 'KoSync' if d.source == 'kosync' else d.source|capitalize }}</span>
-                            {% if d.device %}<span class="detected-device">{{ d.device }}</span>{% endif %}
-                        </div>
-                        <div class="detected-actions">
-                            {% if d.source == 'abs' %}
-                            <a href="/match?abs_id={{ d.source_id }}&search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Add to Library</a>
-                            {% elif d.source == 'kosync' %}
-                            <a href="/match?search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Match</a>
-                            <a href="/match?ebook_filename={{ d.ebook_filename|urlencode if d.ebook_filename }}&action=ebook_only" class="btn btn-sm btn-secondary">Add as Ebook</a>
-                            {% elif d.source == 'grimmory' %}
-                            <a href="/match?search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Match</a>
-                            <a href="/match?ebook_filename={{ d.ebook_filename|urlencode if d.ebook_filename }}&action=ebook_only" class="btn btn-sm btn-secondary">Add as Ebook</a>
-                            {% else %}
-                            <a href="/match?search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Add to Library</a>
-                            {% endif %}
-                            <button type="button" class="btn btn-sm btn-ghost" onclick="dismissDetected('{{ d.source_id }}', '{{ d.source }}', this)">Dismiss</button>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
         <div class="book-section">
         <div class="section-header">
             <h2>Currently Reading</h2>
         </div>
+
+        {% if detected_books %}
+        <aside class="currently-reading-preview" aria-label="Unresolved Currently Reading pairings">
+            <div>
+                <strong>Currently Reading books need pairing review</strong>
+                <p>{% for d in detected_books %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+            </div>
+            <a href="/suggestions" class="btn btn-secondary">Open Pairings</a>
+        </aside>
+        {% endif %}
 
         <div class="book-grid" id="currently-reading-grid">
             {% for mapping in mappings %}

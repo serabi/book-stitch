@@ -132,11 +132,134 @@ def _build_batch_queue_view(queue):
     }
 
 
+_SOURCE_LABELS = {
+    "abs": "Audiobookshelf",
+    "abs_audiobook": "Audiobookshelf",
+    "bookfusion": "BookFusion",
+    "cwa": "Calibre-Web Automated",
+    "filesystem": "Local library",
+    "grimmory": "Grimmory",
+    "kosync": "KoSync",
+    "storyteller": "Storyteller",
+}
+
+
+def _source_label(source):
+    return _SOURCE_LABELS.get(source, (source or "Unknown source").replace("_", " ").title())
+
+
+def _source_format(source):
+    return "Audiobook" if source in {"abs", "abs_audiobook"} else "Ebook"
+
+
+def _candidate_source_id(match):
+    return (
+        match.get("source_key")
+        or match.get("abs_id")
+        or match.get("storyteller_uuid")
+        or match.get("id")
+        or match.get("filename")
+        or (match.get("bookfusion_ids") or [None])[0]
+    )
+
+
+def _pairing_review_url(detected, match=None):
+    match = match or {}
+    candidate_source = match.get("source_family") or match.get("source")
+    params = {
+        "search": detected.title or "",
+        "detected_id": detected.id,
+        "detected_source": detected.source,
+        "detected_source_id": detected.source_id,
+    }
+    candidate_id = _candidate_source_id(match)
+    if candidate_source:
+        params["candidate_source"] = candidate_source
+    if candidate_id:
+        params["candidate_source_id"] = candidate_id
+    abs_id = match.get("abs_id") or (detected.source_id if detected.source == "abs" else None)
+    if abs_id:
+        params["abs_id"] = abs_id
+    return url_for("matching.match", **params)
+
+
+def _serialize_detected_pairing(detected):
+    matches = list(detected.matches or [])
+    top_match = matches[0] if matches else None
+    last_seen = detected.last_seen_at
+    source = detected.source or "unknown"
+    return {
+        "id": detected.id,
+        "title": detected.title or "Untitled book",
+        "author": detected.author or "Unknown author",
+        "cover_url": detected.cover_url,
+        "source_label": _source_label(source),
+        "format": _source_format(source),
+        "progress": round((detected.progress_percentage or 0) * 100),
+        "last_seen": f"{last_seen.strftime('%b')} {last_seen.day}, {last_seen.year}" if last_seen else None,
+        "device": detected.device,
+        "review_url": _pairing_review_url(detected, top_match),
+        "top_match": _serialize_detected_match(top_match) if top_match else None,
+        "alternatives": [_serialize_detected_match(match) for match in matches[1:]],
+    }
+
+
+def _serialize_detected_match(match):
+    source = match.get("source_family") or match.get("source") or "unknown"
+    return {
+        "title": match.get("title") or match.get("filename") or "Untitled candidate",
+        "author": match.get("author") or "Unknown author",
+        "source_label": _source_label(source),
+        "format": _source_format(source),
+        "confidence": "Strong" if match.get("confidence") == "high" else "Possible",
+    }
+
+
+def _progress_sources_configured(container):
+    try:
+        if get_abs_service().is_available():
+            return True
+    except Exception:
+        pass
+    for client in (container.storyteller_client(), container.grimmory_client_group()):
+        try:
+            if client.is_configured():
+                return True
+        except Exception:
+            pass
+    try:
+        return any(
+            name.lower() == "kosync" and client.is_configured() for name, client in container.sync_clients().items()
+        )
+    except (AttributeError, TypeError):
+        return False
+
+
 @matching_bp.route("/suggestions")
 def suggestions():
-    """Dedicated page for browsing and acting on pairing suggestions."""
+    """Currently Reading pairing inbox, with the legacy catalog behind Advanced."""
     container = get_container()
     database_service = get_database_service()
+    library_view = request.args.get("view") == "library"
+
+    if not library_view:
+        active_detected = database_service.get_active_detected_books()
+        if not isinstance(active_detected, (list, tuple)):
+            active_detected = []
+        pairings = [_serialize_detected_pairing(detected) for detected in active_detected]
+        ready = [pairing for pairing in pairings if pairing["top_match"]]
+        needs_companion = [pairing for pairing in pairings if not pairing["top_match"]]
+        total_detected = database_service.get_detected_book_count()
+        return render_template(
+            "suggestions.html",
+            library_view=False,
+            ready_pairings=ready,
+            needs_companion_pairings=needs_companion,
+            pairing_count=len(pairings),
+            has_detected_history=isinstance(total_detected, int) and total_detected > 0,
+            progress_sources_configured=_progress_sources_configured(container),
+        )
+
     raw_suggestions = database_service.get_all_actionable_suggestions()
     suggestions_list = [serialize_suggestion(s) for s in raw_suggestions if s.matches]
     visible_count = sum(1 for s in suggestions_list if not s.get("hidden"))
@@ -148,6 +271,7 @@ def suggestions():
     selected_source_id = request.args.get("source_id", "").strip()
     return render_template(
         "suggestions.html",
+        library_view=True,
         suggestions=suggestions_list,
         visible_count=visible_count,
         hidden_count=hidden_count,

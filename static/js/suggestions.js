@@ -9,11 +9,71 @@
 (function () {
     'use strict';
 
+    if (window.PK_PAGE_DATA && window.PK_PAGE_DATA.pairingsInbox) {
+        initPairingsInbox();
+        return;
+    }
+
     var suggestionData = window.PK_PAGE_DATA.suggestionsData;
     var selectedSourceId = window.PK_PAGE_DATA.selectedSourceId;
     var rescanPollTimer = null;
     var desktopMedia = window.matchMedia('(min-width: 961px)');
     var currentView = 'list';
+
+    function initPairingsInbox() {
+        var button = document.getElementById('rescan-btn');
+        var status = document.getElementById('rescan-status');
+        var timer = null;
+
+        function poll() {
+            fetch('/api/suggestions/rescan-status')
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (!data.success) throw new Error(data.error || 'Status failed');
+                    if (data.running) {
+                        button.disabled = true;
+                        status.textContent = data.message || 'Rescan in progress...';
+                        timer = setTimeout(poll, 1500);
+                    } else if (data.phase === 'complete') {
+                        window.location.reload();
+                    } else {
+                        button.disabled = false;
+                        status.textContent = data.message || '';
+                    }
+                })
+                .catch(function (error) {
+                    button.disabled = false;
+                    status.textContent = error.message || String(error);
+                });
+        }
+
+        button.addEventListener('click', function () {
+            if (timer) clearTimeout(timer);
+            button.disabled = true;
+            status.textContent = 'Queued source rescan...';
+            fetch('/api/suggestions/rescan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (!data.success) throw new Error(data.error || 'Rescan failed');
+                    status.textContent = data.message || 'Rescan started...';
+                    if (data.rate_limited) {
+                        button.disabled = false;
+                    } else {
+                        poll();
+                    }
+                })
+                .catch(function (error) {
+                    button.disabled = false;
+                    status.textContent = error.message || String(error);
+                });
+        });
+
+        poll();
+    }
 
     /* ── helpers ── */
 

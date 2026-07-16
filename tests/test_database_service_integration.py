@@ -596,6 +596,8 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
 
         active_ids = {b.source_id for b in self.db_service.get_active_detected_books()}
         self.assertEqual(active_ids, {"active-a", "active-b"})
+        self.assertEqual(self.db_service.get_active_detected_book_count(), 2)
+        self.assertEqual(self.db_service.get_detected_book_count(), 4)
 
     def test_get_active_detected_books_orders_by_last_seen_desc(self):
         """Results are ordered by last_seen_at descending."""
