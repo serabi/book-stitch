@@ -298,18 +298,27 @@ body {
   }
 
   .sidebar-brand-copy,
-  .sidebar-label,
-  .sidebar-nav-link .nav-badge {
+  .sidebar-label {
     display: none;
+  }
+
+  .sidebar-nav-link {
+    position: relative;
+  }
+
+  .sidebar-nav-link .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 10px;
+    height: 10px;
+    padding: 0;
+    font-size: 0;
   }
 
   .sidebar-service-links {
     justify-content: center;
     padding: 6px;
-  }
-
-  .sidebar-service-links .nav-icon-link:nth-child(n + 4) {
-    display: none;
   }
 
   .sidebar-nav,
