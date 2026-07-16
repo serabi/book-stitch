@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 
 _RECENT_ACTIVITY_CUTOFF = timedelta(days=30)
 
+_AUDIOBOOK_REVIEW_SOURCES = frozenset({"abs", "grimmory"})
+_EBOOK_REVIEW_SOURCES = frozenset({"grimmory", "kosync"})
+_EBOOK_MATCH_SOURCES = frozenset({"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"})
+_AUDIO_MATCH_SOURCES = frozenset({"abs", "abs_audiobook", "grimmory"})
+
 matching_bp = Blueprint("matching", __name__)
 
 
@@ -162,7 +167,7 @@ def _media_format(item):
     media_format = getattr(item, "media_format", None) if not isinstance(item, dict) else item.get("media_format")
     if media_format in {"audiobook", "ebook"}:
         return media_format
-    source = getattr(item, "source", None) if not isinstance(item, dict) else item.get("source_family") or item.get("source")
+    source = getattr(item, "source", None) if not isinstance(item, dict) else _match_source(item)
     return "audiobook" if source in {"abs", "abs_audiobook"} else "ebook"
 
 
@@ -190,8 +195,12 @@ def _detected_identity(detected):
     return detected.source, str(detected.source_id)
 
 
+def _match_source(match):
+    return match.get("source_family") or match.get("source")
+
+
 def _match_identity(match):
-    source = match.get("source_family") or match.get("source")
+    source = _match_source(match)
     if source == "abs_audiobook":
         source = "abs"
     source_key = str(match.get("source_key") or "")
@@ -213,18 +222,18 @@ def _supported_review_matches(detected):
 
 def _is_supported_review_match(detected, match):
     source_format = _explicit_media_format(detected)
-    match_source = match.get("source_family") or match.get("source")
+    match_source = _match_source(match)
     match_format = _explicit_media_format(match)
     return (
-        detected.source in {"abs", "grimmory"}
+        detected.source in _AUDIOBOOK_REVIEW_SOURCES
         and source_format == "audiobook"
         and match_format == "ebook"
-        and match_source in {"grimmory", "kosync", "filesystem", "cwa", "abs_ebook"}
+        and match_source in _EBOOK_MATCH_SOURCES
     ) or (
-        detected.source in {"grimmory", "kosync"}
+        detected.source in _EBOOK_REVIEW_SOURCES
         and source_format == "ebook"
         and match_format == "audiobook"
-        and match_source in {"abs", "abs_audiobook", "grimmory"}
+        and match_source in _AUDIO_MATCH_SOURCES
     )
 
 
@@ -248,7 +257,7 @@ def _manual_companion_matches(container, detected):
 
 def _pairing_review_url(detected, match=None):
     match = match or {}
-    candidate_source = match.get("source_family") or match.get("source")
+    candidate_source = _match_source(match)
     params = {
         "search": detected.title or "",
         "detected_id": detected.id,
@@ -324,8 +333,8 @@ def _serialize_detected_pairing(detected, members=None):
             (
                 member
                 for member in members
-                if _explicit_media_format(member) == "audiobook" and member.source in {"abs", "grimmory"}
-                or (_explicit_media_format(member) == "ebook" and member.source in {"grimmory", "kosync"})
+                if _explicit_media_format(member) == "audiobook" and member.source in _AUDIOBOOK_REVIEW_SOURCES
+                or (_explicit_media_format(member) == "ebook" and member.source in _EBOOK_REVIEW_SOURCES)
             ),
             detected,
         )
@@ -371,7 +380,7 @@ def _serialize_detected_pairing(detected, members=None):
 
 
 def _serialize_detected_match(match):
-    source = match.get("source_family") or match.get("source") or "unknown"
+    source = _match_source(match) or "unknown"
     identity = _match_identity(match)
     media_format = _media_format(match)
     return {
@@ -461,8 +470,8 @@ def _load_pairing_review(container, database_service, values, method="GET"):
     if not detected or getattr(detected, "id", None) != detected_id:
         return None, "This detected book is no longer available.", 409, True
     detected_format = _explicit_media_format(detected)
-    supported_detected = (detected_format == "audiobook" and detected.source in {"abs", "grimmory"}) or (
-        detected_format == "ebook" and detected.source in {"grimmory", "kosync"}
+    supported_detected = (detected_format == "audiobook" and detected.source in _AUDIOBOOK_REVIEW_SOURCES) or (
+        detected_format == "ebook" and detected.source in _EBOOK_REVIEW_SOURCES
     )
     if not supported_detected:
         return None, "This source cannot yet be paired with the current write path.", 409, True
@@ -481,7 +490,7 @@ def _load_pairing_review(container, database_service, values, method="GET"):
             (
                 match
                 for match in (detected.matches or [])
-                if (match.get("source_family") or match.get("source")) == values["candidate_source"]
+                if _match_source(match) == values["candidate_source"]
                 and str(_candidate_source_id(match) or "") == values["candidate_source_id"]
             ),
             None,
@@ -491,7 +500,7 @@ def _load_pairing_review(container, database_service, values, method="GET"):
                 (
                     match
                     for match in _manual_companion_matches(container, detected)
-                    if (match.get("source_family") or match.get("source")) == values["candidate_source"]
+                    if _match_source(match) == values["candidate_source"]
                     and str(_candidate_source_id(match) or "") == values["candidate_source_id"]
                 ),
                 None,
@@ -532,7 +541,7 @@ def _review_defaults(review):
     elif _explicit_media_format(detected) == "ebook":
         defaults["ebook_filename"] = detected.ebook_filename or ""
 
-    candidate_source = candidate.get("source_family") or candidate.get("source")
+    candidate_source = _match_source(candidate)
     if _explicit_media_format(candidate) == "audiobook" and candidate_source in {"abs", "abs_audiobook"}:
         defaults["audiobook_id"] = candidate.get("abs_id") or ""
     elif _explicit_media_format(candidate) == "ebook":
@@ -574,7 +583,7 @@ def _expected_review_kosync_id(review, ebook_filename):
     if detected.source == "kosync" and ebook_filename == detected.ebook_filename:
         return detected.source_id
     candidate = review.get("candidate") or {}
-    candidate_source = candidate.get("source_family") or candidate.get("source")
+    candidate_source = _match_source(candidate)
     if candidate_source == "kosync" and ebook_filename == candidate.get("filename"):
         source_key = str(_candidate_source_id(candidate) or "")
         return source_key.split(":", 1)[1] if source_key.startswith("kosync:") else source_key
@@ -596,7 +605,7 @@ def _exact_review_editions(container, review):
     audio_item = detected if detected_format == "audiobook" else candidate
     ebook_item = detected if detected_format == "ebook" else candidate
     audio_identity = _detected_identity(audio_item) if audio_item is detected else _match_identity(audio_item)
-    if not audio_identity or audio_identity[0] not in {"abs", "grimmory"}:
+    if not audio_identity or audio_identity[0] not in _AUDIOBOOK_REVIEW_SOURCES:
         return None, "The recommended audiobook identity is no longer supported."
 
     if audio_identity[0] == "abs":
@@ -613,7 +622,7 @@ def _exact_review_editions(container, review):
         return None, "The selected ebook edition is no longer available."
     ebooks = [ebook for ebook in get_searchable_ebooks(ebook_filename) if ebook.name == ebook_filename]
     ebook_source_id = None
-    ebook_source = detected.source if ebook_item is detected else candidate.get("source_family") or candidate.get("source")
+    ebook_source = detected.source if ebook_item is detected else _match_source(candidate)
     if ebook_source == "grimmory":
         expected_id = candidate.get("id") if ebook_item is candidate else detected.source_id
         ebook = next((item for item in ebooks if str(item.grimmory_id or "") == str(expected_id)), None)
@@ -790,7 +799,7 @@ def _render_match_page(
         )
         review_editions["ebook_title"] = review_editions["ebook"].title or detected.title
         review_editions["ebook_source_label"] = _source_label(
-            detected.source if _explicit_media_format(detected) == "ebook" else candidate.get("source_family") or candidate.get("source"),
+            detected.source if _explicit_media_format(detected) == "ebook" else _match_source(candidate),
             detected.source_id if _explicit_media_format(detected) == "ebook" else _candidate_source_id(candidate),
         )
         review_editions["started_format"] = _explicit_media_format(detected)
@@ -856,6 +865,7 @@ def _render_match_page(
         abs_configured=abs_configured,
         has_ebook_sources=has_ebook_sources,
         pairing_review=review,
+        ebook_review_sources=_EBOOK_REVIEW_SOURCES,
         pairing_values=pairing_values,
         pairing_error=error,
         review_editions=review_editions,

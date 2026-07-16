@@ -277,7 +277,7 @@
                 {% if not link_to %}
                 <fieldset class="match-section" id="ebookSection">
                     <legend>Select ebook</legend>
-                    {% if pairing_review and pairing_review.detected.source in ['grimmory', 'kosync'] %}
+                    {% if pairing_review and pairing_review.detected.source in ebook_review_sources %}
                     <p class="fixed-edition-hint">Detected edition; choose the audiobook companion above.</p>
                     <input type="hidden" name="ebook_filename" value="{{ pairing_review.detected.ebook_filename }}">
                     {% endif %}
@@ -289,7 +289,7 @@
                             data-source-type="{{ eb.source }}" data-source-path="{{ eb.path }}"
                             data-source-id="{{ eb.source_id }}" data-grimmory-id="{{ eb.grimmory_id or '' }}">
                             <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match or eb.is_selected %}checked{% endif %}
-                                {% if pairing_review and pairing_review.detected.source in ['grimmory', 'kosync'] %}disabled{% endif %}>
+                                {% if pairing_review and pairing_review.detected.source in ebook_review_sources %}disabled{% endif %}>
                             {% if eb.cover_url %}
                             <div class="resource-cover-container">
                                 <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
