@@ -492,8 +492,7 @@ class SyncManager:
                     logger.warning(f"Failed to pre-fetch bulk state for {client_name}: {sanitize_exception(e)}")
 
             # Check for suggestions (runs even with no active books)
-            if "ABS" in bulk_states_per_client:
-                self.check_for_suggestions(bulk_states_per_client["ABS"], active_books)
+            self.check_for_suggestions(bulk_states_per_client.get("ABS", {}), active_books)
 
         return active_books, bulk_states_per_client
 

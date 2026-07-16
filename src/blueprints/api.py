@@ -48,6 +48,9 @@ def get_detected_books():
                     "progress_percentage": d.progress_percentage,
                     "first_detected_at": d.first_detected_at.isoformat() if d.first_detected_at else None,
                     "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
+                    "source_updated_at": (
+                        d.source_updated_at.isoformat() if getattr(d, "source_updated_at", None) else None
+                    ),
                     "device": d.device,
                     "ebook_filename": d.ebook_filename,
                     "status": d.status,

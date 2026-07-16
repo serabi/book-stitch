@@ -55,7 +55,7 @@ class TestGrimmoryOnlyDetection(unittest.TestCase):
         self.mock_db.save_detected_book.assert_called_once()
         detected = self.mock_db.save_detected_book.call_args.args[0]
         self.assertEqual(detected.source, "grimmory")
-        self.assertEqual(detected.source_id, "solo.epub")
+        self.assertEqual(detected.source_id, "default:solo.epub")
         self.assertEqual(detected.title, "Solo Read")
         # No cross-source match — matches_json should be NULL so a later enrichment
         # pass is free to attach matches without being clobbered first.

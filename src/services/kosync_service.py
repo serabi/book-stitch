@@ -435,7 +435,14 @@ class KosyncService:
                 # Multiple exact or only fuzzy matches — delegate to suggestion service
                 try:
                     suggestion_svc = self._container.suggestion_service()
-                    suggestion_svc.queue_kosync_suggestion(doc_hash, filename=epub_filename)
+                    doc = self._db.get_kosync_document(doc_hash)
+                    suggestion_svc.queue_kosync_suggestion(
+                        doc_hash,
+                        filename=epub_filename,
+                        device=doc.device if doc else None,
+                        progress_percentage=float(doc.percentage or 0) if doc else 0.0,
+                        source_updated_at=doc.timestamp if doc else None,
+                    )
                 except Exception as e:
                     logger.warning(f"KoSync auto-discovery: suggestion creation failed for {doc_hash[:8]}...: {e}")
                 return

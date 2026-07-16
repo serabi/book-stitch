@@ -644,7 +644,9 @@ class GrimmoryClient:
             logger.error(f"Download error: {e}")
             return None
 
-    def get_progress(self, ebook_filename):
+    def get_progress(self, ebook_filename, instance_id=None):
+        if instance_id is not None and str(instance_id) != str(getattr(self, "instance_id", "default")):
+            return None, None
         book = self.find_book_by_filename(ebook_filename)
         if not book:
             return None, None
@@ -914,8 +916,10 @@ class GrimmoryClientGroup:
                 return True
         return False
 
-    def get_progress(self, ebook_filename):
+    def get_progress(self, ebook_filename, instance_id=None):
         for c in self._active:
+            if instance_id is not None and str(c.instance_id) != str(instance_id):
+                continue
             pct, cfi = c.get_progress(ebook_filename)
             if pct is not None:
                 return pct, cfi

@@ -1,0 +1,140 @@
+from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+from src.api.grimmory_client import GrimmoryClientGroup
+from src.services.suggestion_service import SuggestionService
+from src.sync_manager import SyncManager
+
+
+def _service(db, *, abs_client=None, grimmory=None, storyteller=None):
+    return SuggestionService(
+        database_service=db,
+        abs_client=abs_client,
+        grimmory_client=grimmory,
+        storyteller_client=storyteller,
+        library_service=None,
+        books_dir=Path("/missing"),
+        ebook_parser=None,
+    )
+
+
+def _db():
+    db = Mock()
+    db.get_all_books.return_value = []
+    db.get_all_actionable_suggestions.return_value = []
+    db.get_unlinked_kosync_documents.return_value = []
+    db.suggestion_exists.return_value = False
+    return db
+
+
+def test_storyteller_only_detection_survives_abs_and_grimmory_failures():
+    db = _db()
+    storyteller = Mock()
+    storyteller.is_configured.return_value = True
+    storyteller.get_all_positions_bulk.return_value = {
+        "solo read": {"uuid": "st-1", "pct": 0.42, "ts": 1_700_000_000_000}
+    }
+    grimmory = Mock()
+    grimmory.is_configured.return_value = True
+    grimmory.get_all_books.side_effect = RuntimeError("server down")
+
+    _service(db, grimmory=grimmory, storyteller=storyteller).check_for_suggestions({}, [])
+
+    detected = db.save_detected_book.call_args.args[0]
+    assert detected.source == "storyteller"
+    assert detected.source_id == "st-1"
+    assert detected.progress_percentage == 0.42
+    assert detected.source_updated_at == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
+
+
+def test_scheduled_discovery_runs_without_abs_bulk_state():
+    manager = object.__new__(SyncManager)
+    manager.database_service = Mock()
+    manager.database_service.get_books_by_status.return_value = []
+    manager.sync_clients = {"Storyteller": Mock()}
+    manager.sync_clients["Storyteller"].fetch_bulk_state.return_value = {}
+    manager.check_for_suggestions = Mock()
+
+    manager._prepare_sync_books(None)
+
+    manager.check_for_suggestions.assert_called_once_with({}, [])
+
+
+def test_manual_rescan_runs_currently_reading_discovery():
+    db = _db()
+    service = _service(db)
+    service.check_for_suggestions = Mock()
+    service.rescan_library_suggestions = Mock(
+        return_value={
+            "created": 0,
+            "updated": 0,
+            "deleted": 0,
+            "total": 0,
+            "bookfusion_catalog": False,
+        }
+    )
+
+    service._run_rescan_job()
+
+    service.check_for_suggestions.assert_called_once_with({}, [])
+
+
+def test_grimmory_instances_with_same_filename_keep_separate_identity_and_progress():
+    db = _db()
+    first = Mock(instance_id="default")
+    first.is_configured.return_value = True
+    first.get_all_books.return_value = [{"id": 10, "title": "First", "fileName": "same.epub"}]
+    first.get_progress.return_value = (0.25, None)
+    second = Mock(instance_id="2")
+    second.is_configured.return_value = True
+    second.get_all_books.return_value = [{"id": 20, "title": "Second", "fileName": "same.epub"}]
+    second.get_progress.return_value = (0.75, None)
+
+    _service(db, grimmory=GrimmoryClientGroup([first, second]))._check_cross_ebook_suggestions()
+
+    detected = [call.args[0] for call in db.save_detected_book.call_args_list]
+    assert [(row.source_id, row.progress_percentage) for row in detected] == [
+        ("default:same.epub", 0.25),
+        ("2:same.epub", 0.75),
+    ]
+    first.get_progress.assert_called_once_with("same.epub")
+    second.get_progress.assert_called_once_with("same.epub")
+
+
+def test_kosync_scheduled_detection_uses_real_progress_and_timestamp():
+    db = _db()
+    source_time = datetime(2026, 7, 15, 12, tzinfo=UTC)
+    db.get_unlinked_kosync_documents.return_value = [
+        SimpleNamespace(
+            document_hash="abc123",
+            filename="Real Read.epub",
+            percentage=0.61,
+            device="KOReader",
+            timestamp=source_time,
+            linked_abs_id=None,
+        )
+    ]
+
+    _service(db)._check_cross_ebook_suggestions()
+
+    detected = db.save_detected_book.call_args.args[0]
+    assert detected.source == "kosync"
+    assert detected.progress_percentage == 0.61
+    assert detected.source_updated_at == source_time
+
+
+def test_abs_ebook_bulk_payload_is_not_misclassified_as_audiobook():
+    db = _db()
+    service = _service(db)
+    service._create_suggestion = Mock()
+    service._check_reverse_suggestions = Mock()
+    service._check_cross_ebook_suggestions = Mock()
+
+    service.check_for_suggestions(
+        {"ebook-1": {"mediaType": "ebook", "duration": 100, "currentTime": 50}},
+        [],
+    )
+
+    service._create_suggestion.assert_not_called()

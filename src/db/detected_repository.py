@@ -35,6 +35,7 @@ class DetectedRepository(BaseRepository):
         "device",
         "ebook_filename",
         "progress_percentage",
+        "source_updated_at",
         "status",
         "last_seen_at",
         "first_detected_at",
@@ -72,6 +73,15 @@ class DetectedRepository(BaseRepository):
 
         if detected_book.matches_json is None:
             detected_book.matches_json = existing.matches_json
+
+        if detected_book.source_updated_at is None:
+            detected_book.source_updated_at = existing.source_updated_at
+        elif existing.source_updated_at is not None:
+            incoming = detected_book.source_updated_at.replace(tzinfo=None)
+            current = existing.source_updated_at.replace(tzinfo=None)
+            if incoming < current:
+                detected_book.progress_percentage = existing.progress_percentage
+                detected_book.source_updated_at = existing.source_updated_at
 
         detected_book.last_seen_at = detected_book.last_seen_at or now
         if existing.first_detected_at is None:

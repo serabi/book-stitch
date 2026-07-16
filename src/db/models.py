@@ -567,6 +567,7 @@ class DetectedBook(Base):
     author = Column(String(500), nullable=True)
     cover_url = Column(String(500), nullable=True)
     progress_percentage = Column(Float, default=0.0, nullable=False)
+    source_updated_at = Column(DateTime, nullable=True)
     first_detected_at = Column(DateTime, default=utc_now)
     last_seen_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     status = Column(String(20), default="detected")
@@ -586,6 +587,7 @@ class DetectedBook(Base):
         matches_json: str = None,
         device: str = None,
         ebook_filename: str = None,
+        source_updated_at=None,
     ):
         self.source = source
         self.source_id = source_id
@@ -597,6 +599,7 @@ class DetectedBook(Base):
         self.matches_json = matches_json
         self.device = device
         self.ebook_filename = ebook_filename
+        self.source_updated_at = source_updated_at
         self.first_detected_at = utc_now()
         self.last_seen_at = utc_now()
 

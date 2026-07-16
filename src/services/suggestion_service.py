@@ -5,7 +5,7 @@ import re
 import threading
 import time
 import traceback
-from datetime import UTC
+from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -164,6 +164,7 @@ class SuggestionService:
         matches: list[dict] | None = None,
         device: str | None = None,
         ebook_filename: str | None = None,
+        source_updated_at=None,
     ):
         # Pass NULL (not "[]") for empty matches so an upsert from a no-match code
         # path never clobbers cross-source matches recorded by an earlier pass.
@@ -178,8 +179,29 @@ class SuggestionService:
             matches_json=matches_json,
             device=device,
             ebook_filename=ebook_filename,
+            source_updated_at=self._source_datetime(source_updated_at),
         )
         return self.database_service.save_detected_book(detected)
+
+    @staticmethod
+    def _source_datetime(value):
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, (int, float)) or (isinstance(value, str) and value.isdigit()):
+            timestamp = float(value)
+            if timestamp > 10_000_000_000:
+                timestamp /= 1000
+            try:
+                return datetime.fromtimestamp(timestamp, UTC)
+            except (OSError, OverflowError, ValueError):
+                return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except (TypeError, ValueError):
+            return None
 
     def _get_bookfusion_context(self) -> dict:
         try:
@@ -286,7 +308,8 @@ class SuggestionService:
                     filename = book.get("fileName", "")
                     if not filename or not filename.lower().endswith(".epub"):
                         continue
-                    dedupe_key = ("grimmory", filename.lower())
+                    instance_id, _ = self._grimmory_identity(book)
+                    dedupe_key = ("grimmory", instance_id, filename.lower())
                     if dedupe_key in seen:
                         continue
                     seen.add(dedupe_key)
@@ -294,11 +317,11 @@ class SuggestionService:
                         {
                             "source_family": "grimmory",
                             "source": "grimmory",
-                            "source_key": f"grimmory:{filename}",
+                            "source_key": f"grimmory:{instance_id}:{filename}",
                             "title": book.get("title") or Path(filename).stem,
                             "author": book.get("authors") or "",
                             "filename": filename,
-                            "id": str(book.get("id") or ""),
+                            "id": f"{instance_id}:{book.get('id')}" if book.get("id") is not None else "",
                             "action_kind": "create_mapping",
                         }
                     )
@@ -451,7 +474,14 @@ class SuggestionService:
         logger.info(f"Socket.IO: Queuing detected-book discovery for '{abs_id[:12]}...'")
         self._create_suggestion(abs_id, None)
 
-    def queue_kosync_suggestion(self, doc_hash: str, filename: str | None = None, device: str | None = None) -> None:
+    def queue_kosync_suggestion(
+        self,
+        doc_hash: str,
+        filename: str | None = None,
+        device: str | None = None,
+        progress_percentage: float = 0.0,
+        source_updated_at=None,
+    ) -> None:
         """Create or refresh a detected entry for a KoSync document."""
         if self._suggestions_disabled():
             return
@@ -514,10 +544,11 @@ class SuggestionService:
             title=title,
             author=author,
             cover_url=cover,
-            progress_percentage=0.0,
+            progress_percentage=progress_percentage,
             matches=matches,
             device=device,
             ebook_filename=filename,
+            source_updated_at=source_updated_at,
         )
         logger.info(
             f"KoSync detected: '{title}' (hash {doc_hash[:8]}...)"
@@ -539,6 +570,8 @@ class SuggestionService:
             )
 
             for abs_id, item_data in abs_progress_map.items():
+                if item_data.get("mediaType") not in (None, "audiobook"):
+                    continue
                 if abs_id in mapped_ids:
                     logger.debug(f"Skipping {abs_id}: already mapped")
                     continue
@@ -612,10 +645,16 @@ class SuggestionService:
                     "title": title_lower,
                     "author": "",
                     "pct": pct,
+                    "source_updated_at": pos_data.get("ts"),
                     "cover_url": pos_data.get("cover_url", ""),
                 }
             )
         return results
+
+    @staticmethod
+    def _grimmory_identity(book: dict) -> tuple[str, str]:
+        instance_id = str(book.get("_instance_id") or "default")
+        return instance_id, f"{instance_id}:{book.get('fileName', '')}"
 
     @staticmethod
     def _in_detection_window(pct: float | None) -> bool:
@@ -640,8 +679,9 @@ class SuggestionService:
                 continue
             if mapped_filenames and filename in mapped_filenames:
                 continue
+            instance_id, source_id = self._grimmory_identity(bl_book)
             try:
-                pct_raw, _ = self.grimmory_client.get_progress(filename)
+                pct_raw, _ = self.grimmory_client.get_progress(filename, instance_id=instance_id)
             except Exception:
                 continue
             if not self._in_detection_window(pct_raw):
@@ -654,10 +694,40 @@ class SuggestionService:
             results.append(
                 {
                     "filename": filename,
+                    "source_id": source_id,
+                    "instance_id": instance_id,
                     "title": title,
                     "author": bl_book.get("authors", ""),
                     "pct": pct_raw,
-                    "id": str(bl_book.get("id") or ""),
+                    "id": f"{instance_id}:{bl_book.get('id')}" if bl_book.get("id") is not None else "",
+                    "source_updated_at": bl_book.get("lastReadTime"),
+                }
+            )
+        return results
+
+    def _get_kosync_books_with_progress(self, mapped_hashes: set | None = None) -> list[dict]:
+        try:
+            documents = self.database_service.get_unlinked_kosync_documents()
+        except Exception as e:
+            logger.debug(f"KoSync progress fetch failed: {e}")
+            return []
+
+        results = []
+        for doc in documents:
+            if (mapped_hashes and doc.document_hash in mapped_hashes) or getattr(doc, "linked_abs_id", None):
+                continue
+            pct = float(doc.percentage or 0)
+            if not doc.filename or not self._in_detection_window(pct):
+                continue
+            results.append(
+                {
+                    "source_id": doc.document_hash,
+                    "filename": doc.filename,
+                    "title": Path(doc.filename).stem,
+                    "author": "",
+                    "pct": pct,
+                    "device": doc.device,
+                    "source_updated_at": doc.timestamp,
                 }
             )
         return results
@@ -694,15 +764,16 @@ class SuggestionService:
                     filename = book.get("fileName", "")
                     if not filename or not filename.lower().endswith(".epub"):
                         continue
+                    instance_id, _ = self._grimmory_identity(book)
                     candidates["grimmory"].append(
                         {
                             "source_family": "grimmory",
                             "source": "grimmory",
-                            "source_key": f"grimmory:{filename}",
+                            "source_key": f"grimmory:{instance_id}:{filename}",
                             "title": book.get("title") or Path(filename).stem,
                             "author": book.get("authors") or "",
                             "filename": filename,
-                            "id": str(book.get("id") or ""),
+                            "id": f"{instance_id}:{book.get('id')}" if book.get("id") is not None else "",
                             "action_kind": "create_ebook_mapping",
                         }
                     )
@@ -735,6 +806,7 @@ class SuggestionService:
         all_books = self.database_service.get_all_books()
         mapped_st_uuids = {b.storyteller_uuid for b in all_books if b.storyteller_uuid}
         mapped_filenames = {b.ebook_filename for b in all_books if b.ebook_filename}
+        mapped_kosync_hashes = {b.kosync_doc_id for b in all_books if b.kosync_doc_id}
 
         # Build title-dedup index from existing suggestions to avoid duplicating ABS suggestions
         existing_titles = set()
@@ -747,17 +819,26 @@ class SuggestionService:
         # Storyteller books with progress -> match against Grimmory + KoSync
         for st_book in self._get_storyteller_books_with_progress(mapped_st_uuids):
             uuid = st_book["uuid"]
-            if self.database_service.suggestion_exists(uuid, source="storyteller"):
-                continue
-
             norm_title = self._normalize_title(st_book["title"])
-            if norm_title in existing_titles:
-                continue
-
             other_candidates = ebook_candidates.get("grimmory", []) + ebook_candidates.get("kosync", [])
             matches = self._rank_candidates_for_book(st_book["title"], st_book["author"], other_candidates)
-            if matches:
-                cover = st_book.get("cover_url") or self._cover_url_for("storyteller", uuid, st_book)
+            cover = st_book.get("cover_url") or self._cover_url_for("storyteller", uuid, st_book)
+            self._upsert_detected_book(
+                source="storyteller",
+                source_id=uuid,
+                title=st_book["title"],
+                progress_percentage=st_book.get("pct", 0.0),
+                author=st_book.get("author", ""),
+                cover_url=cover,
+                matches=matches,
+                source_updated_at=st_book.get("source_updated_at"),
+            )
+
+            if (
+                matches
+                and not self.database_service.suggestion_exists(uuid, source="storyteller")
+                and norm_title not in existing_titles
+            ):
                 self._save_suggestion_with_merge(
                     "storyteller", uuid, st_book["title"], st_book["author"], cover, matches
                 )
@@ -766,36 +847,55 @@ class SuggestionService:
         # Grimmory books with progress -> match against Storyteller + KoSync
         for bl_book in self._get_grimmory_books_with_progress(mapped_filenames):
             filename = bl_book["filename"]
-            if self.database_service.suggestion_exists(filename, source="grimmory"):
-                continue
-
+            source_id = bl_book["source_id"]
             norm_title = self._normalize_title(bl_book["title"])
-            if norm_title in existing_titles:
-                continue
-
             other_candidates = ebook_candidates.get("storyteller", []) + ebook_candidates.get("kosync", [])
             matches = self._rank_candidates_for_book(bl_book["title"], bl_book["author"], other_candidates)
             cover = self._cover_url_for("grimmory", filename, bl_book)
 
             # Legacy suggestion only when there's a cross-source match to act on.
-            if matches:
+            if (
+                matches
+                and not self.database_service.suggestion_exists(source_id, source="grimmory")
+                and norm_title not in existing_titles
+            ):
                 self._save_suggestion_with_merge(
-                    "grimmory", filename, bl_book["title"], bl_book["author"], cover, matches
+                    "grimmory", source_id, bl_book["title"], bl_book["author"], cover, matches
                 )
 
             # Surface every in-progress Grimmory book as a DetectedBook — even with no
             # cross-source match — so Grimmory-only reads still appear for manual promotion.
             self._upsert_detected_book(
                 source="grimmory",
-                source_id=filename,
+                source_id=source_id,
                 title=bl_book["title"],
                 progress_percentage=bl_book.get("pct", 0.0),
                 author=bl_book.get("author", ""),
                 cover_url=cover,
                 matches=matches,
                 ebook_filename=filename,
+                source_updated_at=bl_book.get("source_updated_at"),
             )
             existing_titles.add(norm_title)
+
+        # KoSync books with progress -> match against Storyteller + Grimmory.
+        for doc in self._get_kosync_books_with_progress(mapped_kosync_hashes):
+            matches = self._rank_candidates_for_book(
+                doc["title"],
+                doc["author"],
+                ebook_candidates.get("storyteller", []) + ebook_candidates.get("grimmory", []),
+            )
+            self._upsert_detected_book(
+                source="kosync",
+                source_id=doc["source_id"],
+                title=doc["title"],
+                progress_percentage=doc["pct"],
+                author=doc["author"],
+                matches=matches,
+                device=doc.get("device"),
+                ebook_filename=doc["filename"],
+                source_updated_at=doc.get("source_updated_at"),
+            )
 
     def _check_reverse_suggestions(self):
         """Check Storyteller and Grimmory for books with progress that could match ABS audiobooks."""
@@ -835,16 +935,10 @@ class SuggestionService:
             clean_title = self._normalize_title(bl_book["title"])
             matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
             if matches:
-                self._save_reverse_suggestion(matches, bl_book["title"], f"grimmory:{bl_book['filename']}")
-                self._upsert_detected_book(
-                    source="grimmory",
-                    source_id=bl_book["filename"],
-                    title=bl_book["title"],
-                    progress_percentage=bl_book.get("pct", 0.0),
-                    author=bl_book.get("author", ""),
-                    cover_url=self._cover_url_for("grimmory", bl_book["filename"], bl_book),
-                    matches=matches,
-                    ebook_filename=bl_book["filename"],
+                self._save_reverse_suggestion(
+                    matches,
+                    bl_book["title"],
+                    f"grimmory:{bl_book['instance_id']}:{bl_book['filename']}",
                 )
 
     def _find_abs_audiobook_matches(self, clean_title: str, abs_by_title: dict, mapped_abs_ids: set) -> list[dict]:
@@ -947,6 +1041,13 @@ class SuggestionService:
                 message="Preparing suggestions rescan...",
                 rate_limited=False,
             )
+            abs_progress = {}
+            if self.abs_client and self.abs_client.is_configured():
+                try:
+                    abs_progress = self.abs_client.get_all_progress_raw() or {}
+                except Exception as e:
+                    logger.warning(f"Manual discovery failed to load ABS progress: {e}")
+            self.check_for_suggestions(abs_progress, [])
             stats = self.rescan_library_suggestions()
             self._update_rescan_status(
                 running=False,
@@ -1067,15 +1168,16 @@ class SuggestionService:
                     filename = book.get("fileName", "")
                     if not filename or not filename.lower().endswith(".epub"):
                         continue
+                    instance_id, _ = self._grimmory_identity(book)
                     live_candidates.append(
                         {
                             "source_family": "grimmory",
                             "source": "grimmory",
-                            "source_key": f"grimmory:{filename}",
+                            "source_key": f"grimmory:{instance_id}:{filename}",
                             "title": book.get("title") or Path(filename).stem,
                             "author": book.get("authors") or "",
                             "filename": filename,
-                            "id": str(book.get("id") or ""),
+                            "id": f"{instance_id}:{book.get('id')}" if book.get("id") is not None else "",
                             "action_kind": "create_mapping",
                         }
                     )
@@ -1167,6 +1269,7 @@ class SuggestionService:
                 cover_url=cover,
                 progress_percentage=progress_percentage,
                 matches=matches,
+                source_updated_at=(progress_data or {}).get("lastUpdate") or (progress_data or {}).get("updatedAt"),
             )
 
             logger.info(

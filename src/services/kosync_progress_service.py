@@ -224,6 +224,8 @@ class KosyncProgressService:
                 doc_hash,
                 filename=kosync_doc.filename,
                 device=device,
+                progress_percentage=float(kosync_doc.percentage or 0),
+                source_updated_at=kosync_doc.timestamp,
             )
         except Exception as exc:
             logger.debug("KoSync suggestion attempt failed for %s...: %s", doc_hash[:8], exc)

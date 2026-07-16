@@ -364,6 +364,37 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertEqual(row.first_detected_at.replace(tzinfo=UTC), original_first)
         self.assertEqual(row.last_seen_at.replace(tzinfo=UTC), new_last)
 
+    def test_save_detected_book_rejects_stale_source_progress(self):
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        newer = datetime(2026, 7, 15, 12, tzinfo=UTC)
+        older = datetime(2026, 7, 14, 12, tzinfo=UTC)
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="stale-progress",
+                title="Book",
+                progress_percentage=0.8,
+                source_updated_at=newer,
+            )
+        )
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="stale-progress",
+                title="Book",
+                progress_percentage=0.2,
+                source_updated_at=older,
+            )
+        )
+
+        row = self.db_service.get_detected_book("stale-progress", source="kosync")
+        self.assertAlmostEqual(row.progress_percentage, 0.8)
+        self.assertEqual(row.source_updated_at.replace(tzinfo=UTC), newer)
+
     def test_save_detected_book_normalizes_against_concurrently_inserted_row(self):
         """Regression: a row that appears only inside the upsert transaction (not at
         any earlier pre-read) must still get detected-book normalization applied.
