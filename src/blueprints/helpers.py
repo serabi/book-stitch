@@ -591,22 +591,3 @@ def safe_folder_name(name: str) -> str:
     for c in invalid:
         name = name.replace(c, "_")
     return name.strip() or "Unknown"
-
-
-def serialize_detected_book(d):
-    """Serialize DetectedBook for template context."""
-    return {
-        "id": d.id,
-        "source": d.source,
-        "source_id": d.source_id,
-        "title": d.title,
-        "author": d.author,
-        "cover_url": d.cover_url,
-        "progress_percentage": d.progress_percentage,
-        "first_detected_at": d.first_detected_at.isoformat() if d.first_detected_at else None,
-        "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
-        "source_updated_at": d.source_updated_at.isoformat() if getattr(d, "source_updated_at", None) else None,
-        "matches": d.matches,
-        "device": d.device,
-        "ebook_filename": d.ebook_filename,
-    }
