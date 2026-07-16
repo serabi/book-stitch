@@ -44,11 +44,12 @@ _BOOK_MERGE_METADATA_ATTRS = (
     "finished_at",
     "rating",
     "read_count",
+    "grimmory_audio_source_id",
 )
 
 # A freshly created target book never carries these alignment/UX hints, so a
 # falsy value must not clobber the canonical book that already holds them.
-_BOOK_MERGE_PRESERVE_IF_EMPTY = {"transcript_file", "activity_flag"}
+_BOOK_MERGE_PRESERVE_IF_EMPTY = {"transcript_file", "activity_flag", "grimmory_audio_source_id"}
 
 
 class BookRepository(BaseRepository):
@@ -137,6 +138,7 @@ class BookRepository(BaseRepository):
             "finished_at",
             "rating",
             "read_count",
+            "grimmory_audio_source_id",
         ]
         if book.id:
             return self._upsert(Book, [Book.id == book.id], book, update_attrs)

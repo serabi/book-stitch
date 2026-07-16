@@ -311,6 +311,48 @@ def test_extract_progress_zero(grimmory_client):
     assert cfi is None
 
 
+@pytest.mark.parametrize("book_type", ["M4B", "M4A", "MP3", "OPUS"])
+def test_exact_audiobook_identity_and_progress(grimmory_client, book_type):
+    book = {
+        "id": 10,
+        "fileName": f"audio.{book_type.lower()}",
+        "bookType": book_type,
+        "bookFileId": 42,
+        "audiobookProgress": {"percentage": 37.5, "positionMs": 1200, "trackIndex": 1},
+    }
+    grimmory_client._book_cache = {book["fileName"]: book}
+    grimmory_client._book_id_cache = {10: book}
+    grimmory_client._cache_timestamp = 9999999999
+
+    assert grimmory_client.audio_source_id(book) == "default:10:42"
+    assert grimmory_client.find_audiobook_by_source_id("default:10:42") is book
+    assert grimmory_client.find_audiobook_by_source_id("2:10:42") is None
+    assert grimmory_client.find_audiobook_by_source_id("default:10:99") is None
+    assert grimmory_client.get_audiobook_progress("default:10:42") == (pytest.approx(0.375), None)
+
+
+def test_update_exact_audiobook_uses_file_progress(grimmory_client):
+    book = {
+        "id": 10,
+        "fileName": "audio.m4b",
+        "bookType": "M4B",
+        "bookFileId": 42,
+        "audiobookProgress": {"percentage": 10},
+    }
+    grimmory_client._book_cache = {book["fileName"]: book}
+    grimmory_client._book_id_cache = {10: book}
+    grimmory_client._cache_timestamp = 9999999999
+    response = MagicMock(status_code=200)
+    grimmory_client._make_request = MagicMock(return_value=response)
+
+    assert grimmory_client.update_audiobook_progress("default:10:42", 0.5) is True
+    assert grimmory_client._make_request.call_args.args[2] == {
+        "bookId": 10,
+        "fileProgress": {"bookFileId": 42, "progressPercent": 50.0},
+    }
+    assert book["audiobookProgress"]["percentage"] == 50.0
+
+
 def test_update_progress_file_progress(grimmory_client):
     """When bookFileId is present, use modern fileProgress payload."""
     from src.sync_clients.sync_client_interface import LocatorResult

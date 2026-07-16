@@ -15,6 +15,8 @@ from src.utils.logging_utils import sanitize_log_data
 
 logger = logging.getLogger(__name__)
 
+GRIMMORY_AUDIO_BOOK_TYPES = {"M4B", "M4A", "MP3", "OPUS"}
+
 
 class GrimmoryClient:
     def __init__(self, database_service=None, env_prefix="GRIMMORY", instance_id="default"):
@@ -472,6 +474,7 @@ class GrimmoryClient:
             "pdfProgress": detail.get("pdfProgress"),
             "cbxProgress": detail.get("cbxProgress"),
             "koreaderProgress": detail.get("koreaderProgress"),
+            "audiobookProgress": detail.get("audiobookProgress"),
         }
 
         self._cache_book_info(filename, book_info)
@@ -495,7 +498,7 @@ class GrimmoryClient:
         if not cached:
             return
         primary_file = detail.get("primaryFile", {})
-        for key in ("epubProgress", "pdfProgress", "cbxProgress", "koreaderProgress"):
+        for key in ("epubProgress", "pdfProgress", "cbxProgress", "koreaderProgress", "audiobookProgress"):
             val = detail.get(key)
             if val is not None:
                 cached[key] = val
@@ -506,12 +509,45 @@ class GrimmoryClient:
 
     def extract_progress(self, book_info: dict) -> tuple[float | None, str | None]:
         """Extract (percentage_as_fraction, cfi) from any book type's progress."""
+        if (book_info.get("bookType") or "").upper() in GRIMMORY_AUDIO_BOOK_TYPES:
+            progress = book_info.get("audiobookProgress")
+            if progress is not None and progress.get("percentage") is not None:
+                return progress["percentage"] / 100.0, None
         for key in ("epubProgress", "pdfProgress", "cbxProgress"):
             progress = book_info.get(key)
             if progress is not None and progress.get("percentage") is not None:
                 pct = progress["percentage"]
                 return (pct / 100.0, progress.get("cfi"))
         return None, None
+
+    def audio_source_id(self, book_info: dict) -> str | None:
+        """Return the exact instance/book/file identity for a Grimmory audiobook."""
+        if (book_info.get("bookType") or "").upper() not in GRIMMORY_AUDIO_BOOK_TYPES:
+            return None
+        book_id = book_info.get("id")
+        file_id = book_info.get("bookFileId")
+        if book_id is None or file_id is None:
+            return None
+        return f"{getattr(self, 'instance_id', 'default')}:{book_id}:{file_id}"
+
+    def find_audiobook_by_source_id(self, source_id, allow_refresh=True):
+        """Resolve an exact qualified audiobook identity without filename matching."""
+        try:
+            instance_id, book_id, file_id = str(source_id).split(":", 2)
+        except ValueError:
+            return None
+        if instance_id != str(getattr(self, "instance_id", "default")):
+            return None
+
+        self._ensure_fresh_cache(allow_refresh)
+        book = next((value for key, value in self._book_id_cache.items() if str(key) == book_id), None)
+        if not book or str(book.get("bookFileId")) != file_id or self.audio_source_id(book) != str(source_id):
+            return None
+        return book
+
+    def get_audiobook_progress(self, source_id):
+        book = self.find_audiobook_by_source_id(source_id)
+        return self.extract_progress(book) if book else (None, None)
 
     def _normalize_string(self, s):
         """Remove non-alphanumeric characters and lowercase."""
@@ -658,6 +694,16 @@ class GrimmoryClient:
             logger.debug(f"Grimmory: Book not found: {ebook_filename}")
             return False
 
+        return self._update_book_progress(book, ebook_filename, percentage, rich_locator)
+
+    def update_audiobook_progress(self, source_id, percentage):
+        book = self.find_audiobook_by_source_id(source_id)
+        if not book:
+            logger.debug("Grimmory: Audiobook identity no longer matches: %s", sanitize_log_data(source_id))
+            return False
+        return self._update_book_progress(book, source_id, percentage)
+
+    def _update_book_progress(self, book, display_name, percentage, rich_locator: LocatorResult | None = None):
         book_id = book["id"]
         book_type = (book.get("bookType") or "").upper()
         book_file_id = book.get("bookFileId")
@@ -683,16 +729,21 @@ class GrimmoryClient:
             progress_key = f"{book_type.lower()}Progress"
             payload = {"bookId": book_id, progress_key: {"percentage": pct_display}}
         else:
-            logger.warning(f"Grimmory: Unknown book type {book_type} for {sanitize_log_data(ebook_filename)}")
+            logger.warning(f"Grimmory: Unknown book type {book_type} for {sanitize_log_data(display_name)}")
             return False
 
         response = self._make_request("POST", "/api/v1/books/progress", payload)
         if response and response.status_code in [200, 201, 204]:
-            logger.info(f"Grimmory: {sanitize_log_data(ebook_filename)} -> {pct_display:.1f}%")
+            logger.info(f"Grimmory: {sanitize_log_data(display_name)} -> {pct_display:.1f}%")
             try:
                 cached = self._book_id_cache.get(book_id)
                 if cached:
-                    progress_keys = {"EPUB": "epubProgress", "PDF": "pdfProgress", "CBX": "cbxProgress"}
+                    progress_keys = {
+                        "EPUB": "epubProgress",
+                        "PDF": "pdfProgress",
+                        "CBX": "cbxProgress",
+                        **{kind: "audiobookProgress" for kind in GRIMMORY_AUDIO_BOOK_TYPES},
+                    }
                     cached_type = (cached.get("bookType") or "").upper()
                     pk = progress_keys.get(cached_type)
                     if pk:
@@ -877,6 +928,26 @@ class GrimmoryClientGroup:
             for book in c.search_books(search_term):
                 results.append({**book, "_instance_id": c.instance_id})
         return results
+
+    def find_audiobook_by_source_id(self, source_id, allow_refresh=True):
+        for client in self._active:
+            book = client.find_audiobook_by_source_id(source_id, allow_refresh=allow_refresh)
+            if book:
+                return {**book, "_instance_id": client.instance_id}
+        return None
+
+    def get_audiobook_progress(self, source_id):
+        for client in self._active:
+            pct, locator = client.get_audiobook_progress(source_id)
+            if pct is not None:
+                return pct, locator
+        return None, None
+
+    def update_audiobook_progress(self, source_id, percentage):
+        for client in self._active:
+            if client.find_audiobook_by_source_id(source_id):
+                return client.update_audiobook_progress(source_id, percentage)
+        return False
 
     def download_book(self, book_id):
         """Download from whichever client owns the book.

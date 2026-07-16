@@ -655,6 +655,7 @@ class BookIntakeService:
             "finished_at": existing_book.finished_at,
             "rating": existing_book.rating,
             "read_count": existing_book.read_count or 1,
+            "grimmory_audio_source_id": getattr(existing_book, "grimmory_audio_source_id", None),
         }
         if overrides:
             metadata.update({key: value for key, value in overrides.items() if value is not None})

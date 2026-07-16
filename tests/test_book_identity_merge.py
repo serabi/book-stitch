@@ -118,6 +118,7 @@ class TestBookIdentityMerge(unittest.TestCase):
                 status="active",
                 sync_mode="ebook_only",
                 read_count=2,
+                grimmory_audio_source_id="default:10:42",
             )
         )
         self.db.save_state(
@@ -177,6 +178,9 @@ class TestBookIdentityMerge(unittest.TestCase):
         )
 
         self.db.migrate_book_data(source.abs_id, target.abs_id)
+
+        merged = self.db.get_book_by_abs_id(target.abs_id)
+        self.assertEqual(merged.grimmory_audio_source_id, "default:10:42")
 
         with self.db.get_session() as session:
             books = session.query(Book).all()

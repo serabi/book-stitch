@@ -117,6 +117,7 @@ class Book(Base):
     subtitle = Column(String(500), nullable=True)
     title_override = Column(String(500), nullable=True)
     author_override = Column(String(500), nullable=True)
+    grimmory_audio_source_id = Column(String(255), nullable=True, unique=True, index=True)
 
     # Reading tracker fields
     started_at = Column(String(10), nullable=True)  # YYYY-MM-DD
@@ -164,6 +165,7 @@ class Book(Base):
         subtitle: str = None,
         title_override: str = None,
         author_override: str = None,
+        grimmory_audio_source_id: str = None,
         started_at: str = None,
         finished_at: str = None,
         rating: float = None,
@@ -186,6 +188,7 @@ class Book(Base):
         self.subtitle = subtitle
         self.title_override = title_override
         self.author_override = author_override
+        self.grimmory_audio_source_id = grimmory_audio_source_id
         self.started_at = started_at
         self.finished_at = finished_at
         self.rating = rating
@@ -576,6 +579,7 @@ class DetectedBook(Base):
     matches_json = Column(Text, nullable=True)
     device = Column(String(128), nullable=True)
     ebook_filename = Column(String(500), nullable=True)
+    media_format = Column(String(20), default="ebook", nullable=False)
 
     def __init__(
         self,
@@ -590,6 +594,7 @@ class DetectedBook(Base):
         device: str = None,
         ebook_filename: str = None,
         source_updated_at=None,
+        media_format: str = "ebook",
     ):
         self.source = source
         self.source_id = source_id
@@ -602,6 +607,7 @@ class DetectedBook(Base):
         self.device = device
         self.ebook_filename = ebook_filename
         self.source_updated_at = source_updated_at
+        self.media_format = media_format
         self.first_detected_at = utc_now()
         self.last_seen_at = utc_now()
 

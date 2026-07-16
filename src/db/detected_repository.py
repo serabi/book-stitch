@@ -55,6 +55,7 @@ class DetectedRepository(BaseRepository):
         "processing_started_at",
         "last_seen_at",
         "first_detected_at",
+        "media_format",
     )
 
     def save_detected_book(self, detected_book):
@@ -93,7 +94,7 @@ class DetectedRepository(BaseRepository):
         if existing.status in {"dismissed", "resolved"} and detected_book.status == "detected":
             detected_book.status = existing.status
 
-        for attr in ("title", "author", "cover_url", "device", "ebook_filename"):
+        for attr in ("title", "author", "cover_url", "device", "ebook_filename", "media_format"):
             if not getattr(detected_book, attr):
                 setattr(detected_book, attr, getattr(existing, attr))
 
