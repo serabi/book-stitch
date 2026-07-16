@@ -661,6 +661,52 @@ def _exact_review_editions(container, review):
     }, None
 
 
+def _load_match_resources(container, search, attach_to, link_to):
+    abs_service = get_abs_service()
+    audiobooks, ebooks, storyteller_books = [], [], []
+    if not search:
+        return abs_service, audiobooks, ebooks, storyteller_books
+
+    if not attach_to:
+        audiobooks = [ab for ab in get_audiobooks_conditionally() if audiobook_matches_search(ab, search)]
+        for audiobook in audiobooks:
+            audiobook["cover_url"] = abs_service.get_cover_proxy_url(audiobook["id"])
+
+    if not link_to:
+        ebooks = get_searchable_ebooks(search)
+        if container.storyteller_client().is_configured():
+            try:
+                storyteller_books = container.storyteller_client().search_books(search)
+            except Exception as e:
+                logger.warning(f"Storyteller search failed in match route: {e}")
+
+    return abs_service, audiobooks, ebooks, storyteller_books
+
+
+def _match_page_capabilities(container, abs_service):
+    storyteller_submit_available = False
+    try:
+        provider = getattr(container, "storyteller_submission_service", None)
+        storyteller_submit_available = bool(provider and provider().is_available())
+    except Exception as e:
+        logger.debug("Storyteller submission availability check failed: %s", e)
+
+    cwa_provider = getattr(container, "cwa_client", None)
+    has_abs_ebooks = getattr(abs_service, "has_ebook_libraries", lambda: False)
+    return {
+        "storyteller_submit_available": storyteller_submit_available,
+        "storyteller_force_mode": os.environ.get("STORYTELLER_FORCE_MODE", "false").lower() == "true",
+        "storyteller_configured": container.storyteller_client().is_configured(),
+        "abs_configured": abs_service.is_available(),
+        "has_ebook_sources": (
+            any_grimmory_configured()
+            or bool(cwa_provider and cwa_provider().is_configured())
+            or has_abs_ebooks()
+            or get_ebook_dir().exists()
+        ),
+    }
+
+
 def _render_match_page(
     container,
     manager,
@@ -718,23 +764,9 @@ def _render_match_page(
         if link_book:
             link_title = link_book.title or link_to
 
-    abs_service = get_abs_service()
-    audiobooks, ebooks, storyteller_books = [], [], []
-    if search:
-        if not attach_to:
-            audiobooks = get_audiobooks_conditionally()
-            audiobooks = [ab for ab in audiobooks if audiobook_matches_search(ab, search)]
-            for ab in audiobooks:
-                ab["cover_url"] = abs_service.get_cover_proxy_url(ab["id"])
-
-        if not link_to:
-            ebooks = get_searchable_ebooks(search)
-
-            if container.storyteller_client().is_configured():
-                try:
-                    storyteller_books = container.storyteller_client().search_books(search)
-                except Exception as e:
-                    logger.warning(f"Storyteller search failed in match route: {e}")
+    abs_service, audiobooks, ebooks, storyteller_books = _load_match_resources(
+        container, search, attach_to, link_to
+    )
 
     if selected_abs_id and not attach_to and not any(ab["id"] == selected_abs_id for ab in audiobooks):
         selected = next((ab for ab in get_audiobooks_conditionally() if ab["id"] == selected_abs_id), None)
@@ -804,24 +836,7 @@ def _render_match_page(
         )
         review_editions["started_format"] = _explicit_media_format(detected)
 
-    storyteller_submit_available = False
-    try:
-        provider = getattr(container, "storyteller_submission_service", None)
-        storyteller_submit_available = bool(provider and provider().is_available())
-    except Exception as e:
-        logger.debug("Storyteller submission availability check failed: %s", e)
-
-    storyteller_force_mode = os.environ.get("STORYTELLER_FORCE_MODE", "false").lower() == "true"
-    storyteller_configured = container.storyteller_client().is_configured()
-    abs_configured = abs_service.is_available()
-    cwa_provider = getattr(container, "cwa_client", None)
-    has_abs_ebooks = getattr(abs_service, "has_ebook_libraries", lambda: False)
-    has_ebook_sources = (
-        any_grimmory_configured()
-        or bool(cwa_provider and cwa_provider().is_configured())
-        or has_abs_ebooks()
-        or get_ebook_dir().exists()
-    )
+    capabilities = _match_page_capabilities(container, abs_service)
 
     library_abs_ids = set()
     library_ebook_filenames = set()
@@ -857,13 +872,9 @@ def _render_match_page(
         preselect_abs_id=_escape_template_value(selected_abs_id),
         selected_ebook_filename=_escape_template_value(selected_ebook_filename),
         selected_ebook_source_id=_escape_template_value(selected_ebook_source_id),
-        storyteller_submit_available=storyteller_submit_available,
-        storyteller_force_mode=storyteller_force_mode,
-        storyteller_configured=storyteller_configured,
+        **capabilities,
         library_abs_ids=library_abs_ids,
         library_ebook_filenames=library_ebook_filenames,
-        abs_configured=abs_configured,
-        has_ebook_sources=has_ebook_sources,
         pairing_review=review,
         ebook_review_sources=_EBOOK_REVIEW_SOURCES,
         pairing_values=pairing_values,
