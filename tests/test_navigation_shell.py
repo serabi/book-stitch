@@ -28,7 +28,11 @@ def test_pairing_routes_share_one_active_navigation_group(flask_app, path):
     html = render_navigation(flask_app, path)
 
     assert 'href="/suggestions" class="sidebar-nav-link active" aria-current="page"' in html
-    assert 'href="/suggestions" class="mobile-nav-link active" aria-current="page"' in html
+    if path == "/match":
+        assert 'href="/match" class="mobile-nav-link active" aria-current="page"' in html
+        assert 'href="/suggestions" class="mobile-nav-link active"' not in html
+    else:
+        assert 'href="/suggestions" class="mobile-nav-link active" aria-current="page"' in html
 
 
 def test_only_current_primary_destination_is_marked_active(flask_app):
