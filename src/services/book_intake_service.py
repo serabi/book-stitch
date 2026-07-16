@@ -261,7 +261,15 @@ class BookIntakeService:
                 source=detected_source,
             )
 
+        def _complete_claim():
+            return self.database_service.complete_detected_book(
+                detected_source_id,
+                processing_token,
+                source=detected_source,
+            )
+
         renew_claim = _renew_claim if processing_token else None
+        complete_claim = _complete_claim if processing_token else None
 
         try:
             result = self._apply_mapping(
@@ -274,17 +282,8 @@ class BookIntakeService:
                 subtitle=subtitle,
                 resolve_detected=not processing_token,
                 renew_claim=renew_claim,
+                complete_claim=complete_claim,
             )
-            if processing_token:
-                try:
-                    completed = self.database_service.complete_detected_book(
-                        detected_source_id, processing_token, source=detected_source
-                    )
-                except Exception as exc:
-                    completed = False
-                    logger.warning("Pairing committed but its detection could not be completed: %s", exc)
-                if not completed:
-                    logger.warning("Pairing committed after its processing lease expired")
             return result
         except _MergeIdentityChanged:
             if processing_token:
@@ -388,6 +387,7 @@ class BookIntakeService:
         subtitle,
         resolve_detected,
         renew_claim,
+        complete_claim,
     ):
         existing_book = prepared.merge_book
         original_ebook_filename = None
@@ -465,6 +465,16 @@ class BookIntakeService:
 
         # The canonical mapping is committed. Follow-up bookkeeping and remote
         # integrations are best effort and must never make it look retryable.
+        if complete_claim:
+            try:
+                completed = complete_claim()
+            except Exception as exc:
+                completed = False
+                logger.warning("Pairing committed but its detection could not be completed: %s", exc)
+            if not completed:
+                logger.warning("Pairing committed after its processing lease expired")
+                return IntakeResult(book=book)
+
         try:
             ensure_kosync_document(book, self.database_service)
             self._record_grimmory_source(prepared.kosync_doc_id, prepared.ebook_source_id)

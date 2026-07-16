@@ -350,13 +350,24 @@ def test_pairing_review_rejects_changed_kosync_edition_before_write():
     abs_service.add_to_collection.assert_not_called()
 
 
-def test_pairing_review_same_mapping_retry_reconciles_side_effects_before_completion():
+def test_pairing_review_completes_detection_before_integrations():
     existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
     db = Mock()
     db.get_book_by_ref.return_value = existing
     db.get_kosync_document.return_value = None
     db.claim_detected_book.return_value = "owner-token"
     service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="hash-exact")
+    events = []
+    save_book = db.save_book.side_effect
+
+    def save_and_record(*args, **kwargs):
+        book = save_book(*args, **kwargs)
+        events.append("mapping_committed")
+        return book
+
+    db.save_book.side_effect = save_and_record
+    db.complete_detected_book.side_effect = lambda *args, **kwargs: events.append("detection_completed") or True
+    abs_service.add_to_collection.side_effect = lambda *args, **kwargs: events.append("abs_collection") or True
 
     result = service.map_audiobook_ebook(
         abs_id="abs-1",
@@ -378,6 +389,7 @@ def test_pairing_review_same_mapping_retry_reconciles_side_effects_before_comple
         for call in db.renew_detected_book_claim.call_args_list
     )
     db.complete_detected_book.assert_called_once_with("abs-1", "owner-token", source="abs")
+    assert events == ["mapping_committed", "detection_completed", "abs_collection"]
 
 
 def test_combine_conflict_claims_then_restores_before_any_write_or_side_effect():
@@ -539,6 +551,8 @@ def test_completion_lease_loss_after_commit_does_not_restore_detection():
     assert result.book.kosync_doc_id == "hash-exact"
     assert db.renew_detected_book_claim.call_count == 2
     db.restore_detected_book.assert_not_called()
+    _abs.add_to_collection.assert_not_called()
+    _hc.assert_not_called()
 
 
 def test_confirmed_merge_identity_change_returns_typed_failure_without_side_effects():

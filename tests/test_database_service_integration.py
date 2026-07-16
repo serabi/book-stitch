@@ -164,6 +164,25 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertEqual(claimed.processing_token, token)
         self.assertTrue(self.db_service.complete_detected_book("claimed-save", token, source="abs"))
 
+    def test_completed_claim_cannot_be_reclaimed_after_lease_expiry(self):
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="completed-claim", title="Done", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("completed-claim", source="abs")
+        self.assertTrue(self.db_service.complete_detected_book("completed-claim", token, source="abs"))
+
+        with self.db_service.get_session() as session:
+            row = session.query(DetectedBook).filter_by(source="abs", source_id="completed-claim").one()
+            row.processing_started_at = datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE - timedelta(seconds=1)
+
+        self.assertIsNone(self.db_service.claim_detected_book("completed-claim", source="abs"))
+        completed = self.db_service.get_detected_book("completed-claim", source="abs")
+        self.assertEqual(completed.status, "resolved")
+        self.assertIsNone(completed.processing_token)
+
     def test_renewed_near_expiry_claim_cannot_be_reclaimed(self):
         from src.db.detected_repository import DetectedRepository
         from src.db.models import DetectedBook
