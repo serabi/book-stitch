@@ -30,7 +30,7 @@ function applySelection(card) {
         selectionState.storyteller = value || null;
     } else if (group === 'ebook') {
         selectionState.ebook = value || null;
-        selectionState.ebookSourceId = card.dataset.sourceId || '';
+        selectionState.ebookSourceId = card.dataset.grimmoryId || '';
         document.getElementById('selected_ebook_source_id').value = selectionState.ebookSourceId;
         selectionState.ebookDisplayName = card.dataset.displayName || value;
         var displayInput = document.getElementById(card.dataset.displayInput);
@@ -122,7 +122,7 @@ function updateBatchActionState() {
     var preselectedEbook = document.querySelector('[data-select-group="ebook"].selected');
     if (preselectedEbook) {
         selectionState.ebook = preselectedEbook.dataset.value || null;
-        selectionState.ebookSourceId = preselectedEbook.dataset.sourceId || '';
+        selectionState.ebookSourceId = preselectedEbook.dataset.grimmoryId || '';
         selectionState.ebookDisplayName = preselectedEbook.dataset.displayName || selectionState.ebook || '';
         document.getElementById('selected_ebook_filename').value = selectionState.ebook || '';
         document.getElementById('selected_ebook_source_id').value = selectionState.ebookSourceId;
