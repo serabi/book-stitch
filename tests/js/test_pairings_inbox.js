@@ -98,6 +98,18 @@ function flush() {
     await flush();
     assert.equal(reloads, 1, 'a page-initiated rescan reloads exactly once after completion');
 
+    responses.push(
+        { success: true, running: true, phase: 'queued', message: 'Queued.' },
+        { success: true, running: false, phase: 'partial', message: 'Partial.' }
+    );
+    handlers.click();
+    await flush();
+    await flush();
+    await flush();
+    assert.equal(reloads, 2, 'a partial rescan reloads successful source results');
+    assert.equal((script.match(/data\.phase === 'partial'/g) || []).length, 2,
+        'both inbox and catalog polling treat partial as terminal');
+
     responses.push({ success: true });
     dismissHandlers.click();
     await flush();

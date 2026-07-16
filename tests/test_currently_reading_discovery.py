@@ -247,6 +247,7 @@ def test_abs_and_kosync_events_share_detection_window(pct, expected):
         {"progress": pct, "lastUpdate": "2026-07-15T12:00:00Z"},
     )
     abs_saved = db.save_detected_book.call_count
+    abs_detected = db.save_detected_book.call_args.args[0] if abs_saved else None
     db.save_detected_book.reset_mock()
     service.queue_kosync_suggestion(
         "hash-window",
@@ -258,6 +259,8 @@ def test_abs_and_kosync_events_share_detection_window(pct, expected):
     assert bool(abs_saved) is expected
     assert bool(db.save_detected_book.call_count) is expected
     if expected:
+        assert abs_detected.progress_percentage == pct
+        assert abs_detected.source_updated_at == datetime(2026, 7, 15, 12, tzinfo=UTC)
         detected = db.save_detected_book.call_args.args[0]
         assert detected.progress_percentage == pct
         assert detected.source_updated_at == datetime(2026, 7, 15, 12, tzinfo=UTC)
@@ -330,3 +333,67 @@ def test_source_failure_marks_rescan_partial_and_keeps_activity_results():
     assert service.get_rescan_status()["detected"] == 1
     assert any(call.args[0].source_id == "healthy" for call in db.save_detected_book.call_args_list)
     service.rescan_library_suggestions.assert_not_called()
+
+
+def test_catalog_inventory_failures_preserve_existing_suggestions(monkeypatch):
+    monkeypatch.setenv("SUGGESTIONS_ENABLED", "true")
+    db = _db()
+    existing = SimpleNamespace(source="abs", source_id="keep-me")
+    db.get_all_actionable_suggestions.return_value = [existing]
+    db.is_suggestion_ignored.return_value = False
+    grimmory = Mock()
+    grimmory.is_configured.return_value = True
+    grimmory.get_all_books.side_effect = RuntimeError("offline")
+    abs_client = Mock()
+    abs_client.get_all_audiobooks.return_value = [
+        {"id": "keep-me", "media": {"metadata": {"title": "Keep Me", "authorName": "Reader"}}}
+    ]
+    service = _service(db, abs_client=abs_client, grimmory=grimmory)
+    service.books_dir = Mock()
+    service.books_dir.exists.return_value = True
+    service.books_dir.rglob.side_effect = OSError("unreadable")
+
+    stats = service.rescan_library_suggestions()
+
+    assert stats["failed_sources"] == ["Grimmory", "Local EPUB files"]
+    assert stats["deleted"] == 0
+    assert stats["total"] == 1
+    db.resolve_suggestion.assert_not_called()
+
+
+def test_catalog_abs_failure_is_reported_without_cleanup(monkeypatch):
+    monkeypatch.setenv("SUGGESTIONS_ENABLED", "true")
+    db = _db()
+    db.get_all_actionable_suggestions.return_value = [SimpleNamespace(source="abs", source_id="keep-me")]
+    abs_client = Mock()
+    abs_client.get_all_audiobooks.side_effect = RuntimeError("offline")
+    service = _service(db, abs_client=abs_client)
+
+    stats = service.rescan_library_suggestions()
+
+    assert stats["failed_sources"] == ["Audiobookshelf"]
+    assert stats["total"] == 1
+    db.resolve_suggestion.assert_not_called()
+
+
+def test_catalog_failure_marks_background_rescan_partial(monkeypatch):
+    monkeypatch.setenv("SUGGESTIONS_ENABLED", "true")
+    db = _db()
+    service = _service(db)
+    service.check_for_suggestions = Mock()
+    service.rescan_library_suggestions = Mock(
+        return_value={
+            "created": 0,
+            "updated": 0,
+            "deleted": 0,
+            "total": 1,
+            "bookfusion_catalog": False,
+            "failed_sources": ["Grimmory"],
+        }
+    )
+
+    service._run_rescan_job(catalog=True)
+
+    status = service.get_rescan_status()
+    assert status["phase"] == "partial"
+    assert status["failed_sources"] == ["Grimmory"]

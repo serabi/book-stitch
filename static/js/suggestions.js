@@ -56,7 +56,7 @@
                         button.disabled = true;
                         status.textContent = data.message || 'Rescan in progress...';
                         timer = setTimeout(poll, 1500);
-                    } else if (data.phase === 'complete' && scanObserved) {
+                    } else if ((data.phase === 'complete' || data.phase === 'partial') && scanObserved) {
                         scanObserved = false;
                         window.location.reload();
                     } else {
@@ -489,7 +489,7 @@
                     return;
                 }
 
-                if (data.phase === 'complete') {
+                if (data.phase === 'complete' || data.phase === 'partial') {
                     refreshSuggestionsData(data.message || 'Rescan complete.');
                     return;
                 }

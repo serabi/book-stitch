@@ -296,7 +296,10 @@ class SuggestionService:
             return dict(self._rescan_status)
 
     def _build_library_candidates(
-        self, bookfusion_context: dict | None = None, include_filesystem: bool = True
+        self,
+        bookfusion_context: dict | None = None,
+        include_filesystem: bool = True,
+        errors: set[str] | None = None,
     ) -> list[dict]:
         candidates = []
         seen = set()
@@ -331,6 +334,8 @@ class SuggestionService:
                         continue
             except Exception as e:
                 logger.warning(f"Grimmory cache scan failed during suggestions rescan: {e}")
+                if errors is not None:
+                    errors.add("Grimmory")
 
         if include_filesystem and self.books_dir and self.books_dir.exists():
             try:
@@ -363,6 +368,8 @@ class SuggestionService:
                             time.sleep(pause_ms / 1000.0)
             except Exception as e:
                 logger.warning(f"Filesystem scan failed during suggestions rescan: {e}")
+                if errors is not None:
+                    errors.add("Local EPUB files")
 
         if bookfusion_context:
             self._update_rescan_status(phase="loading_bookfusion", message="Loading BookFusion candidates...")
@@ -1172,6 +1179,7 @@ class SuggestionService:
             self.check_for_suggestions(abs_progress, [], errors=errors)
             if catalog:
                 stats = self.rescan_library_suggestions()
+                errors.update(stats.pop("failed_sources", []))
                 count_label = "catalog suggestion"
             else:
                 total = self.database_service.get_active_detected_book_count()
@@ -1209,7 +1217,14 @@ class SuggestionService:
     def rescan_library_suggestions(self) -> dict:
         """Rebuild suggestions from cached library metadata without live BookFusion calls."""
         if self._suggestions_disabled():
-            return {"created": 0, "updated": 0, "deleted": 0, "total": 0, "bookfusion_catalog": False}
+            return {
+                "created": 0,
+                "updated": 0,
+                "deleted": 0,
+                "total": 0,
+                "bookfusion_catalog": False,
+                "failed_sources": [],
+            }
 
         mapped_ids = {b.abs_id for b in self.database_service.get_all_books()}
         existing_actionable = {
@@ -1218,7 +1233,12 @@ class SuggestionService:
             if getattr(s, "source", "abs") == "abs"
         }
         bookfusion_context = self._get_bookfusion_context()
-        candidates = self._build_library_candidates(bookfusion_context=bookfusion_context, include_filesystem=True)
+        errors: set[str] = set()
+        candidates = self._build_library_candidates(
+            bookfusion_context=bookfusion_context,
+            include_filesystem=True,
+            errors=errors,
+        )
 
         created = 0
         updated = 0
@@ -1231,6 +1251,7 @@ class SuggestionService:
                 all_abs_books = self.abs_client.get_all_audiobooks() or []
             except Exception as e:
                 logger.warning(f"Suggestions rescan failed to load ABS audiobooks: {e}")
+                errors.add("Audiobookshelf")
                 all_abs_books = []
 
             total_books = len(all_abs_books)
@@ -1274,7 +1295,7 @@ class SuggestionService:
                     time.sleep(0.01)
 
         deleted = 0
-        if all_abs_books:
+        if all_abs_books and not errors:
             self._update_rescan_status(phase="cleanup", message="Cleaning stale suggestions...")
             for source_id in list(existing_actionable.keys()):
                 if source_id not in kept_ids:
@@ -1291,6 +1312,7 @@ class SuggestionService:
             "deleted": deleted,
             "total": total,
             "bookfusion_catalog": bookfusion_context["has_catalog"],
+            "failed_sources": sorted(errors),
         }
 
     def _search_live_candidates(self, title: str, author: str, bookfusion_context: dict | None = None) -> list[dict]:
@@ -1382,12 +1404,7 @@ class SuggestionService:
             cover = self._cover_url_for("abs", abs_id)
             logger.debug(f"Checking detected matches for '{title}' (Author: {author})")
 
-            progress_percentage = 0.0
-            if progress_data:
-                duration = progress_data.get("duration", 0) or 0
-                current_time = progress_data.get("currentTime", 0) or 0
-                if duration > 0:
-                    progress_percentage = max(0.0, min(current_time / duration, 1.0))
+            progress_percentage = self._progress_fraction(progress_data) or 0.0
 
             bookfusion_context = self._get_bookfusion_context()
             matches = self._rank_candidates_for_book(
