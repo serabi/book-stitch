@@ -195,6 +195,9 @@ class BookIntakeService:
         storyteller_submit=False,
         author=None,
         subtitle=None,
+        detected_source=None,
+        detected_source_id=None,
+        expected_ebook_kosync_id=None,
     ) -> IntakeResult:
         bl_match, bl_match_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
         if ebook_source_id and not bl_match:
@@ -206,7 +209,14 @@ class BookIntakeService:
             logger.warning("Cannot compute KOSync ID for '%s'", sanitize_log_data(ebook_filename))
             return IntakeResult(error="Could not compute KOSync ID for ebook", status_code=404)
 
+        if expected_ebook_kosync_id and kosync_doc_id != expected_ebook_kosync_id:
+            return IntakeResult(error="The selected ebook no longer matches the detected edition", status_code=409)
+
         current_book_entry = self.database_service.get_book_by_ref(abs_id)
+        if self._is_same_mapping(current_book_entry, ebook_filename, ebook_source_id, kosync_doc_id):
+            self._resolve_exact_detection(detected_source, detected_source_id)
+            return IntakeResult(book=current_book_entry)
+
         if current_book_entry and current_book_entry.kosync_doc_id:
             logger.info("Preserving existing hash '%s' for '%s'", current_book_entry.kosync_doc_id, abs_id)
             kosync_doc_id = current_book_entry.kosync_doc_id
@@ -271,7 +281,20 @@ class BookIntakeService:
             self._submit_to_storyteller_async(abs_id, title, ebook_filename)
 
         self._resolve_mapping_suggestions(abs_id, kosync_doc_id, ebook_filename, ebook_source_id)
+        self._resolve_exact_detection(detected_source, detected_source_id)
         return IntakeResult(book=book)
+
+    def _is_same_mapping(self, book, ebook_filename, ebook_source_id, kosync_doc_id):
+        if not book or book.ebook_filename != ebook_filename or book.kosync_doc_id != kosync_doc_id:
+            return False
+        if not ebook_source_id:
+            return True
+        doc = self.database_service.get_kosync_document(kosync_doc_id)
+        return bool(doc and doc.grimmory_id == ebook_source_id)
+
+    def _resolve_exact_detection(self, source, source_id):
+        if source and source_id:
+            self.database_service.resolve_detected_book(source_id, source=source)
 
     def _create_storyteller_reservation(self, abs_id):
         book = self.database_service.get_book_by_ref(abs_id)

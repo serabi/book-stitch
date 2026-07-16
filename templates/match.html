@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>{{ title_prefix }}Add Book - PageKeeper</title>
+    <title>{{ title_prefix }}{% if pairing_review %}Review pairing{% else %}Add Book{% endif %} - PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/variables.css">
@@ -16,34 +16,48 @@
 <body>
     {% include 'partials/navbar.html' %}
 
-    <div class="container">
+    <main class="container">
         <div class="page-header">
             {% if attach_to %}
-            <h2>Attach Ebook</h2>
+            <h1>Attach Ebook</h1>
             <p class="subtitle">Choose an ebook source to attach to <strong>{{ attach_title }}</strong>.</p>
             {% elif link_to %}
-            <h2>Attach Audiobook</h2>
+            <h1>Attach Audiobook</h1>
             <p class="subtitle">Choose an audiobook from your audiobook library to link to <strong>{{ link_title }}</strong>.</p>
+            {% elif pairing_review %}
+            <h1>Review pairing</h1>
+            <p class="subtitle">Review the exact detected edition and its companion before pairing.</p>
             {% else %}
-            <h2>Add Book</h2>
+            <h1>Add Book</h1>
             {% endif %}
         </div>
 
+        {% if pairing_error %}
+        <div class="match-inline-error" role="alert">{{ pairing_error }}</div>
+        {% endif %}
+
         <section class="search-section batch-search-section">
             <form method="GET" action="/match" class="batch-search-form">
+                <label for="match-search" class="search-label">Search books</label>
                 <input type="text" name="search" placeholder="Search by title, author, or filename..."
-                    class="search-box" value="{{ search }}" autofocus>
+                    class="search-box" id="match-search" value="{{ search }}" autofocus>
                 {% if attach_to %}
                 <input type="hidden" name="attach_to" value="{{ attach_to }}">
                 {% endif %}
                 {% if link_to %}
                 <input type="hidden" name="link_to" value="{{ link_to }}">
                 {% endif %}
+                {% for name, value in pairing_values.items() %}
+                {% if value %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}
+                {% endfor %}
+                <input type="hidden" name="audiobook_id" id="search_audiobook_id" value="{{ preselect_abs_id }}">
+                <input type="hidden" name="ebook_filename" id="search_ebook_filename" value="{{ selected_ebook_filename }}">
+                <input type="hidden" name="ebook_source_id" id="search_ebook_source_id" value="{{ selected_ebook_source_id }}">
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
         </section>
 
-        {% if not attach_to and not link_to %}
+        {% if not attach_to and not link_to and not pairing_review %}
         {% set abs_ok = abs_configured|default(true) %}
         {% set ebook_ok = has_ebook_sources|default(true) %}
         <div class="r-match-mode-bar" id="match-mode-bar">
@@ -57,9 +71,13 @@
         {% endif %}
 
         <form method="POST" action="/match" id="mappingForm">
-            <input type="hidden" name="action" id="input_action" value="">
+            <input type="hidden" name="action" id="input_action" value="{% if pairing_review %}pair_formats{% endif %}">
             <input type="hidden" name="storyteller_title" id="input_storyteller_title" value="">
-            <input type="hidden" name="ebook_source_id" id="input_ebook_source_id" value="">
+            <input type="hidden" name="ebook_source_id" id="input_ebook_source_id" value="{{ selected_ebook_source_id }}">
+            <input type="hidden" name="search" value="{{ search }}">
+            {% for name, value in pairing_values.items() %}
+            {% if value %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}
+            {% endfor %}
 
             {% if attach_to %}
             <input type="hidden" name="attach_abs_id" value="{{ attach_to }}">
@@ -68,12 +86,12 @@
             <input type="hidden" name="link_book_id" value="{{ link_to }}">
             {% endif %}
 
-            {% set single_match = audiobooks|length == 1 %}
+            {% set single_match = audiobooks|length == 1 and not pairing_review %}
             {% set single_st_match = storyteller_books|length == 1 %}
             {% set single_eb_match = ebooks|length == 1 %}
 
             {# ── Selected audiobook chip (Match mode phase 2) ── #}
-            {% if not attach_to and not link_to %}
+            {% if not attach_to and not link_to and not pairing_review %}
             <div class="match-selected-chip" id="selectedChip" style="display:none">
                 <img class="match-selected-chip-cover" id="chipCover" alt="" style="display:none">
                 <div class="match-selected-chip-info">
@@ -86,10 +104,12 @@
             <section class="match-workspace">
                 {# ── Audiobook section ── #}
                 {% if not attach_to %}
-                <div class="match-section" id="audiobookSection">
-                    <div class="match-section-header">
-                        <h3>Select Audiobook</h3>
-                    </div>
+                <fieldset class="match-section" id="audiobookSection">
+                    <legend>Select audiobook</legend>
+                    {% if pairing_review and pairing_review.detected.source == 'abs' %}
+                    <p class="fixed-edition-hint">Detected edition; choose the ebook companion below.</p>
+                    <input type="hidden" name="audiobook_id" value="{{ pairing_review.detected.source_id }}">
+                    {% endif %}
                     {% if audiobooks %}
                     <div class="media-grid">
                         {% for ab in audiobooks %}
@@ -98,7 +118,8 @@
                             onclick="selectItem(this, 'audiobook_id')"
                             data-title="{{ get_title(ab) }}"
                             data-cover="{{ ab.cover_url or '' }}">
-                            <input type="radio" name="audiobook_id" value="{{ ab.id }}" {% if single_match or is_preselected %}checked{% endif %}>
+                            <input type="radio" name="audiobook_id" value="{{ ab.id }}" {% if single_match or is_preselected %}checked{% endif %}
+                                {% if pairing_review and pairing_review.detected.source == 'abs' %}disabled{% endif %}>
                             <div class="audiobook-cover-container">
                                 {% if ab.cover_url %}
                                 <img src="{{ ab.cover_url }}" alt="Cover" class="audiobook-cover"
@@ -126,19 +147,18 @@
                         <p>Search to load audiobook matches.</p>
                     </div>
                     {% endif %}
-                </div>
+                </fieldset>
                 {% endif %}
 
                 {# ── Storyteller disclosure ── #}
                 {% if not link_to and not attach_to %}
                     {% if storyteller_configured %}
-                    <div class="match-storyteller-disclosure" id="storytellerSection">
-                        <button type="button" class="match-storyteller-toggle" id="storytellerToggle">
+                    <details class="match-storyteller-disclosure" id="storytellerSection" open>
+                        <summary class="match-storyteller-toggle">
                             <span class="match-storyteller-toggle-text">Storyteller</span>
                             <span class="match-storyteller-toggle-hint">Link to Storyteller for synced audio + text playback</span>
-                            <span class="match-storyteller-toggle-arrow" id="storytellerArrow"></span>
-                        </button>
-                        <div class="match-storyteller-body" id="storytellerBody">
+                        </summary>
+                        <div class="match-storyteller-body expanded" id="storytellerBody">
                             <p class="storyteller-helper-text" id="storytellerHelperText">
                                 If this book already exists in Storyteller, select it to sync your reading position and use its word-level timings for more precise audio-to-text alignment.
                             </p>
@@ -189,7 +209,7 @@
                             <div class="storyteller-submit-detail">Storyteller will transcribe the audiobook audio and sync it with the ebook text, enabling word-highlighted playback. This runs on your Storyteller server, not inside PageKeeper.</div>
                             {% endif %}
                         </div>
-                    </div>
+                    </details>
                     {% else %}
                     <input type="hidden" name="storyteller_uuid" value="">
                     {% endif %}
@@ -199,19 +219,22 @@
 
                 {# ── Ebook section ── #}
                 {% if not link_to %}
-                <div class="match-section" id="ebookSection">
-                    <div class="match-section-header">
-                        <h3>Select eBook</h3>
-                    </div>
+                <fieldset class="match-section" id="ebookSection">
+                    <legend>Select ebook</legend>
+                    {% if pairing_review and pairing_review.detected.source in ['grimmory', 'kosync'] %}
+                    <p class="fixed-edition-hint">Detected edition; choose the audiobook companion above.</p>
+                    <input type="hidden" name="ebook_filename" value="{{ pairing_review.detected.ebook_filename }}">
+                    {% endif %}
                     {% if ebooks %}
                     <div class="resource-grid">
                         {% for eb in ebooks %}
                         <label
-                            class="audiobook-option resource-card eb-option batch-select-card {% if single_eb_match %}selected{% endif %}"
+                            class="audiobook-option resource-card eb-option batch-select-card {% if single_eb_match or eb.is_selected %}selected{% endif %}"
                             data-source-type="{{ eb.source }}" data-source-path="{{ eb.path }}"
                             data-source-id="{{ eb.source_id }}" data-grimmory-id="{{ eb.grimmory_id or '' }}"
                             onclick="selectItem(this, 'ebook_filename')">
-                            <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match %}checked{% endif %}>
+                            <input type="radio" name="ebook_filename" value="{{ eb.name }}" {% if single_eb_match or eb.is_selected %}checked{% endif %}
+                                {% if pairing_review and pairing_review.detected.source in ['grimmory', 'kosync'] %}disabled{% endif %}>
                             {% if eb.cover_url %}
                             <div class="resource-cover-container">
                                 <img src="{{ eb.cover_url }}" alt="" class="resource-cover"
@@ -250,9 +273,17 @@
                         </p>
                     </div>
                     {% endif %}
-                </div>
+                </fieldset>
                 {% endif %}
             </section>
+
+            {% if existing_entry_collision %}
+            <div class="match-combine-warning" role="status">
+                This ebook already belongs to <strong>{{ existing_entry_collision.title or 'another PageKeeper entry' }}</strong>.
+                Pairing will migrate its data into one canonical PageKeeper entry.
+            </div>
+            <input type="hidden" name="confirm_combine" value="1">
+            {% endif %}
 
             {# ── Sticky action footer ── #}
             <div class="match-action-footer" id="actionFooter">
@@ -261,7 +292,7 @@
                     <span class="match-summary-chip" id="summaryEbook"></span>
                     <span class="match-summary-chip" id="summaryStoryteller"></span>
                 </div>
-                <span class="match-action-status" id="actionStatus">Select an audiobook to continue.</span>
+                <span class="match-action-status" id="actionStatus" aria-live="polite">Select an audiobook to continue.</span>
                 {% if attach_to %}
                 <button type="submit" class="btn btn-success" id="actionBtn" disabled
                     onclick="document.getElementById('input_action').value='attach_ebook';">
@@ -272,6 +303,10 @@
                     onclick="document.getElementById('input_action').value='attach_audiobook';">
                     Attach Audiobook
                 </button>
+                {% elif pairing_review %}
+                <button type="submit" class="btn btn-success" id="actionBtn" disabled>
+                    {% if existing_entry_collision %}Combine existing entries and pair{% else %}Pair formats{% endif %}
+                </button>
                 {% else %}
                 <button type="submit" class="btn btn-success" id="actionBtn" disabled>
                     Create Mapping
@@ -280,7 +315,7 @@
             </div>
             <div class="match-footer-spacer"></div>
         </form>
-    </div>
+    </main>
 
     {% include 'partials/confirm_modal.html' %}
 
@@ -290,7 +325,9 @@
             isAttachAudiobook: {{ 'true' if link_to else 'false' }},
             storytellerForceMode: {{ 'true' if storyteller_force_mode else 'false' }},
             absConfigured: {{ 'true' if abs_configured|default(true) else 'false' }},
-            hasEbookSources: {{ 'true' if has_ebook_sources|default(true) else 'false' }}
+            hasEbookSources: {{ 'true' if has_ebook_sources|default(true) else 'false' }},
+            isPairingReview: {{ 'true' if pairing_review else 'false' }},
+            hasExistingEntryCollision: {{ 'true' if existing_entry_collision else 'false' }}
         };
     </script>
     <script src="/static/js/utils.js"></script>

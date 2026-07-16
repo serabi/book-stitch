@@ -22,6 +22,8 @@
     var isAttachFlow = isAttachEbook || isAttachAudiobook;
     var hasStorytellerSection = !!document.getElementById('storytellerSection');
     var storytellerForceMode = PK_PAGE_DATA.storytellerForceMode;
+    var isPairingReview = PK_PAGE_DATA.isPairingReview;
+    var hasExistingEntryCollision = PK_PAGE_DATA.hasExistingEntryCollision;
 
     var absConfigured = PK_PAGE_DATA.absConfigured;
     var hasEbookSources = PK_PAGE_DATA.hasEbookSources;
@@ -122,6 +124,14 @@
         var stSection = document.getElementById('storytellerSection');
         var chip = document.getElementById('selectedChip');
 
+        if (isPairingReview) {
+            if (audioSection) audioSection.style.display = '';
+            if (ebookSection) ebookSection.style.display = '';
+            if (stSection) stSection.style.display = '';
+            if (chip) chip.style.display = 'none';
+            return;
+        }
+
         if (isAttachFlow) {
             // Attach flows: show only the relevant section, no chip
             if (audioSection) audioSection.style.display = isAttachAudiobook ? '' : 'none';
@@ -189,6 +199,18 @@
         var stVal = st ? st.value : '';
         var hasText = ebVal !== '' || stVal !== '';
 
+        if (isPairingReview) {
+            var pairingReady = hasAudio && ebVal !== '';
+            btn.type = 'submit';
+            btn.disabled = !pairingReady;
+            btn.textContent = hasExistingEntryCollision
+                ? 'Combine existing entries and pair'
+                : 'Pair formats';
+            status.textContent = pairingReady ? 'Exact editions selected. Ready to pair.' : 'Select both formats to continue.';
+            status.dataset.state = pairingReady ? 'ready' : 'warning';
+            return;
+        }
+
         // Summary chips
         var chips = document.getElementById('summaryChips');
         if (chips) {
@@ -226,6 +248,7 @@
 
         if (isAttachEbook) {
             var ready = ebVal !== '';
+            btn.type = 'submit';
             btn.disabled = !ready;
             btn.textContent = 'Attach Ebook';
             status.textContent = ready ? 'eBook selected. Ready to attach.' : 'Select an ebook to attach.';
@@ -234,6 +257,7 @@
         }
 
         if (isAttachAudiobook) {
+            btn.type = 'submit';
             btn.disabled = !hasAudio;
             btn.textContent = 'Attach Audiobook';
             status.textContent = hasAudio ? 'Audiobook selected. Ready to attach.' : 'Select an audiobook to link.';
@@ -244,13 +268,15 @@
         // Normal modes
         if (currentMode === 'match') {
             if (currentPhase === 'select-audio') {
-                btn.disabled = true;
-                btn.textContent = 'Create Mapping';
-                status.textContent = hasAudio ? 'Audiobook selected.' : 'Select an audiobook to continue.';
+                btn.type = 'button';
+                btn.disabled = !hasAudio;
+                btn.textContent = 'Continue';
+                status.textContent = hasAudio ? 'Audiobook selected. Continue to ebooks.' : 'Select an audiobook to continue.';
                 status.dataset.state = 'warning';
             } else {
                 // select-ebook phase
                 var ready = hasText;
+                btn.type = 'submit';
                 btn.disabled = !ready;
                 btn.textContent = 'Create Mapping';
                 document.getElementById('input_action').value = '';
@@ -260,12 +286,14 @@
                 status.dataset.state = ready ? 'ready' : 'warning';
             }
         } else if (currentMode === 'audio') {
+            btn.type = 'submit';
             btn.disabled = !hasAudio;
             btn.textContent = 'Add Audio Only';
             document.getElementById('input_action').value = 'audio_only';
             status.textContent = hasAudio ? 'Ready to add audiobook.' : 'Select an audiobook.';
             status.dataset.state = hasAudio ? 'ready' : 'warning';
         } else if (currentMode === 'ebook') {
+            btn.type = 'submit';
             btn.disabled = !hasText;
             btn.textContent = 'Add eBook';
             document.getElementById('input_action').value = 'ebook_only';
@@ -300,12 +328,14 @@
         if (groupName === 'ebook_filename') {
             var sourceInput = document.getElementById('input_ebook_source_id');
             if (sourceInput) sourceInput.value = element.dataset.grimmoryId || '';
+            var searchEbook = document.getElementById('search_ebook_filename');
+            var searchEbookSource = document.getElementById('search_ebook_source_id');
+            if (searchEbook) searchEbook.value = radio ? radio.value : '';
+            if (searchEbookSource) searchEbookSource.value = element.dataset.grimmoryId || '';
         }
-
-        // In Match mode, selecting an audiobook advances to ebook phase
-        if (groupName === 'audiobook_id' && currentMode === 'match' && currentPhase === 'select-audio') {
-            setPhase('select-ebook');
-            return;
+        if (groupName === 'audiobook_id') {
+            var searchAudiobook = document.getElementById('search_audiobook_id');
+            if (searchAudiobook) searchAudiobook.value = radio ? radio.value : '';
         }
 
         updateFooter();
@@ -314,6 +344,12 @@
     /* ── DOMContentLoaded ── */
 
     document.addEventListener('DOMContentLoaded', function () {
+        var storytellerSection = document.getElementById('storytellerSection');
+        var ebookSection = document.getElementById('ebookSection');
+        if (storytellerSection && ebookSection) {
+            ebookSection.insertAdjacentElement('afterend', storytellerSection);
+        }
+
         // ── Attach flow: simple init ──
         if (isAttachFlow) {
             updateLayout();
@@ -366,28 +402,10 @@
             });
         }
 
-        // ── Storyteller disclosure toggle ──
-        var stToggle = document.getElementById('storytellerToggle');
-        var stBody = document.getElementById('storytellerBody');
-        var stArrow = document.getElementById('storytellerArrow');
-        if (stToggle && stBody) {
-            // Determine initial state
-            var shouldExpand = true;
-            if (shouldExpand) {
-                stBody.classList.add('expanded');
-                if (stArrow) stArrow.classList.add('expanded');
-            }
-
-            stToggle.addEventListener('click', function () {
-                stBody.classList.toggle('expanded');
-                if (stArrow) stArrow.classList.toggle('expanded');
-            });
-        }
-
         // ── Handle preselected audiobook or single match ──
         var preselectedAb = document.querySelector('.ab-option.selected');
         if (preselectedAb) {
-            if (currentMode === 'match') {
+            if (currentMode === 'match' && !isPairingReview) {
                 setPhase('select-ebook');
             }
         }
@@ -399,6 +417,28 @@
 
         updateLayout();
         updateFooter();
+
+        var actionBtn = document.getElementById('actionBtn');
+        if (actionBtn) {
+            actionBtn.addEventListener('click', function (event) {
+                if (!isPairingReview && currentMode === 'match' && currentPhase === 'select-audio') {
+                    event.preventDefault();
+                    setPhase('select-ebook');
+                    var firstEbook = document.querySelector('#ebookSection input[type="radio"]');
+                    if (firstEbook) firstEbook.focus();
+                }
+            });
+        }
+
+        var mappingForm = document.getElementById('mappingForm');
+        if (mappingForm) {
+            mappingForm.addEventListener('submit', function () {
+                if (actionBtn) {
+                    actionBtn.disabled = true;
+                    actionBtn.setAttribute('aria-disabled', 'true');
+                }
+            });
+        }
     });
 
     /* ── Expose functions needed by inline onclick handlers ── */

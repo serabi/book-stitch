@@ -285,3 +285,45 @@ def test_map_audiobook_ebook_persists_and_resolves_qualified_grimmory_identity()
         call.args == ("default:same.epub",) and call.kwargs == {"source": "grimmory"}
         for call in db.resolve_detected_book.call_args_list
     )
+
+
+def test_pairing_review_rejects_changed_kosync_edition_before_write():
+    service, db, abs_service, _bl, _hc = _make_service(kosync_id="different-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="kosync",
+        detected_source_id="expected-hash",
+        expected_ebook_kosync_id="expected-hash",
+    )
+
+    assert result.status_code == 409
+    assert "no longer matches" in result.error
+    db.save_book.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()
+
+
+def test_pairing_review_resolves_exact_detection_and_double_submit_is_noop():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_kosync_document.return_value = None
+    service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.book is existing
+    db.save_book.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+    db.resolve_detected_book.assert_called_once_with("abs-1", source="abs")

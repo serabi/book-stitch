@@ -217,6 +217,107 @@ def _serialize_detected_match(match):
     }
 
 
+_PAIRING_REVIEW_FIELDS = (
+    "detected_id",
+    "detected_source",
+    "detected_source_id",
+    "candidate_source",
+    "candidate_source_id",
+)
+
+
+def _pairing_review_values(source):
+    return {name: str(source.get(name, "") or "").strip() for name in _PAIRING_REVIEW_FIELDS}
+
+
+def _load_pairing_review(database_service, values):
+    if not any(values.values()):
+        return None, None, 200
+    if not all(values[name] for name in _PAIRING_REVIEW_FIELDS[:3]):
+        return None, "This pairing link is incomplete. Return to Currently Reading and try again.", 400
+    if bool(values["candidate_source"]) != bool(values["candidate_source_id"]):
+        return None, "This pairing recommendation is incomplete. Return to Currently Reading and try again.", 400
+
+    try:
+        detected_id = int(values["detected_id"])
+    except ValueError:
+        return None, "This pairing link is invalid. Return to Currently Reading and try again.", 400
+
+    detected = database_service.get_detected_book(
+        values["detected_source_id"], source=values["detected_source"]
+    )
+    if (
+        not detected
+        or getattr(detected, "id", None) != detected_id
+        or getattr(detected, "status", "detected") != "detected"
+    ):
+        return None, "This detected book is stale or has already been handled.", 409
+
+    candidate = None
+    if values["candidate_source"]:
+        candidate = next(
+            (
+                match
+                for match in (detected.matches or [])
+                if (match.get("source_family") or match.get("source")) == values["candidate_source"]
+                and str(_candidate_source_id(match) or "") == values["candidate_source_id"]
+            ),
+            None,
+        )
+        if not candidate:
+            return None, "This recommended edition is stale. Search for a companion again.", 409
+
+    return {"detected": detected, "candidate": candidate, **values}, None, 200
+
+
+def _review_defaults(review):
+    if not review:
+        return {"audiobook_id": "", "ebook_filename": "", "ebook_source_id": ""}
+
+    detected = review["detected"]
+    candidate = review["candidate"] or {}
+    detected_source = detected.source
+    candidate_source = candidate.get("source_family") or candidate.get("source")
+    defaults = {"audiobook_id": "", "ebook_filename": "", "ebook_source_id": ""}
+
+    if detected_source == "abs":
+        defaults["audiobook_id"] = detected.source_id
+    else:
+        defaults["ebook_filename"] = detected.ebook_filename or ""
+
+    if candidate_source in {"abs", "abs_audiobook"}:
+        defaults["audiobook_id"] = candidate.get("abs_id") or ""
+    elif candidate:
+        defaults["ebook_filename"] = candidate.get("filename") or defaults["ebook_filename"]
+        if candidate_source == "grimmory":
+            defaults["ebook_source_id"] = candidate.get("id") or ""
+
+    return defaults
+
+
+def _existing_entry_collision(database_service, review, abs_id, ebook_filename, ebook_source_id):
+    if not review or not abs_id or not ebook_filename:
+        return None
+
+    detected = review["detected"]
+    existing = None
+    if detected.source == "kosync" and ebook_filename == detected.ebook_filename:
+        existing = database_service.get_book_by_kosync_id(detected.source_id)
+    elif ebook_source_id:
+        doc = database_service.get_kosync_doc_by_grimmory_id(ebook_source_id)
+        document_hash = getattr(doc, "document_hash", None)
+        if isinstance(document_hash, str):
+            existing = database_service.get_book_by_kosync_id(document_hash)
+    if not existing:
+        existing = database_service.get_book_by_ebook_filename(ebook_filename)
+
+    existing_id = getattr(existing, "id", None)
+    existing_abs_id = getattr(existing, "abs_id", None)
+    if isinstance(existing_id, int) and existing_abs_id != abs_id:
+        return existing
+    return None
+
+
 def _progress_sources_configured(container):
     try:
         if get_abs_service().is_available():
@@ -235,6 +336,240 @@ def _progress_sources_configured(container):
         )
     except (AttributeError, TypeError):
         return False
+
+
+def _render_match_page(container, manager, database_service, values, review=None, error=None, status_code=200):
+    defaults = _review_defaults(review)
+    search = str(values.get("search") or (review["detected"].title if review else "") or "").strip().lower()
+    attach_to = str(values.get("attach_to", "") or "").strip()
+    link_to = str(values.get("link_to", "") or "").strip()
+    selected_abs_id = str(values.get("audiobook_id") or values.get("abs_id") or defaults["audiobook_id"]).strip()
+    selected_ebook_filename = sanitize_filename(values.get("ebook_filename") or defaults["ebook_filename"])
+    selected_ebook_source_id = str(values.get("ebook_source_id") or defaults["ebook_source_id"]).strip()
+    attach_title = ""
+    link_title = ""
+
+    if attach_to:
+        attach_book = database_service.get_book_by_ref(attach_to)
+        if attach_book:
+            attach_title = attach_book.title or attach_to
+
+    if link_to:
+        link_book = database_service.get_book_by_ref(link_to)
+        if link_book:
+            link_title = link_book.title or link_to
+
+    abs_service = get_abs_service()
+    audiobooks, ebooks, storyteller_books = [], [], []
+    if search:
+        if not attach_to:
+            audiobooks = get_audiobooks_conditionally()
+            audiobooks = [ab for ab in audiobooks if audiobook_matches_search(ab, search)]
+            for ab in audiobooks:
+                ab["cover_url"] = abs_service.get_cover_proxy_url(ab["id"])
+
+        if not link_to:
+            ebooks = get_searchable_ebooks(search)
+
+            if container.storyteller_client().is_configured():
+                try:
+                    storyteller_books = container.storyteller_client().search_books(search)
+                except Exception as e:
+                    logger.warning(f"Storyteller search failed in match route: {e}")
+
+    if selected_abs_id and not attach_to and not any(ab["id"] == selected_abs_id for ab in audiobooks):
+        selected = next((ab for ab in get_audiobooks_conditionally() if ab["id"] == selected_abs_id), None)
+        if selected:
+            selected["cover_url"] = abs_service.get_cover_proxy_url(selected_abs_id)
+            audiobooks.insert(0, selected)
+
+    candidate = review["candidate"] if review else None
+    candidate_abs_id = candidate.get("abs_id") if candidate else None
+    if candidate_abs_id and not attach_to and not any(ab["id"] == candidate_abs_id for ab in audiobooks):
+        candidate_ab = next((ab for ab in get_audiobooks_conditionally() if ab["id"] == candidate_abs_id), None)
+        if candidate_ab:
+            candidate_ab["cover_url"] = abs_service.get_cover_proxy_url(candidate_abs_id)
+            audiobooks.append(candidate_ab)
+
+    if selected_ebook_filename and not link_to:
+        exact_results = get_searchable_ebooks(selected_ebook_filename)
+        seen = {(eb.name, str(eb.source_id or "")) for eb in ebooks}
+        ebooks.extend(eb for eb in exact_results if (eb.name, str(eb.source_id or "")) not in seen)
+
+    candidate_filename = candidate.get("filename") if candidate else None
+    if candidate_filename and candidate_filename != selected_ebook_filename and not link_to:
+        exact_results = get_searchable_ebooks(candidate_filename)
+        seen = {(eb.name, str(eb.source_id or "")) for eb in ebooks}
+        ebooks.extend(eb for eb in exact_results if (eb.name, str(eb.source_id or "")) not in seen)
+
+    detected = review["detected"] if review else None
+    if detected and detected.source == "grimmory" and selected_ebook_filename == detected.ebook_filename:
+        instance_id = detected.source_id.split(":", 1)[0]
+        exact = next(
+            (
+                eb
+                for eb in ebooks
+                if eb.name == detected.ebook_filename and str(eb.grimmory_id or "").startswith(f"{instance_id}:")
+            ),
+            None,
+        )
+        if exact and not selected_ebook_source_id:
+            selected_ebook_source_id = str(exact.grimmory_id)
+
+    selected_ebook = next(
+        (
+            eb
+            for eb in ebooks
+            if eb.name == selected_ebook_filename
+            and (not selected_ebook_source_id or str(eb.grimmory_id or "") == selected_ebook_source_id)
+        ),
+        None,
+    )
+    for ebook in ebooks:
+        ebook.is_selected = ebook is selected_ebook
+
+    if review and not error:
+        candidate_source = (candidate.get("source_family") or candidate.get("source")) if candidate else None
+        if detected.source == "abs" and not any(ab["id"] == detected.source_id for ab in audiobooks):
+            error, status_code = "The detected audiobook edition is no longer available.", 409
+        elif detected.source in {"grimmory", "kosync"} and not any(
+            eb.name == detected.ebook_filename for eb in ebooks
+        ):
+            error, status_code = "The detected ebook edition is no longer available.", 409
+        elif candidate_source in {"abs", "abs_audiobook"} and not any(
+            ab["id"] == candidate.get("abs_id") for ab in audiobooks
+        ):
+            error, status_code = "The recommended audiobook edition is no longer available.", 409
+        elif candidate_source == "grimmory" and not any(
+            eb.name == candidate_filename and str(eb.grimmory_id or "") == str(candidate.get("id") or "")
+            for eb in ebooks
+        ):
+            error, status_code = "The recommended ebook edition is no longer available.", 409
+
+    storyteller_submit_available = False
+    try:
+        provider = getattr(container, "storyteller_submission_service", None)
+        storyteller_submit_available = bool(provider and provider().is_available())
+    except Exception as e:
+        logger.debug("Storyteller submission availability check failed: %s", e)
+
+    storyteller_force_mode = os.environ.get("STORYTELLER_FORCE_MODE", "false").lower() == "true"
+    storyteller_configured = container.storyteller_client().is_configured()
+    abs_configured = abs_service.is_available()
+    cwa_provider = getattr(container, "cwa_client", None)
+    has_abs_ebooks = getattr(abs_service, "has_ebook_libraries", lambda: False)
+    has_ebook_sources = (
+        any_grimmory_configured()
+        or bool(cwa_provider and cwa_provider().is_configured())
+        or has_abs_ebooks()
+        or get_ebook_dir().exists()
+    )
+
+    library_abs_ids = set()
+    library_ebook_filenames = set()
+    if search:
+        all_books = database_service.get_all_books()
+        library_abs_ids = {b.abs_id for b in all_books}
+        library_ebook_filenames = {b.ebook_filename for b in all_books if b.ebook_filename}
+        library_ebook_filenames |= {b.original_ebook_filename for b in all_books if b.original_ebook_filename}
+
+    collision = _existing_entry_collision(
+        database_service,
+        review,
+        selected_abs_id,
+        selected_ebook_filename,
+        selected_ebook_source_id,
+    )
+    pairing_values = _pairing_review_values(values)
+    page = render_template(
+        "match.html",
+        audiobooks=audiobooks,
+        ebooks=ebooks,
+        storyteller_books=storyteller_books,
+        search=_escape_template_value(search),
+        get_title=manager.get_audiobook_title,
+        attach_to=_escape_template_value(attach_to),
+        attach_title=_escape_template_value(attach_title),
+        link_to=_escape_template_value(link_to),
+        link_title=_escape_template_value(link_title),
+        preselect_abs_id=_escape_template_value(selected_abs_id),
+        selected_ebook_filename=_escape_template_value(selected_ebook_filename),
+        selected_ebook_source_id=_escape_template_value(selected_ebook_source_id),
+        storyteller_submit_available=storyteller_submit_available,
+        storyteller_force_mode=storyteller_force_mode,
+        storyteller_configured=storyteller_configured,
+        library_abs_ids=library_abs_ids,
+        library_ebook_filenames=library_ebook_filenames,
+        abs_configured=abs_configured,
+        has_ebook_sources=has_ebook_sources,
+        pairing_review=review,
+        pairing_values=pairing_values,
+        pairing_error=error,
+        existing_entry_collision=collision,
+    )
+    return (page, status_code) if status_code != 200 else page
+
+
+def _post_pairing_review(container, manager, database_service, review):
+    values = request.form
+
+    def render_error(message, status_code=400):
+        return _render_match_page(
+            container,
+            manager,
+            database_service,
+            values,
+            review=review,
+            error=message,
+            status_code=status_code,
+        )
+
+    abs_id = str(values.get("audiobook_id", "") or "").strip()
+    ebook_filename = sanitize_filename(values.get("ebook_filename"))
+    ebook_source_id = str(values.get("ebook_source_id", "") or "").strip() or None
+    if not abs_id or not ebook_filename:
+        return render_error("Choose one audiobook and one ebook before pairing formats.")
+
+    detected = review["detected"]
+    if detected.source == "abs" and abs_id != detected.source_id:
+        return render_error("The detected audiobook edition must remain selected.", 409)
+    if detected.source in {"grimmory", "kosync"} and ebook_filename != detected.ebook_filename:
+        return render_error("The detected ebook edition must remain selected.", 409)
+    if detected.source == "grimmory":
+        instance_id = detected.source_id.split(":", 1)[0]
+        if not ebook_source_id or not ebook_source_id.startswith(f"{instance_id}:"):
+            return render_error("The detected Grimmory edition no longer matches this selection.", 409)
+
+    abs_service = get_abs_service()
+    selected_ab = next((ab for ab in abs_service.get_audiobooks() if ab["id"] == abs_id), None)
+    if not selected_ab:
+        return render_error("The selected audiobook edition is no longer available.", 409)
+
+    collision = _existing_entry_collision(database_service, review, abs_id, ebook_filename, ebook_source_id)
+    if collision and values.get("confirm_combine") != "1":
+        return render_error(
+            "This ebook already belongs to another PageKeeper entry. Confirm that you want to combine the entries.",
+            409,
+        )
+
+    metadata = selected_ab.get("media", {}).get("metadata", {})
+    result = _get_book_intake_service(container).map_audiobook_ebook(
+        abs_id=abs_id,
+        title=manager.get_audiobook_title(selected_ab),
+        ebook_filename=ebook_filename,
+        ebook_source_id=ebook_source_id,
+        duration=manager.get_duration(selected_ab),
+        storyteller_uuid=values.get("storyteller_uuid") or None,
+        storyteller_submit=bool(values.get("storyteller_submit")),
+        author=get_audiobook_author(selected_ab),
+        subtitle=metadata.get("subtitle") or None,
+        detected_source=detected.source,
+        detected_source_id=detected.source_id,
+        expected_ebook_kosync_id=detected.source_id if detected.source == "kosync" else None,
+    )
+    if result.error:
+        return render_error(result.error, result.status_code)
+    return redirect(url_for("matching.suggestions"))
 
 
 @matching_bp.route("/suggestions")
@@ -291,8 +626,24 @@ def match():
     container = get_container()
     manager = get_manager()
     database_service = get_database_service()
+    values = request.form if request.method == "POST" else request.args
+    review_values = _pairing_review_values(values)
+    pairing_review, review_error, review_status = _load_pairing_review(database_service, review_values)
+
+    if review_error:
+        return _render_match_page(
+            container,
+            manager,
+            database_service,
+            values,
+            error=review_error,
+            status_code=review_status,
+        )
 
     if request.method == "POST":
+        if pairing_review:
+            return _post_pairing_review(container, manager, database_service, pairing_review)
+
         action = request.form.get("action", "")
         intake_service = _get_book_intake_service(container)
 
@@ -413,100 +764,12 @@ def match():
 
         return redirect(url_for("dashboard.index"))
 
-    # GET request
-    search = request.args.get("search", "").strip().lower()
-    attach_to = request.args.get("attach_to", "").strip()
-    link_to = request.args.get("link_to", "").strip()
-    preselect_abs_id = request.args.get("abs_id", "").strip()
-    attach_title = ""
-    link_title = ""
-
-    if attach_to:
-        attach_book = database_service.get_book_by_ref(attach_to)
-        if attach_book:
-            attach_title = attach_book.title or attach_to
-
-    if link_to:
-        link_book = database_service.get_book_by_ref(link_to)
-        if link_book:
-            link_title = link_book.title or link_to
-
-    abs_service = get_abs_service()
-    audiobooks, ebooks, storyteller_books = [], [], []
-    if search:
-        if not attach_to:
-            audiobooks = get_audiobooks_conditionally()
-            audiobooks = [ab for ab in audiobooks if audiobook_matches_search(ab, search)]
-            for ab in audiobooks:
-                ab["cover_url"] = abs_service.get_cover_proxy_url(ab["id"])
-
-        if not link_to:
-            ebooks = get_searchable_ebooks(search)
-
-            if container.storyteller_client().is_configured():
-                try:
-                    storyteller_books = container.storyteller_client().search_books(search)
-                except Exception as e:
-                    logger.warning(f"Storyteller search failed in match route: {e}")
-
-    # If abs_id provided (e.g. from suggestions) but not in search results, fetch it directly
-    preselected_audiobook = None
-    if preselect_abs_id and not attach_to:
-        already_listed = any(ab["id"] == preselect_abs_id for ab in audiobooks)
-        if not already_listed:
-            all_audiobooks = get_audiobooks_conditionally()
-            preselected_audiobook = next((ab for ab in all_audiobooks if ab["id"] == preselect_abs_id), None)
-            if preselected_audiobook:
-                preselected_audiobook["cover_url"] = abs_service.get_cover_proxy_url(preselect_abs_id)
-                audiobooks.insert(0, preselected_audiobook)
-
-    storyteller_submit_available = False
-    try:
-        st_sub_svc = container.storyteller_submission_service()
-        storyteller_submit_available = st_sub_svc.is_available()
-    except Exception as e:
-        logger.debug("Storyteller submission availability check failed: %s", e)
-
-    storyteller_force_mode = os.environ.get("STORYTELLER_FORCE_MODE", "false").lower() == "true"
-    storyteller_configured = container.storyteller_client().is_configured()
-
-    # Detect available services for smart mode defaults
-    abs_configured = abs_service.is_available()
-    has_ebook_sources = (
-        any_grimmory_configured()
-        or container.cwa_client().is_configured()
-        or abs_service.has_ebook_libraries()
-        or get_ebook_dir().exists()
-    )
-
-    # Build sets of IDs already in the library for "In Library" badges
-    library_abs_ids = set()
-    library_ebook_filenames = set()
-    if search:
-        all_books = database_service.get_all_books()
-        library_abs_ids = {b.abs_id for b in all_books}
-        library_ebook_filenames = {b.ebook_filename for b in all_books if b.ebook_filename}
-        library_ebook_filenames |= {b.original_ebook_filename for b in all_books if b.original_ebook_filename}
-
-    return render_template(
-        "match.html",
-        audiobooks=audiobooks,
-        ebooks=ebooks,
-        storyteller_books=storyteller_books,
-        search=_escape_template_value(search),
-        get_title=manager.get_audiobook_title,
-        attach_to=_escape_template_value(attach_to),
-        attach_title=_escape_template_value(attach_title),
-        link_to=_escape_template_value(link_to),
-        link_title=_escape_template_value(link_title),
-        preselect_abs_id=_escape_template_value(preselect_abs_id),
-        storyteller_submit_available=storyteller_submit_available,
-        storyteller_force_mode=storyteller_force_mode,
-        storyteller_configured=storyteller_configured,
-        library_abs_ids=library_abs_ids,
-        library_ebook_filenames=library_ebook_filenames,
-        abs_configured=abs_configured,
-        has_ebook_sources=has_ebook_sources,
+    return _render_match_page(
+        container,
+        manager,
+        database_service,
+        request.args,
+        review=pairing_review,
     )
 
 
