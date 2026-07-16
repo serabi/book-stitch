@@ -18,7 +18,9 @@ def test_navigation_shell_exposes_primary_and_utility_destinations(flask_app):
     for destination in ("/", "/reading", "/suggestions", "/settings", "/match", "/logs"):
         assert f'href="{destination}"' in html
     assert '<span class="sidebar-label">Currently Reading</span>' in html
-    assert '<span>Currently</span>' in html
+    assert '<span>Currently Reading</span>' in html
+    assert '<span class="sidebar-label">Logs</span>' in html
+    assert html.index('href="/match"') < html.index('href="/suggestions"')
     assert '/static/icon.png' in html
     assert '/static/grimmory-app.png' not in html
 
@@ -76,7 +78,7 @@ def test_navigation_icons_share_one_outline_style(flask_app):
     html = render_navigation(flask_app, "/")
     css = (Path(__file__).parent.parent / "static/css/layout.css").read_text()
 
-    for name in ("dashboard", "reading", "pairings", "settings", "add", "activity", "more"):
+    for name in ("dashboard", "reading", "current", "settings", "add", "logs", "more"):
         assert f'id="nav-icon-{name}"' in html
     assert "stroke-width: 2;" in css
     assert 'use[href="#nav-icon-dashboard"]' not in css
