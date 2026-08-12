@@ -414,6 +414,31 @@ class TestBookIdentityMerge(unittest.TestCase):
                 session.query(BookAlignment).filter(BookAlignment.book_id == target.id).count(), 0
             )
 
+    def test_backfill_null_fields_skips_foreign_keys(self):
+        canonical = SimpleNamespace(book_id=None, linked_book_id=None, note=None)
+        target = SimpleNamespace(book_id=7, linked_book_id=9, note="backfilled")
+        foreign_key = SimpleNamespace(
+            name="linked_book_id",
+            primary_key=False,
+            foreign_keys={object()},
+            onupdate=None,
+        )
+        ordinary = SimpleNamespace(
+            name="note",
+            primary_key=False,
+            foreign_keys=set(),
+            onupdate=None,
+        )
+        model = SimpleNamespace(
+            __name__="FutureUniqueChild",
+            __table__=SimpleNamespace(columns=[foreign_key, ordinary]),
+        )
+
+        self.db._books._backfill_null_fields(model, canonical, target)
+
+        self.assertIsNone(canonical.linked_book_id)
+        self.assertEqual(canonical.note, "backfilled")
+
 
 if __name__ == "__main__":
     unittest.main()

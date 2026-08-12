@@ -331,13 +331,18 @@ class BookRepository(BaseRepository):
 
     def _backfill_null_fields(self, model, canonical_child, target_child):
         """Fill null columns on the canonical row from the target row before the
-        target is deleted.  Canonical wins on conflict; book_id/abs_id and the
-        primary key are never copied.  An onupdate column (e.g. last_updated) is
-        left to the ORM, so it reflects the merge as a row touch.
+        target is deleted. Canonical wins on conflict; identity columns,
+        foreign keys, and the primary key are never copied. An onupdate column
+        (e.g. last_updated) is left to the ORM, so it reflects the merge as a
+        row touch.
         """
         backfilled = []
         for column in model.__table__.columns:
-            if column.primary_key or column.name in self._MOVE_UNIQUE_CHILD_SKIP_COLUMNS:
+            if (
+                column.primary_key
+                or column.foreign_keys
+                or column.name in self._MOVE_UNIQUE_CHILD_SKIP_COLUMNS
+            ):
                 continue
             if column.onupdate is not None:
                 continue
