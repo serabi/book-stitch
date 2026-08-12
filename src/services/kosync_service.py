@@ -300,6 +300,7 @@ class KosyncService:
                             cache_path = cache_dir / safe_title
                             if not is_safe_path_within(cache_path, cache_dir):
                                 logger.warning(f"Blocked cache write — path escapes cache dir: '{safe_title}'")
+                                continue
                             else:
                                 with open(cache_path, "wb") as f:
                                     f.write(book_content)

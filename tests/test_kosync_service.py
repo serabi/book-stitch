@@ -360,3 +360,26 @@ class TestFindEpubInGrimmory:
 
         assert service._find_epub_in_grimmory("target-hash") is None
         group.download_book.assert_not_called()
+
+    def test_rejects_cache_symlink_escape_after_download(self, tmp_path):
+        db = MagicMock()
+        db.get_all_grimmory_books.return_value = [
+            self._cached_file(book_id=10, file_id=42, filename="book.epub", book_type="EPUB")
+        ]
+        db.get_kosync_doc_by_grimmory_id.return_value = None
+        container = MagicMock()
+        group = container.grimmory_client_group.return_value
+        group.is_configured.return_value = True
+        group.download_book.return_value = b"epub bytes"
+        container.ebook_parser.return_value.get_kosync_id_from_bytes.return_value = "target-hash"
+        container.data_dir.return_value = tmp_path
+        cache_dir = tmp_path / "epub_cache"
+        cache_dir.mkdir()
+        outside = tmp_path / "outside.epub"
+        outside.write_bytes(b"outside")
+        (cache_dir / "default_book.epub").symlink_to(outside)
+        service = _make_service(db=db, container=container)
+
+        assert service._find_epub_in_grimmory("target-hash") is None
+        assert outside.read_bytes() == b"outside"
+        db.save_kosync_document.assert_not_called()
