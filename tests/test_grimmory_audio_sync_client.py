@@ -108,6 +108,46 @@ def test_audio_only_sync_uses_only_the_qualified_grimmory_instance(source_id, ex
     assert set(active_clients) == {"ABS", "Hardcover", expected_audio_client}
 
 
+def test_missing_abs_continues_with_grimmory_audio_without_ebook_fallback_log(caplog):
+    manager = object.__new__(SyncManager)
+    manager.alignment_service = None
+    manager.database_service = Mock()
+    manager.database_service.get_states_for_book.return_value = []
+    abs_client = Mock()
+    abs_client.get_supported_sync_types.return_value = {"audiobook"}
+    grimmory_audio = Mock()
+    grimmory_audio.get_supported_sync_types.return_value = {"audiobook"}
+    manager.sync_clients = {"ABS": abs_client, "GrimmoryAudio": grimmory_audio}
+    manager._fetch_states_parallel = Mock(
+        return_value={
+            "GrimmoryAudio": ServiceState(
+                current={"pct": 0.4},
+                previous_pct=0.4,
+                delta=0,
+                threshold=0.01,
+                is_configured=True,
+                display=("GrimmoryAudio", ""),
+                value_formatter=str,
+            )
+        }
+    )
+    manager._evaluate_sync_significance = Mock(return_value=False)
+    book = SimpleNamespace(
+        id=7,
+        abs_id=None,
+        title="Book",
+        sync_mode="audiobook",
+        kosync_doc_id=None,
+        grimmory_audio_source_id="default:10:42",
+    )
+
+    with caplog.at_level("INFO"):
+        manager._sync_single_book(book, {})
+
+    assert "continuing sync between ['GrimmoryAudio']" in caplog.text
+    assert "ebook-only" not in caplog.text
+
+
 def test_di_registers_each_grimmory_audio_instance():
     from src.utils.di_container import Container
 

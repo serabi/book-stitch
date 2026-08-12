@@ -550,10 +550,10 @@ class SyncManager:
         if not (hasattr(book, "sync_mode") and book.sync_mode == "ebook_only"):
             abs_state = config.get("ABS")
             if abs_state is None:
-                ebook_clients_active = [k for k in config.keys() if k != "ABS"]
-                if ebook_clients_active:
+                fallback_clients = [k for k in config.keys() if k != "ABS"]
+                if fallback_clients:
                     logger.info(
-                        f"'{abs_id}' '{title_snip}' ABS audiobook not found/offline, falling back to ebook-only sync between {ebook_clients_active}"
+                        f"'{abs_id}' '{title_snip}' ABS audiobook not found/offline; continuing sync between {fallback_clients}"
                     )
                 else:
                     logger.debug(f"'{abs_id}' '{title_snip}' ABS audiobook offline and no other clients, skipping")
