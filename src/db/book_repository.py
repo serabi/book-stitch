@@ -388,6 +388,8 @@ class BookRepository(BaseRepository):
                 logger.error(f"Failed to migrate book data: {e}")
                 raise
 
+    _MOVE_UNIQUE_CHILD_SKIP_COLUMNS = {"book_id", "abs_id"}
+
     def _move_unique_child(self, session, model, canonical_book_id, target_book_id, new_abs_id):
         target_child = session.query(model).filter(model.book_id == target_book_id).first()
         if not target_child:
@@ -395,12 +397,44 @@ class BookRepository(BaseRepository):
 
         canonical_child = session.query(model).filter(model.book_id == canonical_book_id).first()
         if canonical_child:
+            self._backfill_null_fields(model, canonical_child, target_child)
             session.delete(target_child)
             return
 
         target_child.book_id = canonical_book_id
         if hasattr(target_child, "abs_id"):
             target_child.abs_id = new_abs_id
+
+    def _backfill_null_fields(self, model, canonical_child, target_child):
+        """Fill null columns on the canonical row from the target row before the
+        target is deleted. Canonical wins on conflict; identity columns,
+        foreign keys, and the primary key are never copied. An onupdate column
+        (e.g. last_updated) is left to the ORM, so it reflects the merge as a
+        row touch.
+        """
+        backfilled = []
+        for column in model.__table__.columns:
+            if (
+                column.primary_key
+                or column.foreign_keys
+                or column.name in self._MOVE_UNIQUE_CHILD_SKIP_COLUMNS
+            ):
+                continue
+            if column.onupdate is not None:
+                continue
+            if getattr(canonical_child, column.name) is not None:
+                continue
+            target_value = getattr(target_child, column.name)
+            if target_value is None:
+                continue
+            setattr(canonical_child, column.name, target_value)
+            backfilled.append(column.name)
+
+        if backfilled:
+            logger.info(
+                f"Backfilled {model.__name__} fields {backfilled} on book_id={canonical_child.book_id} "
+                "from merged target row"
+            )
 
     # ── State CRUD ──
 
