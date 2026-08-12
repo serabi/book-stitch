@@ -8,6 +8,7 @@ All tests use mocked database_service and container — no Flask app needed.
 
 import os
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -312,3 +313,73 @@ class TestResolveBestProgress:
 
         result, status = svc.resolve_best_progress("e" * 32, _make_book())
         assert status == 502
+
+
+class TestFindEpubInGrimmory:
+    @staticmethod
+    def _cached_file(*, book_id, file_id, filename, book_type):
+        return SimpleNamespace(
+            server_id="default",
+            remote_book_id=str(book_id),
+            remote_file_id=str(file_id),
+            filename=filename,
+            title=filename,
+            raw_metadata_dict={"bookType": book_type},
+        )
+
+    def test_uses_exact_epub_identity_and_deduplicates_rows(self, tmp_path):
+        db = MagicMock()
+        audio = self._cached_file(book_id=10, file_id=41, filename="book.m4b", book_type="AUDIOBOOK")
+        epub = self._cached_file(book_id=10, file_id=42, filename="book.epub", book_type="EPUB")
+        duplicate = self._cached_file(book_id=10, file_id=42, filename="book.epub", book_type="EPUB")
+        db.get_all_grimmory_books.return_value = [audio, epub, duplicate]
+        db.get_kosync_doc_by_grimmory_id.return_value = None
+        container = MagicMock()
+        group = container.grimmory_client_group.return_value
+        group.is_configured.return_value = True
+        group.download_book.return_value = b"epub bytes"
+        container.ebook_parser.return_value.get_kosync_id_from_bytes.return_value = "target-hash"
+        container.data_dir.return_value = tmp_path
+        service = _make_service(db=db, container=container)
+
+        assert service._find_epub_in_grimmory("target-hash") == "default_book.epub"
+
+        group.download_book.assert_called_once_with("default:10", file_id="42")
+        db.get_kosync_doc_by_grimmory_id.assert_called_once_with("default:10:42")
+
+    def test_rejects_untrusted_remote_filename_before_download(self, tmp_path):
+        db = MagicMock()
+        db.get_all_grimmory_books.return_value = [
+            self._cached_file(book_id=10, file_id=42, filename="../escape.epub", book_type="EPUB")
+        ]
+        container = MagicMock()
+        group = container.grimmory_client_group.return_value
+        group.is_configured.return_value = True
+        container.data_dir.return_value = tmp_path
+        service = _make_service(db=db, container=container)
+
+        assert service._find_epub_in_grimmory("target-hash") is None
+        group.download_book.assert_not_called()
+
+    def test_rejects_cache_symlink_escape_after_download(self, tmp_path):
+        db = MagicMock()
+        db.get_all_grimmory_books.return_value = [
+            self._cached_file(book_id=10, file_id=42, filename="book.epub", book_type="EPUB")
+        ]
+        db.get_kosync_doc_by_grimmory_id.return_value = None
+        container = MagicMock()
+        group = container.grimmory_client_group.return_value
+        group.is_configured.return_value = True
+        group.download_book.return_value = b"epub bytes"
+        container.ebook_parser.return_value.get_kosync_id_from_bytes.return_value = "target-hash"
+        container.data_dir.return_value = tmp_path
+        cache_dir = tmp_path / "epub_cache"
+        cache_dir.mkdir()
+        outside = tmp_path / "outside.epub"
+        outside.write_bytes(b"outside")
+        (cache_dir / "default_book.epub").symlink_to(outside)
+        service = _make_service(db=db, container=container)
+
+        assert service._find_epub_in_grimmory("target-hash") is None
+        assert outside.read_bytes() == b"outside"
+        db.save_kosync_document.assert_not_called()

@@ -238,7 +238,11 @@ class ABSSocketListener:
             logger.debug(
                 f"ABS Socket.IO: Progress event for '{library_item_id[:12]}...' — not a tracked book, queuing suggestion discovery"
             )
-            self._suggestion_pool.submit(self._sync_manager.queue_suggestion, library_item_id)
+            self._suggestion_pool.submit(
+                self._sync_manager.queue_suggestion,
+                library_item_id,
+                inner if isinstance(inner, dict) else data,
+            )
             return
 
         # A not_started book never syncs (the poll only touches active books), so it

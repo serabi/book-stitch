@@ -3,6 +3,7 @@
 import logging
 
 from sqlalchemy import func, or_
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
 from .base_repository import BaseRepository
@@ -24,6 +25,10 @@ from .models import (
 logger = logging.getLogger(__name__)
 _UNSET = object()
 
+
+class KoSyncOwnershipConflict(Exception):
+    """A KoSync document is already or ambiguously owned by another Book."""
+
 _BOOK_MERGE_METADATA_ATTRS = (
     "title",
     "author",
@@ -44,11 +49,13 @@ _BOOK_MERGE_METADATA_ATTRS = (
     "finished_at",
     "rating",
     "read_count",
+    "grimmory_audio_source_id",
 )
 
 # A freshly created target book never carries these alignment/UX hints, so a
 # falsy value must not clobber the canonical book that already holds them.
-_BOOK_MERGE_PRESERVE_IF_EMPTY = {"transcript_file", "activity_flag"}
+_BOOK_MERGE_PRESERVE_IF_EMPTY = {"transcript_file", "activity_flag", "grimmory_audio_source_id"}
+_BOOK_SAVE_ATTRS = list(_BOOK_MERGE_METADATA_ATTRS)
 
 
 class BookRepository(BaseRepository):
@@ -93,6 +100,11 @@ class BookRepository(BaseRepository):
     def get_book_by_storyteller_uuid(self, uuid):
         return self._get_one(Book, Book.storyteller_uuid == uuid)
 
+    def get_book_by_grimmory_audio_source_id(self, source_id):
+        if not source_id:
+            return None
+        return self._get_one(Book, Book.grimmory_audio_source_id == source_id)
+
     def get_all_books(self):
         return self._get_all(Book)
 
@@ -117,33 +129,64 @@ class BookRepository(BaseRepository):
         return self._save_new(book)
 
     def save_book(self, book):
-        update_attrs = [
-            "title",
-            "author",
-            "subtitle",
-            "ebook_filename",
-            "original_ebook_filename",
-            "kosync_doc_id",
-            "transcript_file",
-            "status",
-            "duration",
-            "sync_mode",
-            "storyteller_uuid",
-            "abs_ebook_item_id",
-            "ebook_item_id",
-            "activity_flag",
-            "custom_cover_url",
-            "started_at",
-            "finished_at",
-            "rating",
-            "read_count",
-        ]
         if book.id:
-            return self._upsert(Book, [Book.id == book.id], book, update_attrs)
+            return self._upsert(Book, [Book.id == book.id], book, _BOOK_SAVE_ATTRS)
         elif book.abs_id:
-            return self._upsert(Book, [Book.abs_id == book.abs_id], book, update_attrs)
+            return self._upsert(Book, [Book.abs_id == book.abs_id], book, _BOOK_SAVE_ATTRS)
         else:
             return self._save_new(book)
+
+    def save_book_with_kosync_ownership(self, book):
+        """Atomically persist a Book and claim its KoSync document.
+
+        The no-op insert is deliberately the transaction's first statement: on
+        SQLite it obtains the database write reservation, serializing competing
+        claims for the same primary-keyed KoSync document before either can
+        create a Book row.
+        """
+        if not book.kosync_doc_id:
+            raise ValueError("KoSync ownership requires a document hash")
+
+        with self.get_session() as session:
+            session.execute(
+                sqlite_insert(KosyncDocument)
+                .values(document_hash=book.kosync_doc_id)
+                .on_conflict_do_nothing(index_elements=[KosyncDocument.document_hash])
+            )
+            document = session.query(KosyncDocument).filter(KosyncDocument.document_hash == book.kosync_doc_id).one()
+            matching_books = session.query(Book).filter(Book.kosync_doc_id == book.kosync_doc_id).limit(2).all()
+            if len(matching_books) > 1:
+                raise KoSyncOwnershipConflict("Multiple existing Books already use this KoSync document")
+
+            existing = matching_books[0] if matching_books else None
+            if existing and book.id is None:
+                raise KoSyncOwnershipConflict("KoSync document is already used by another Book")
+            if document.linked_book_id and (not existing or document.linked_book_id != existing.id):
+                raise KoSyncOwnershipConflict("KoSync document is already owned by another Book")
+            if existing and book.id not in (None, existing.id):
+                raise KoSyncOwnershipConflict("KoSync document is already used by another Book")
+            if document.linked_book_id and book.id not in (None, document.linked_book_id):
+                raise KoSyncOwnershipConflict("KoSync document is already owned by another Book")
+
+            target = existing
+            if target is None and book.id:
+                target = session.query(Book).filter(Book.id == book.id).one_or_none()
+            if target is None:
+                target = book
+                session.add(target)
+            else:
+                for attr in _BOOK_SAVE_ATTRS:
+                    setattr(target, attr, getattr(book, attr))
+
+            session.flush()
+            document.linked_book_id = target.id
+            document.linked_abs_id = target.abs_id
+            if not document.filename:
+                document.filename = target.ebook_filename
+            session.flush()
+            session.refresh(target)
+            session.expunge(target)
+            return target
 
     def _mutate_first_and_detach(self, query_factory, mutate):
         """Load the first row from ``query_factory``, mutate it, and return it detached.
@@ -188,7 +231,7 @@ class BookRepository(BaseRepository):
                 return True
             return False
 
-    def migrate_book_data(self, old_abs_id, new_abs_id):
+    def migrate_book_data(self, old_abs_id, new_abs_id, overrides=None):
         """Migrate a book identity while preserving the source Book row.
 
         The existing book is the canonical row because child state, journals,
@@ -197,13 +240,38 @@ class BookRepository(BaseRepository):
         the source row, move any target-only children, then delete only the
         temporary target row.
         """
+        return self._migrate_book_data(
+            [Book.abs_id == old_abs_id],
+            old_abs_id,
+            new_abs_id,
+            overrides,
+        )
+
+    def migrate_book_data_by_id(
+        self,
+        book_id,
+        new_abs_id,
+        *,
+        expected_kosync_doc_id,
+        expected_abs_id,
+        overrides=None,
+    ):
+        """Migrate an exact source row only while its confirmed identity matches."""
+        return self._migrate_book_data(
+            [
+                Book.id == book_id,
+                Book.kosync_doc_id == expected_kosync_doc_id,
+                Book.abs_id == expected_abs_id,
+            ],
+            expected_abs_id,
+            new_abs_id,
+            overrides,
+        )
+
+    def _migrate_book_data(self, lookup_filters, old_abs_id, new_abs_id, overrides):
         with self.get_session() as session:
             try:
-                book = session.query(Book).filter(Book.abs_id == old_abs_id).first()
-                if not book and old_abs_id is not None:
-                    old_ref = str(old_abs_id).strip()
-                    if old_ref.isdigit():
-                        book = session.query(Book).filter(Book.id == int(old_ref)).first()
+                book = session.query(Book).filter(*lookup_filters).first()
                 if not book:
                     logger.warning(f"migrate_book_data: book '{old_abs_id}' not found")
                     return
@@ -268,6 +336,10 @@ class BookRepository(BaseRepository):
                     session.delete(target_book)
                     session.flush()
 
+                for attr, value in (overrides or {}).items():
+                    if attr in _BOOK_MERGE_METADATA_ATTRS:
+                        setattr(book, attr, value)
+
                 # Update the book's abs_id — child rows follow via book_id FK
                 book.abs_id = new_abs_id
 
@@ -308,6 +380,10 @@ class BookRepository(BaseRepository):
                 )
 
                 logger.info(f"Migrated book identity from '{old_abs_id}' to '{new_abs_id}'")
+                session.flush()
+                session.refresh(book)
+                session.expunge(book)
+                return book
             except Exception as e:
                 logger.error(f"Failed to migrate book data: {e}")
                 raise

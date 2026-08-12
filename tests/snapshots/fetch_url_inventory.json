@@ -3,7 +3,7 @@
   "/api/book/",
   "/api/bookfusion/add-to-dashboard",
   "/api/bookfusion/sync-highlights",
-  "/api/detected/",
+  "/api/detected/dismiss-group",
   "/api/dnf/",
   "/api/grimmory/link/",
   "/api/grimmory/search",

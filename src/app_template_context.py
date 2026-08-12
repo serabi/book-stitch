@@ -38,7 +38,7 @@ TEMPLATE_DEFAULTS = {
     "REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT": "true",
 }
 
-_PENDING_COUNT_CACHE = {"value": None, "expires": 0}
+_PAIRING_COUNT_CACHE = {"value": None, "expires": 0}
 
 
 def _get_val(key, default_val=None):
@@ -70,12 +70,12 @@ def _is_active_path(path):
     return req_path == target_path or req_path.startswith(f"{target_path}/")
 
 
-def _get_pending_count_cached(db_svc):
+def _get_pairing_count_cached(db_svc):
     now = time.monotonic()
-    if now > _PENDING_COUNT_CACHE["expires"]:
-        _PENDING_COUNT_CACHE["value"] = db_svc.get_pending_suggestion_count()
-        _PENDING_COUNT_CACHE["expires"] = now + 5
-    return _PENDING_COUNT_CACHE["value"]
+    if now > _PAIRING_COUNT_CACHE["expires"]:
+        _PAIRING_COUNT_CACHE["value"] = db_svc.get_active_detected_book_count()
+        _PAIRING_COUNT_CACHE["expires"] = now + 5
+    return _PAIRING_COUNT_CACHE["value"]
 
 
 def inject_global_vars():
@@ -85,13 +85,12 @@ def inject_global_vars():
     title_prefix = "[DEV] " if is_dev_container else ""
 
     suggestion_count = 0
-    if _get_bool("SUGGESTIONS_ENABLED"):
-        try:
-            db_svc = current_app.config.get("database_service")
-            if db_svc:
-                suggestion_count = _get_pending_count_cached(db_svc)
-        except Exception:
-            current_app.logger.debug("Failed to get pending suggestion count", exc_info=True)
+    try:
+        db_svc = current_app.config.get("database_service")
+        if db_svc:
+            suggestion_count = _get_pairing_count_cached(db_svc)
+    except Exception:
+        current_app.logger.debug("Failed to get Currently Reading pairing count", exc_info=True)
 
     return dict(
         abs_server=os.environ.get("ABS_SERVER", ""),

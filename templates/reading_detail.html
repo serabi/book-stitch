@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <title>{{ title_prefix }}{{ book.title }} - PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" href="/static/grimmory-app.png">
-    <link rel="apple-touch-icon" href="/static/grimmory-app.png">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -21,7 +21,7 @@
 <body>
     {% include 'partials/navbar.html' %}
 
-    <div class="container r-detail-container">
+    <div class="container r-detail-container" id="main" role="main">
         {% if request.args.get('from') == 'dashboard' %}
         <a href="/" class="r-back-link">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>

@@ -349,9 +349,18 @@ class BackgroundJobService:
             # Priority 3: Whisper transcription
             if not raw_transcript and transcript_source != "STORYTELLER_NATIVE":
                 logger.info("SMIL extraction skipped/failed, falling back to Whisper transcription")
-                audio_files = self.abs_client.get_audio_files(abs_id)
+                audio_source_id = getattr(book, "grimmory_audio_source_id", None)
+                if abs_id:
+                    transcription_id = abs_id
+                    audio_files = self.abs_client.get_audio_files(abs_id)
+                elif audio_source_id:
+                    transcription_id = audio_source_id
+                    audio_files = self.grimmory_client.get_audio_files(audio_source_id)
+                else:
+                    transcription_id = f"book-{book.id}"
+                    audio_files = []
                 raw_transcript = self.transcriber.process_audio(
-                    abs_id,
+                    transcription_id,
                     audio_files,
                     full_book_text=book_text,
                     progress_callback=lambda p: update_progress(p, 2),

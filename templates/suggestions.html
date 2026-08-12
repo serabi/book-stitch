@@ -1,12 +1,58 @@
+{% macro pairing_card(pairing) %}
+<article class="pairing-card" data-source="{{ pairing.source }}" data-source-id="{{ pairing.source_id }}" aria-labelledby="currently-reading-{{ pairing.id }}">
+    <div class="pairing-book">
+        {% if pairing.cover_url %}<img src="{{ pairing.cover_url }}" alt="" class="pairing-cover" loading="lazy">{% else %}<div class="pairing-cover pairing-cover--empty" aria-hidden="true"></div>{% endif %}
+        <div class="pairing-book-copy">
+            <h2 id="currently-reading-{{ pairing.id }}">{{ pairing.title }}</h2>
+            <p>{{ pairing.author }}</p>
+            <ul class="pairing-activities" aria-label="Reading activity for {{ pairing.title }}">
+                {% for activity in pairing.activities %}
+                <li class="pairing-activity" data-source="{{ activity.source }}" data-source-id="{{ activity.source_id }}"
+                    aria-label="{{ pairing.title }} from {{ activity.source_label }}">
+                    <strong>{{ activity.source_label }}</strong>
+                    <span>{{ activity.format }} · {{ activity.progress }}% read</span>
+                    <span>{% if activity.activity_at %}Active {{ activity.activity_at }}{% else %}Activity time unknown{% endif %}{% if activity.device %} · {{ activity.device }}{% endif %}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    {% if pairing.companions %}
+    <div class="pairing-recommendation">
+        <p class="pairing-eyebrow">Companion options</p>
+        <ul class="pairing-companions">
+            {% for companion in pairing.companions %}
+            <li><strong>{{ companion.title }}</strong><span>{{ companion.source_label }} · {{ companion.format }} · {{ companion.confidence }} match</span></li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% else %}
+    <div class="pairing-recommendation pairing-recommendation--empty">
+        <p class="pairing-eyebrow">No companion found yet</p>
+        <p>Search available audiobook and ebook sources to choose one manually.</p>
+    </div>
+    {% endif %}
+
+    <div class="pairing-actions">
+        {% if pairing.top_match %}
+        <a class="btn btn-primary" href="{{ pairing.review_url }}" aria-label="Review match for {{ pairing.title }} from {{ pairing.source_summary }}">Review match</a>
+        {% else %}
+        <a class="btn btn-primary" href="{{ pairing.find_companion_url }}" aria-label="Find companion for {{ pairing.title }} from {{ pairing.source_summary }}">Find companion</a>
+        {% endif %}
+        <button class="btn btn-secondary pairing-dismiss" type="button" aria-label="Dismiss {{ pairing.title }} from {{ pairing.source_summary }}">Dismiss</button>
+    </div>
+</article>
+{% endmacro %}
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
-    <title>{{ title_prefix }}Suggestions - PageKeeper</title>
+    <title>{{ title_prefix }}{{ 'Library Suggestions' if library_view else 'Currently Reading' }} - PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" href="/static/grimmory-app.png">
-    <link rel="apple-touch-icon" href="/static/grimmory-app.png">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/variables.css">
     <link rel="stylesheet" href="/static/css/base.css">
@@ -18,12 +64,57 @@
 <body>
     {% include 'partials/navbar.html' %}
 
-    <div class="container suggestions-shell">
+    {% if not library_view %}
+    <main id="main" class="container suggestions-shell pairings-inbox">
+        <header class="pairings-header">
+            <div>
+                <p class="sg-page-kicker">Reading activity</p>
+                <h1 class="sg-page-title">Currently Reading</h1>
+                <p class="sg-page-description">Link books already in progress with their audiobook or ebook companion.</p>
+            </div>
+            <div class="pairings-header-actions">
+                <button type="button" class="btn btn-secondary" id="rescan-btn">Rescan sources</button>
+                <details class="pairings-advanced">
+                    <summary>Advanced</summary>
+                    <nav aria-label="Advanced Currently Reading tools">
+                        <a href="/suggestions?view=library">Library suggestions</a>
+                        <a href="/batch-match">Batch matching</a>
+                    </nav>
+                </details>
+            </div>
+        </header>
+        <p class="pairings-status" id="rescan-status" role="status" aria-live="polite"></p>
+
+        {% if pairing_count %}
+            <section aria-label="Currently Reading books">
+                <div class="pairing-list">{% for pairing in pairings %}{{ pairing_card(pairing) }}{% endfor %}</div>
+            </section>
+        {% else %}
+        <section class="pairings-empty" aria-labelledby="empty-heading">
+            {% if has_detected_history %}
+            <h2 id="empty-heading">All caught up</h2>
+            <p>Every detected Currently Reading book has been resolved or dismissed.</p>
+            {% elif not progress_sources_configured %}
+            <h2 id="empty-heading">Connect a reading source</h2>
+            <p>No progress-capable sources are configured. Connect Audiobookshelf, KoSync, Storyteller, or Grimmory in <a href="/settings">Settings</a>.</p>
+            {% else %}
+            <h2 id="empty-heading">Nothing found yet</h2>
+            <p>Your reading sources are configured, but PageKeeper has not found any unresolved books in progress.</p>
+            {% endif %}
+        </section>
+        {% endif %}
+    </main>
+    {% else %}
+    <main id="main" class="container suggestions-shell">
+        <nav class="pairings-library-nav" aria-label="Matching views">
+            <a href="/suggestions">Currently Reading</a>
+            <a href="/batch-match">Batch matching</a>
+        </nav>
         <div class="sg-page-header">
             <div class="sg-header-copy">
                 <p class="sg-page-kicker">Discovery Queue</p>
-                <h2 class="sg-page-title">Pairing Suggestions</h2>
-                <p class="sg-page-description">Review potential audiobook &amp; ebook pairings</p>
+                <h1 class="sg-page-title">Library Suggestions</h1>
+                <p class="sg-page-description">Review potential audiobook and ebook companions</p>
             </div>
             <div class="candidate-actions">
                 <button type="button" class="btn btn-primary" id="rescan-btn">Rescan Libraries</button>
@@ -32,13 +123,16 @@
 
         <div class="sg-toolbar" id="suggestions-toolbar">
             <div class="sg-toolbar-main">
+                <label class="visually-hidden" for="suggestion-search">Search companion suggestions</label>
                 <input type="text" id="suggestion-search" class="search-box" placeholder="Filter by title, author, or candidate..." value="{{ initial_search }}">
+                <label class="visually-hidden" for="confidence-filter">Filter by match confidence</label>
                 <select id="confidence-filter">
                     <option value="all">All confidence</option>
                     <option value="high">High confidence</option>
                     <option value="medium">High + medium</option>
                 </select>
                 {% if bookfusion_enabled %}
+                <label class="visually-hidden" for="bookfusion-filter">Filter by evidence source</label>
                 <select id="bookfusion-filter">
                     <option value="all">All evidence</option>
                     <option value="bookfusion">Has BookFusion evidence</option>
@@ -53,7 +147,7 @@
                     </button>
                 </div>
             </div>
-            <span class="help-note sg-toolbar-status" id="rescan-status"></span>
+            <span class="help-note sg-toolbar-status" id="rescan-status" role="status" aria-live="polite"></span>
         </div>
 
         <div class="stats-strip">
@@ -75,11 +169,11 @@
             {% if not suggestions_enabled %}
             <p>Suggestions are disabled. Enable them in <a href="/settings?tab=general">Settings</a>.</p>
             {% elif bookfusion_enabled and bookfusion_catalog_count == 0 %}
-            <p>No pairings are ready yet. BookFusion is enabled, but its local catalog has not been synced into PageKeeper yet. Sync BookFusion highlights/library first, then run a rescan.</p>
+            <p>No matches are ready yet. BookFusion is enabled, but its local catalog has not been synced into PageKeeper yet. Sync BookFusion highlights/library first, then run a rescan.</p>
             {% elif bookfusion_enabled %}
-            <p>No visible pairings matched the current filters. Clear filters or expand Hidden below to manage hidden suggestions.</p>
+            <p>No visible matches fit the current filters. Clear filters or expand Hidden below to manage hidden suggestions.</p>
             {% else %}
-            <p>No visible pairing candidates were found. Clear filters or expand Hidden below to manage hidden suggestions.</p>
+            <p>No visible companion candidates were found. Clear filters or expand Hidden below to manage hidden suggestions.</p>
             {% endif %}
         </div>
 
@@ -94,15 +188,21 @@
             </div>
         </div>
 
-        {% include 'partials/confirm_modal.html' %}
-    </div>
+    </main>
+    {% endif %}
 
+    {% include 'partials/confirm_modal.html' %}
+
+    {% if library_view %}
     <script>
         window.PK_PAGE_DATA = {
             suggestionsData: {{ suggestions_data|tojson }},
             selectedSourceId: {{ selected_source_id|tojson }}
         };
     </script>
+    {% else %}
+    <script>window.PK_PAGE_DATA = { pairingsInbox: true };</script>
+    {% endif %}
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/confirm-modal.js"></script>
     <script src="/static/js/suggestions.js"></script>

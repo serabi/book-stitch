@@ -52,6 +52,23 @@ class TestABSSocketListenerDebounce(unittest.TestCase):
 
         self.assertEqual(len(self.listener._pending), 0)
 
+    def test_untracked_event_forwards_progress_and_timestamp_to_discovery(self):
+        self.mock_db.get_book_by_abs_id.return_value = None
+        self.listener._suggestion_pool = MagicMock()
+        progress = {
+            "libraryItemId": "unknown-progress",
+            "progress": 0.42,
+            "lastUpdate": "2026-07-15T12:00:00Z",
+        }
+
+        self.listener._handle_progress_event({"id": "progress-id", "data": progress})
+
+        self.listener._suggestion_pool.submit.assert_called_once_with(
+            self.mock_sync.queue_suggestion,
+            "unknown-progress",
+            progress,
+        )
+
     def test_records_active_book_event(self):
         """Events for active books should be recorded in pending dict."""
         book = self._make_active_book("book-1")

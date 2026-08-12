@@ -15,6 +15,7 @@ from pathlib import Path
 
 from flask import abort, current_app
 
+from src.utils.path_utils import is_safe_path_within, sanitize_filename
 from src.utils.service_url_helper import get_hardcover_book_url, get_service_web_url  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ def get_grimmory_client():
     return get_container().grimmory_client_group()
 
 
-def find_in_grimmory(filename):
+def find_in_grimmory(filename, source_id=None):
     """Search Grimmory for a book by filename, return (book_info, client) or (None, None).
 
     When found via the group facade, resolves the owning single-instance client
@@ -73,6 +74,20 @@ def find_in_grimmory(filename):
         return None, None
     group = get_grimmory_client()
     if group.is_configured():
+        if source_id and ":" in str(source_id):
+            parts = str(source_id).split(":")
+            instance_id = parts[0]
+            client = _resolve_grimmory_instance(instance_id)
+            if not client or not client.is_configured():
+                return None, None
+            if len(parts) == 3:
+                book = client.find_book_file_by_source_id(source_id)
+                return ({**book, "_instance_id": instance_id}, client) if book else (None, None)
+            book_id = parts[1] if len(parts) == 2 else ""
+            book = client.find_book_by_filename(filename)
+            if book and str(book.get("id")) == book_id:
+                return {**book, "_instance_id": instance_id}, client
+            return None, None
         book = group.find_book_by_filename(filename)
         if book:
             # Resolve the specific client that owns this book
@@ -87,7 +102,9 @@ def _resolve_grimmory_instance(instance_id):
     container = get_container()
     if instance_id == "2":
         return container.grimmory_client_2()
-    return container.grimmory_client()
+    if instance_id == "default":
+        return container.grimmory_client()
+    return None
 
 
 def get_enabled_grimmory_server_ids():
@@ -159,24 +176,44 @@ def audiobook_matches_search(ab, search_term):
 
 
 def find_ebook_file(filename, ebook_dir=None):
+    if sanitize_filename(filename) != filename:
+        logger.warning("Rejected unsafe ebook filename")
+        return None
     base = ebook_dir if ebook_dir is not None else get_ebook_dir()
     escaped_filename = glob_module.escape(filename)
-    matches = list(base.rglob(escaped_filename))
-    return matches[0] if matches else None
+    for match in base.rglob(escaped_filename):
+        if match.is_file() and is_safe_path_within(match, base):
+            return match
+    return None
 
 
-def get_kosync_id_for_ebook(ebook_filename, grimmory_id=None, original_filename=None, bl_client=None):
+def get_kosync_id_for_ebook(
+    ebook_filename,
+    grimmory_id=None,
+    original_filename=None,
+    bl_client=None,
+    grimmory_file_id=None,
+):
     """Get KOSync document ID for an ebook.
     Tries Grimmory API first (if configured and grimmory_id provided),
     falls back to filesystem if needed.
     """
+    if sanitize_filename(ebook_filename) != ebook_filename:
+        logger.warning("Rejected unsafe ebook filename while computing KoSync ID")
+        return None
+    if original_filename and sanitize_filename(original_filename) != original_filename:
+        original_filename = None
+
     container = get_container()
     EBOOK_DIR = get_ebook_dir()
 
     # Try Grimmory API first — use the specific client that reported the ID
     if grimmory_id and bl_client and bl_client.is_configured():
         try:
-            content = bl_client.download_book(grimmory_id)
+            if grimmory_file_id is not None:
+                content = bl_client.download_book(grimmory_id, file_id=grimmory_file_id)
+            else:
+                content = bl_client.download_book(grimmory_id)
             if content:
                 kosync_id = container.ebook_parser().get_kosync_id_from_bytes(ebook_filename, content)
                 if kosync_id:
@@ -197,7 +234,7 @@ def get_kosync_id_for_ebook(ebook_filename, grimmory_id=None, original_filename=
     # Check Epub Cache explicitly
     epub_cache = container.epub_cache_dir()
     cached_path = epub_cache / ebook_filename
-    if cached_path.exists():
+    if is_safe_path_within(cached_path, epub_cache) and cached_path.is_file():
         return container.ebook_parser().get_kosync_id(cached_path)
 
     # On-Demand Fetching: ABS
@@ -334,6 +371,7 @@ def get_searchable_ebooks(search_term):
 
     results = []
     found_filenames = set()
+    found_grimmory = set()
     found_stems = set()
 
     # 1. Grimmory (all configured servers)
@@ -345,12 +383,19 @@ def get_searchable_ebooks(search_term):
                 for b in books:
                     fname = b.get("fileName", "")
                     if fname.lower().endswith(".epub"):
-                        if fname.lower() in found_filenames:
+                        instance_id = str(b.get("_instance_id") or "default")
+                        book_id = b.get("id")
+                        file_id = b.get("bookFileId")
+                        if book_id is None or file_id is None:
                             continue
+                        qualified_id = f"{instance_id}:{book_id}:{file_id}"
+                        dedupe_key = qualified_id
+                        if dedupe_key in found_grimmory:
+                            continue
+                        found_grimmory.add(dedupe_key)
                         found_filenames.add(fname.lower())
                         found_stems.add(Path(fname).stem.lower())
-                        bl_id = b.get("id")
-                        instance_id = b.get("_instance_id", "default")
+                        bl_id = book_id
                         label = _grimmory_label(instance_id)
                         cover_prefix = "grimmory2" if instance_id == "2" else "grimmory"
                         cover = f"/api/cover-proxy/{cover_prefix}/{bl_id}" if bl_id else None
@@ -360,8 +405,9 @@ def get_searchable_ebooks(search_term):
                                 title=b.get("title"),
                                 subtitle=b.get("subtitle"),
                                 authors=b.get("authors"),
-                                grimmory_id=bl_id,
+                                grimmory_id=qualified_id,
                                 source=label,
+                                source_id=qualified_id,
                                 cover_url=cover,
                             )
                         )
@@ -545,21 +591,3 @@ def safe_folder_name(name: str) -> str:
     for c in invalid:
         name = name.replace(c, "_")
     return name.strip() or "Unknown"
-
-
-def serialize_detected_book(d):
-    """Serialize DetectedBook for template context."""
-    return {
-        "id": d.id,
-        "source": d.source,
-        "source_id": d.source_id,
-        "title": d.title,
-        "author": d.author,
-        "cover_url": d.cover_url,
-        "progress_percentage": d.progress_percentage,
-        "first_detected_at": d.first_detected_at.isoformat() if d.first_detected_at else None,
-        "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
-        "matches": d.matches,
-        "device": d.device,
-        "ebook_filename": d.ebook_filename,
-    }

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title_prefix }}Match unavailable - PageKeeper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/match.css">
+</head>
+<body>
+    {% include 'partials/navbar.html' %}
+    <main id="main" class="container match-terminal-state">
+        <h1>Match unavailable</h1>
+        <p class="match-inline-error" role="alert">{{ pairing_error }}</p>
+        <a class="btn btn-primary" href="/suggestions">Back to Currently Reading</a>
+    </main>
+</body>
+</html>

@@ -118,6 +118,7 @@ class TestBookIdentityMerge(unittest.TestCase):
                 status="active",
                 sync_mode="ebook_only",
                 read_count=2,
+                grimmory_audio_source_id="default:10:42",
             )
         )
         self.db.save_state(
@@ -177,6 +178,9 @@ class TestBookIdentityMerge(unittest.TestCase):
         )
 
         self.db.migrate_book_data(source.abs_id, target.abs_id)
+
+        merged = self.db.get_book_by_abs_id(target.abs_id)
+        self.assertEqual(merged.grimmory_audio_source_id, "default:10:42")
 
         with self.db.get_session() as session:
             books = session.query(Book).all()
@@ -256,6 +260,61 @@ class TestBookIdentityMerge(unittest.TestCase):
             self.assertEqual(survivor.author, "Aligned Author")
             self.assertEqual(survivor.duration, 3600)
             self.assertEqual(survivor.sync_mode, "audiobook")
+
+    def test_primary_key_merge_ignores_numeric_abs_id_collision(self):
+        collision = self.db.save_book(
+            Book(abs_id="22", title="Numeric ABS", ebook_filename="collision.epub", kosync_doc_id="a" * 32)
+        )
+        with self.db.get_session() as session:
+            source = Book(
+                abs_id="ebook-source-22",
+                title="Exact source",
+                ebook_filename="exact.epub",
+                kosync_doc_id="b" * 32,
+            )
+            source.id = 22
+            session.add(source)
+
+        migrated = self.db.migrate_book_data_by_id(
+            22,
+            "abs-target-22",
+            expected_kosync_doc_id="b" * 32,
+            expected_abs_id="ebook-source-22",
+        )
+
+        self.assertEqual(migrated.id, 22)
+        self.assertEqual(migrated.abs_id, "abs-target-22")
+        self.assertEqual(self.db.get_book_by_id(collision.id).abs_id, "22")
+
+    def test_primary_key_merge_rejects_changed_identity_before_mutation(self):
+        source = self.db.save_book(
+            Book(
+                abs_id="ebook-source-race",
+                title="Source",
+                ebook_filename="source.epub",
+                kosync_doc_id="c" * 32,
+            )
+        )
+        target = self.db.save_book(Book(abs_id="abs-target-race", title="Target"))
+        self.db.save_state(
+            State(abs_id=source.abs_id, book_id=source.id, client_name="KOReader", percentage=0.25)
+        )
+        with self.db.get_session() as session:
+            changed = session.query(Book).filter(Book.id == source.id).one()
+            changed.kosync_doc_id = "d" * 32
+
+        migrated = self.db.migrate_book_data_by_id(
+            source.id,
+            target.abs_id,
+            expected_kosync_doc_id="c" * 32,
+            expected_abs_id=source.abs_id,
+        )
+
+        self.assertIsNone(migrated)
+        with self.db.get_session() as session:
+            books = session.query(Book).order_by(Book.id).all()
+            self.assertEqual(len(books), 2)
+            self.assertEqual(session.query(State).one().book_id, source.id)
 
     def test_attach_audiobook_route_merges_when_link_book_id_is_numeric(self):
         import src.db.migration_utils

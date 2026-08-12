@@ -1,3 +1,7 @@
+{% macro nav_icon(name) %}
+<svg class="nav-item-icon" aria-hidden="true"><use href="#nav-icon-{{ name }}"></use></svg>
+{% endmacro %}
+
 {% macro service_links(extra_class='') %}
     <div class="library-links {{ extra_class }}" role="navigation" aria-label="Service shortcuts">
         {% if abs_url %}
@@ -44,58 +48,76 @@
     </div>
 {% endmacro %}
 
-<header class="top-nav">
-    <div class="nav-brand">
-        <a href="/" class="brand-link">
-            <img src="/static/grimmory-app.png" alt="PageKeeper" class="app-icon" width="36" height="36">
-            <div class="brand-copy">
-                <div class="brand-title-row">
-                    <h1>PageKeeper</h1>
-                    {% if is_dev_container %}
-                    <span class="env-badge env-badge-dev" title="Development container">DEV</span>
-                    {% endif %}
-                </div>
-            </div>
+{% set abs_url = get_header_service_url('ABS') %}
+{% set storyteller_url = get_header_service_url('STORYTELLER') %}
+{% set grimmory_url = get_header_service_url('GRIMMORY') %}
+{% set grimmory2_url = get_header_service_url('GRIMMORY_2') %}
+{% set cwa_url = get_header_service_url('CWA') %}
+{% set hardcover_url = get_header_service_url('HARDCOVER') %}
+{% set show_bookfusion_icon = get_bool('BOOKFUSION_ENABLED') %}
+{% set has_any_link = abs_url or storyteller_url or grimmory_url or grimmory2_url or cwa_url or hardcover_url or show_bookfusion_icon %}
+{% set pairings_active = is_active_path('/suggestions') or is_active_path('/match') or is_active_path('/batch-match') %}
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<svg class="nav-symbols" aria-hidden="true">
+    <symbol id="nav-icon-dashboard" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></symbol>
+    <symbol id="nav-icon-reading" viewBox="0 0 24 24"><path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2zM22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/></symbol>
+    <symbol id="nav-icon-current" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></symbol>
+    <symbol id="nav-icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.38.36.72.65 1 .3.27.68.42 1.08.4H21v4h-.1A1.7 1.7 0 0 0 19.4 15z"/></symbol>
+    <symbol id="nav-icon-add" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="nav-icon-logs" viewBox="0 0 24 24"><path d="M6 4h12M6 9h12M6 14h12M6 19h8"/></symbol>
+    <symbol id="nav-icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+</svg>
+
+<aside class="app-sidebar" aria-label="Application navigation">
+    <a href="/" class="sidebar-brand">
+        <img src="/static/icon.png" alt="" class="app-icon" width="40" height="40">
+        <span class="sidebar-brand-copy">
+            <span class="sidebar-brand-name">PageKeeper</span>
+            {% if is_dev_container %}<span class="env-badge env-badge-dev" title="Development container">DEV</span>{% endif %}
+        </span>
+    </a>
+
+    {% if has_any_link %}{{ service_links('sidebar-service-links') }}{% endif %}
+
+    <nav class="sidebar-nav" aria-label="Primary">
+        <a href="/" class="sidebar-nav-link {% if is_active_path('/') %}active{% endif %}" {% if is_active_path('/') %}aria-current="page"{% endif %} title="Dashboard">
+            {{ nav_icon('dashboard') }}<span class="sidebar-label">Dashboard</span>
+        </a>
+        <a href="/reading" class="sidebar-nav-link {% if is_active_path('/reading') %}active{% endif %}" {% if is_active_path('/reading') %}aria-current="page"{% endif %} title="Reading">
+            {{ nav_icon('reading') }}<span class="sidebar-label">Reading</span>
+        </a>
+        <a href="/match" class="btn btn-primary sidebar-add-book" title="Add Book">
+            {{ nav_icon('add') }}<span class="sidebar-label">Add Book</span>
+        </a>
+        <a href="/suggestions" class="sidebar-nav-link {% if pairings_active %}active{% endif %}" {% if pairings_active %}aria-current="page"{% endif %} title="Currently Reading" aria-label="Currently Reading{% if suggestion_count %}, {{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}{% endif %}">
+            {{ nav_icon('current') }}<span class="sidebar-label">Currently Reading</span>{% if suggestion_count %}<span class="nav-badge" aria-hidden="true" title="{{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}">{{ suggestion_count }}</span>{% endif %}
+        </a>
+        <a href="/settings" class="sidebar-nav-link {% if is_active_path('/settings') %}active{% endif %}" {% if is_active_path('/settings') %}aria-current="page"{% endif %} title="Settings">
+            {{ nav_icon('settings') }}<span class="sidebar-label">Settings</span>
+        </a>
+    </nav>
+
+    <div class="sidebar-utility">
+        <a href="/logs" class="sidebar-nav-link {% if is_active_path('/logs') %}active{% endif %}" {% if is_active_path('/logs') %}aria-current="page"{% endif %} title="Logs">
+            {{ nav_icon('logs') }}<span class="sidebar-label">Logs</span>
         </a>
     </div>
-    {% set abs_url = get_header_service_url('ABS') %}
-    {% set storyteller_url = get_header_service_url('STORYTELLER') %}
-    {% set grimmory_url = get_header_service_url('GRIMMORY') %}
-    {% set grimmory2_url = get_header_service_url('GRIMMORY_2') %}
-    {% set cwa_url = get_header_service_url('CWA') %}
-    {% set hardcover_url = get_header_service_url('HARDCOVER') %}
-    {% set show_bookfusion_page = get_bool('BOOKFUSION_ENABLED') and (get_val('BOOKFUSION_API_KEY') or get_val('BOOKFUSION_UPLOAD_API_KEY')) %}
-    {% set show_bookfusion_icon = get_bool('BOOKFUSION_ENABLED') %}
-    {% set has_any_link = abs_url or storyteller_url or grimmory_url or grimmory2_url or cwa_url or hardcover_url or show_bookfusion_icon %}
+</aside>
 
-    {% if has_any_link %}
-    {{ service_links('library-links-desktop') }}
-    {% endif %}
-
-    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-controls="nav-menu" aria-expanded="false">
-        <span></span><span></span><span></span>
-    </button>
-    <nav class="nav-menu" id="nav-menu">
-        <div class="nav-actions">
-            {% if has_any_link %}
-            {{ service_links('library-links-mobile') }}
-            {% endif %}
-            <a href="/" class="nav-link {% if is_active_path('/') %}active{% endif %}">Dashboard</a>
-            <a href="/reading" class="nav-link {% if is_active_path('/reading') %}active{% endif %}">Reading Log</a>
-            <a href="/batch-match" class="nav-link {% if is_active_path('/batch-match') %}active{% endif %}">Batch</a>
-            {% if get_bool('SUGGESTIONS_ENABLED') %}
-            <a href="/suggestions" class="nav-link {% if is_active_path('/suggestions') %}active{% endif %}">Suggestions{% if suggestion_count %} <span class="nav-badge">{{ suggestion_count }}</span>{% endif %}</a>
-            {% endif %}
-            <a href="/logs" class="nav-link {% if is_active_path('/logs') %}active{% endif %}">Logs</a>
-            <a href="/settings" class="nav-link {% if is_active_path('/settings') %}active{% endif %}">Settings</a>
-            <a href="/match" class="btn btn-primary nav-cta">Add Book</a>
+{% set mobile_pairings_active = pairings_active and not is_active_path('/match') %}
+<nav class="mobile-bottom-nav" aria-label="Primary">
+    <a href="/" class="mobile-nav-link {% if is_active_path('/') %}active{% endif %}" {% if is_active_path('/') %}aria-current="page"{% endif %}>{{ nav_icon('dashboard') }}<span>Dashboard</span></a>
+    <a href="/reading" class="mobile-nav-link {% if is_active_path('/reading') %}active{% endif %}" {% if is_active_path('/reading') %}aria-current="page"{% endif %}>{{ nav_icon('reading') }}<span>Reading</span></a>
+    <a href="/match" class="mobile-nav-link {% if is_active_path('/match') %}active{% endif %}" {% if is_active_path('/match') %}aria-current="page"{% endif %}>{{ nav_icon('add') }}<span>Add Book</span></a>
+    <a href="/suggestions" class="mobile-nav-link {% if mobile_pairings_active %}active{% endif %}" {% if mobile_pairings_active %}aria-current="page"{% endif %} aria-label="Currently Reading{% if suggestion_count %}, {{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}{% endif %}">{{ nav_icon('current') }}<span>Currently Reading</span>{% if suggestion_count %}<span class="nav-badge" aria-hidden="true" title="{{ suggestion_count }} source {% if suggestion_count == 1 %}activity{% else %}activities{% endif %}">{{ suggestion_count }}</span>{% endif %}</a>
+    <details class="mobile-more">
+        <summary class="mobile-nav-link">{{ nav_icon('more') }}<span>More</span></summary>
+        <div class="mobile-more-menu">
+            <a href="/settings">{{ nav_icon('settings') }}<span>Settings</span></a>
+            <a href="/logs">{{ nav_icon('logs') }}<span>Logs</span></a>
+            {% if has_any_link %}{{ service_links('mobile-service-links') }}{% endif %}
         </div>
-    </nav>
-</header>
-<script>
-document.getElementById('nav-toggle')?.addEventListener('click', function() {
-    document.getElementById('nav-menu')?.classList.toggle('open');
-    this.classList.toggle('active');
-    this.setAttribute('aria-expanded', this.classList.contains('active'));
-});
-</script>
+    </details>
+</nav>

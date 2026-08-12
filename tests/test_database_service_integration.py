@@ -7,8 +7,10 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Add project root to Python path
@@ -124,6 +126,205 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         still_active = self.db_service.get_detected_book("shared-id", source="kosync")
         self.assertEqual(resolved.status, "resolved")
         self.assertEqual(still_active.status, "detected")
+
+    def test_group_dismiss_is_atomic_when_one_identity_is_processing(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="group-audio", title="Group", progress_percentage=0.2)
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(source="kosync", source_id="group-ebook", title="Group", progress_percentage=0.3)
+        )
+        self.assertIsNotNone(self.db_service.claim_detected_book("group-audio", source="abs"))
+
+        dismissed = self.db_service.dismiss_detected_books(
+            [("abs", "group-audio"), ("kosync", "group-ebook")]
+        )
+
+        self.assertFalse(dismissed)
+        self.assertEqual(self.db_service.get_detected_book("group-audio", source="abs").status, "processing")
+        self.assertEqual(self.db_service.get_detected_book("group-ebook", source="kosync").status, "detected")
+
+    def test_group_dismiss_is_idempotent_for_terminal_and_missing_identities(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="group-existing", title="Group", progress_percentage=0.2)
+        )
+        identities = [("abs", "group-existing"), ("kosync", "already-gone")]
+
+        self.assertTrue(self.db_service.dismiss_detected_books(identities))
+        self.assertTrue(self.db_service.dismiss_detected_books(identities))
+        self.assertEqual(
+            self.db_service.get_detected_book("group-existing", source="abs").status,
+            "dismissed",
+        )
+
+    def test_group_dismiss_serializes_with_concurrent_claim(self):
+        from sqlalchemy import event
+
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="group-race", title="Group", progress_percentage=0.2)
+        )
+        dismiss_read = threading.Event()
+        claim_write = threading.Event()
+        release_dismiss = threading.Event()
+        results = {}
+
+        def coordinate_race(conn, cursor, statement, parameters, context, executemany):
+            if threading.current_thread().name == "group-dismiss" and statement.lstrip().startswith("SELECT"):
+                dismiss_read.set()
+                release_dismiss.wait(5)
+            elif threading.current_thread().name == "group-claim" and statement.lstrip().startswith("UPDATE"):
+                claim_write.set()
+
+        def dismiss():
+            results["dismissed"] = self.db_service.dismiss_detected_books([("abs", "group-race")])
+
+        def claim():
+            results["token"] = self.db_service.claim_detected_book("group-race", source="abs")
+
+        event.listen(self.db_service.db_manager.engine, "before_cursor_execute", coordinate_race)
+        try:
+            dismiss_thread = threading.Thread(target=dismiss, name="group-dismiss")
+            dismiss_thread.start()
+            self.assertTrue(dismiss_read.wait(5))
+            claim_thread = threading.Thread(target=claim, name="group-claim")
+            claim_thread.start()
+            self.assertTrue(claim_write.wait(5))
+            release_dismiss.set()
+            dismiss_thread.join(5)
+            claim_thread.join(5)
+        finally:
+            release_dismiss.set()
+            event.remove(self.db_service.db_manager.engine, "before_cursor_execute", coordinate_race)
+
+        self.assertFalse(dismiss_thread.is_alive())
+        self.assertFalse(claim_thread.is_alive())
+        self.assertTrue(results["dismissed"])
+        self.assertIsNone(results["token"])
+        self.assertEqual(self.db_service.get_detected_book("group-race", source="abs").status, "dismissed")
+
+    def test_detected_book_claim_is_compare_and_set_and_restorable(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claim-once", title="Claim", progress_percentage=0.2)
+        )
+
+        first_token = self.db_service.claim_detected_book("claim-once", source="abs")
+        self.assertIsInstance(first_token, str)
+        self.assertIsNone(self.db_service.claim_detected_book("claim-once", source="abs"))
+        claimed = self.db_service.get_detected_book("claim-once", source="abs")
+        self.assertEqual(claimed.status, "processing")
+        self.assertEqual(claimed.processing_token, first_token)
+        self.assertFalse(self.db_service.restore_detected_book("claim-once", "wrong", source="abs"))
+        self.assertFalse(self.db_service.complete_detected_book("claim-once", "wrong", source="abs"))
+        self.assertTrue(self.db_service.restore_detected_book("claim-once", first_token, source="abs"))
+        second_token = self.db_service.claim_detected_book("claim-once", source="abs")
+        self.assertNotEqual(second_token, first_token)
+        self.assertTrue(self.db_service.complete_detected_book("claim-once", second_token, source="abs"))
+        self.assertEqual(self.db_service.get_detected_book("claim-once", source="abs").status, "resolved")
+
+    def test_discovery_upsert_preserves_live_claim_until_owner_completes(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claimed-save", title="Before", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("claimed-save", source="abs")
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claimed-save", title="After", progress_percentage=0.4)
+        )
+
+        claimed = self.db_service.get_detected_book("claimed-save", source="abs")
+        self.assertEqual(claimed.status, "processing")
+        self.assertEqual(claimed.processing_token, token)
+        self.assertTrue(self.db_service.complete_detected_book("claimed-save", token, source="abs"))
+
+    def test_completed_claim_cannot_be_reclaimed_after_lease_expiry(self):
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="completed-claim", title="Done", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("completed-claim", source="abs")
+        self.assertTrue(self.db_service.complete_detected_book("completed-claim", token, source="abs"))
+
+        with self.db_service.get_session() as session:
+            row = session.query(DetectedBook).filter_by(source="abs", source_id="completed-claim").one()
+            row.processing_started_at = datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE - timedelta(seconds=1)
+
+        self.assertIsNone(self.db_service.claim_detected_book("completed-claim", source="abs"))
+        completed = self.db_service.get_detected_book("completed-claim", source="abs")
+        self.assertEqual(completed.status, "resolved")
+        self.assertIsNone(completed.processing_token)
+
+    def test_renewed_near_expiry_claim_cannot_be_reclaimed(self):
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="renewed-claim", title="Renew", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("renewed-claim", source="abs")
+        with self.db_service.get_session() as session:
+            row = session.query(DetectedBook).filter_by(source="abs", source_id="renewed-claim").one()
+            row.processing_started_at = (
+                datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE + timedelta(seconds=1)
+            )
+
+        self.assertFalse(self.db_service.renew_detected_book_claim("renewed-claim", "wrong", source="abs"))
+        self.assertTrue(self.db_service.renew_detected_book_claim("renewed-claim", token, source="abs"))
+        self.assertIsNone(self.db_service.claim_detected_book("renewed-claim", source="abs"))
+
+    def test_dismiss_and_resolve_cannot_revoke_processing_claim(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="claimed-status", title="Claim", progress_percentage=0.2)
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="normal-status", title="Normal", progress_percentage=0.2)
+        )
+        token = self.db_service.claim_detected_book("claimed-status", source="abs")
+
+        self.assertFalse(self.db_service.dismiss_detected_book("claimed-status", source="abs"))
+        self.assertFalse(self.db_service.resolve_detected_book("claimed-status", source="abs"))
+        self.assertTrue(self.db_service.dismiss_detected_book("normal-status", source="abs"))
+        claimed = self.db_service.get_detected_book("claimed-status", source="abs")
+        normal = self.db_service.get_detected_book("normal-status", source="abs")
+        self.assertEqual(claimed.status, "processing")
+        self.assertEqual(claimed.processing_token, token)
+        self.assertEqual(normal.status, "dismissed")
+        self.assertTrue(self.db_service.complete_detected_book("claimed-status", token, source="abs"))
+
+    def test_expired_claim_reappears_and_can_be_reclaimed(self):
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="expired-claim", title="Expired", progress_percentage=0.2)
+        )
+        old_token = self.db_service.claim_detected_book("expired-claim", source="abs")
+        with self.db_service.get_session() as session:
+            row = session.query(DetectedBook).filter_by(source="abs", source_id="expired-claim").one()
+            row.processing_started_at = datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE - timedelta(seconds=1)
+
+        active_ids = {row.source_id for row in self.db_service.get_active_detected_books()}
+        self.assertIn("expired-claim", active_ids)
+        visible = self.db_service.get_detected_book("expired-claim", source="abs")
+        self.assertEqual(visible.status, "detected")
+        self.assertIsNone(visible.processing_token)
+
+        new_token = self.db_service.claim_detected_book("expired-claim", source="abs")
+        self.assertIsInstance(new_token, str)
+        self.assertNotEqual(new_token, old_token)
 
     def test_dismiss_detected_book_sets_status_on_existing_row(self):
         """Dismissing an existing detected book sets status to dismissed and returns True."""
@@ -250,6 +451,22 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         row = self.db_service.get_detected_book("status-apply", source="abs")
         self.assertEqual(row.status, "resolved")
 
+    def test_late_discovery_save_does_not_reopen_resolved_book(self):
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="resolved-keep", title="Done", progress_percentage=0.3)
+        )
+        self.assertTrue(self.db_service.resolve_detected_book("resolved-keep", source="abs"))
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="resolved-keep", title="Done", progress_percentage=0.5)
+        )
+
+        row = self.db_service.get_detected_book("resolved-keep", source="abs")
+        self.assertEqual(row.status, "resolved")
+        self.assertAlmostEqual(row.progress_percentage, 0.5)
+
     def test_save_detected_book_preserves_truthy_only_fields(self):
         """Falsy incoming title/author/cover_url/device/ebook_filename do not overwrite existing values."""
         from src.db.models import DetectedBook
@@ -363,6 +580,141 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         row = self.db_service.get_detected_book("times", source="abs")
         self.assertEqual(row.first_detected_at.replace(tzinfo=UTC), original_first)
         self.assertEqual(row.last_seen_at.replace(tzinfo=UTC), new_last)
+
+    def test_save_detected_book_rejects_stale_source_progress(self):
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        newer = datetime(2026, 7, 15, 12, tzinfo=UTC)
+        older = datetime(2026, 7, 14, 12, tzinfo=UTC)
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="stale-progress",
+                title="Book",
+                progress_percentage=0.8,
+                source_updated_at=newer,
+            )
+        )
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="stale-progress",
+                title="Book",
+                progress_percentage=0.2,
+                source_updated_at=older,
+            )
+        )
+
+        row = self.db_service.get_detected_book("stale-progress", source="kosync")
+        self.assertAlmostEqual(row.progress_percentage, 0.8)
+        self.assertEqual(row.source_updated_at.replace(tzinfo=UTC), newer)
+
+    def test_save_detected_book_compares_aware_timestamps_in_utc(self):
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="offset-progress",
+                title="Book",
+                progress_percentage=0.8,
+                source_updated_at=datetime(2026, 7, 15, 12, tzinfo=UTC),
+            )
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="offset-progress",
+                title="Book",
+                progress_percentage=0.2,
+                source_updated_at=datetime.fromisoformat("2026-07-15T08:30:00-04:00"),
+            )
+        )
+
+        row = self.db_service.get_detected_book("offset-progress", source="kosync")
+        self.assertAlmostEqual(row.progress_percentage, 0.2)
+        self.assertEqual(row.source_updated_at, datetime(2026, 7, 15, 12, 30))
+
+    def test_save_detected_book_equal_timestamp_keeps_highest_progress(self):
+        from src.db.models import DetectedBook
+
+        timestamp = datetime(2026, 7, 15, 12, tzinfo=UTC)
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="equal-time",
+                title="Equal",
+                progress_percentage=0.7,
+                source_updated_at=timestamp,
+            )
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="equal-time",
+                title="Equal",
+                progress_percentage=0.4,
+                source_updated_at=timestamp,
+            )
+        )
+
+        row = self.db_service.get_detected_book("equal-time", source="abs")
+        self.assertAlmostEqual(row.progress_percentage, 0.7)
+
+    def test_active_detected_books_are_ordered_by_source_activity(self):
+        from src.db.models import DetectedBook
+
+        for source_id, source_time in (
+            ("older-source", datetime(2026, 7, 14, 12, tzinfo=UTC)),
+            ("newer-source", datetime(2026, 7, 15, 12, tzinfo=UTC)),
+        ):
+            self.db_service.save_detected_book(
+                DetectedBook(
+                    source="abs",
+                    source_id=source_id,
+                    title=source_id,
+                    progress_percentage=0.4,
+                    source_updated_at=source_time,
+                )
+            )
+
+        rows = self.db_service.get_active_detected_books()
+
+        self.assertEqual([row.source_id for row in rows], ["newer-source", "older-source"])
+
+    def test_save_detected_book_missing_source_timestamp_preserves_progress(self):
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        timestamp = datetime(2026, 7, 15, 12, tzinfo=UTC)
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="missing-timestamp",
+                title="Book",
+                progress_percentage=0.8,
+                source_updated_at=timestamp,
+            )
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="kosync",
+                source_id="missing-timestamp",
+                title="Book",
+                progress_percentage=0.1,
+                source_updated_at=None,
+            )
+        )
+
+        row = self.db_service.get_detected_book("missing-timestamp", source="kosync")
+        self.assertAlmostEqual(row.progress_percentage, 0.8)
+        self.assertEqual(row.source_updated_at, datetime(2026, 7, 15, 12))
 
     def test_save_detected_book_normalizes_against_concurrently_inserted_row(self):
         """Regression: a row that appears only inside the upsert transaction (not at
@@ -508,6 +860,8 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
 
         active_ids = {b.source_id for b in self.db_service.get_active_detected_books()}
         self.assertEqual(active_ids, {"active-a", "active-b"})
+        self.assertEqual(self.db_service.get_active_detected_book_count(), 2)
+        self.assertEqual(self.db_service.get_detected_book_count(), 4)
 
     def test_get_active_detected_books_orders_by_last_seen_desc(self):
         """Results are ordered by last_seen_at descending."""
@@ -1765,6 +2119,52 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
         alembic_cfg.set_main_option("script_location", str(alembic_dir))
         alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
         return alembic_cfg
+
+    def test_detected_identity_migration_downgrade_has_deterministic_collision_policy(self):
+        import sqlite3
+
+        from alembic import command
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "detected_identity.db")
+            alembic_cfg = self._alembic_config(db_path)
+            command.upgrade(alembic_cfg, "head")
+
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "INSERT INTO detected_books (source, source_id, title, progress_percentage) VALUES (?, ?, ?, ?)",
+                ("grimmory", "2:same.epub", "Secondary", 0.7),
+            )
+            conn.execute(
+                "INSERT INTO detected_books (source, source_id, title, progress_percentage) VALUES (?, ?, ?, ?)",
+                ("grimmory", "default:same.epub", "Primary", 0.3),
+            )
+            conn.execute(
+                "INSERT INTO detected_books (source, source_id, title, progress_percentage) VALUES (?, ?, ?, ?)",
+                ("grimmory", "2:other.epub", "Other", 0.4),
+            )
+            conn.commit()
+            conn.close()
+
+            command.downgrade(alembic_cfg, "x5y6z7a8b9c0")
+
+            conn = sqlite3.connect(db_path)
+            rows = conn.execute(
+                "SELECT source_id, title FROM detected_books WHERE source = 'grimmory' ORDER BY source_id"
+            ).fetchall()
+            conn.close()
+            self.assertEqual(rows, [("other.epub", "Other"), ("same.epub", "Primary")])
+
+            command.upgrade(alembic_cfg, "head")
+            conn = sqlite3.connect(db_path)
+            source_ids = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT source_id FROM detected_books WHERE source = 'grimmory' ORDER BY source_id"
+                ).fetchall()
+            ]
+            conn.close()
+            self.assertEqual(source_ids, ["default:other.epub", "default:same.epub"])
 
     def test_legacy_db_does_not_crash_on_startup(self):
         """

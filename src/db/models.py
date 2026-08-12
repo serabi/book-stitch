@@ -117,6 +117,7 @@ class Book(Base):
     subtitle = Column(String(500), nullable=True)
     title_override = Column(String(500), nullable=True)
     author_override = Column(String(500), nullable=True)
+    grimmory_audio_source_id = Column(String(255), nullable=True, unique=True, index=True)
 
     # Reading tracker fields
     started_at = Column(String(10), nullable=True)  # YYYY-MM-DD
@@ -164,6 +165,7 @@ class Book(Base):
         subtitle: str = None,
         title_override: str = None,
         author_override: str = None,
+        grimmory_audio_source_id: str = None,
         started_at: str = None,
         finished_at: str = None,
         rating: float = None,
@@ -186,6 +188,7 @@ class Book(Base):
         self.subtitle = subtitle
         self.title_override = title_override
         self.author_override = author_override
+        self.grimmory_audio_source_id = grimmory_audio_source_id
         self.started_at = started_at
         self.finished_at = finished_at
         self.rating = rating
@@ -567,12 +570,16 @@ class DetectedBook(Base):
     author = Column(String(500), nullable=True)
     cover_url = Column(String(500), nullable=True)
     progress_percentage = Column(Float, default=0.0, nullable=False)
+    source_updated_at = Column(DateTime, nullable=True)
     first_detected_at = Column(DateTime, default=utc_now)
     last_seen_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     status = Column(String(20), default="detected")
+    processing_token = Column(String(64), nullable=True)
+    processing_started_at = Column(DateTime, nullable=True)
     matches_json = Column(Text, nullable=True)
     device = Column(String(128), nullable=True)
     ebook_filename = Column(String(500), nullable=True)
+    media_format = Column(String(20), default="ebook", nullable=False)
 
     def __init__(
         self,
@@ -586,6 +593,8 @@ class DetectedBook(Base):
         matches_json: str = None,
         device: str = None,
         ebook_filename: str = None,
+        source_updated_at=None,
+        media_format: str = "ebook",
     ):
         self.source = source
         self.source_id = source_id
@@ -597,6 +606,8 @@ class DetectedBook(Base):
         self.matches_json = matches_json
         self.device = device
         self.ebook_filename = ebook_filename
+        self.source_updated_at = source_updated_at
+        self.media_format = media_format
         self.first_detected_at = utc_now()
         self.last_seen_at = utc_now()
 
@@ -856,13 +867,24 @@ class GrimmoryBook(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     server_id = Column(String(50), nullable=False, default="default")
+    remote_book_id = Column(String(255), nullable=True)
+    remote_file_id = Column(String(255), nullable=True)
     filename = Column(String(500), nullable=False)
     title = Column(String(500))
     authors = Column(String(500))
     raw_metadata = Column(Text)
     last_updated = Column(DateTime, default=utc_now, onupdate=utc_now)
 
-    __table_args__ = (UniqueConstraint("server_id", "filename", name="uq_grimmory_server_filename"),)
+    __table_args__ = (
+        sa.Index(
+            "uq_grimmory_remote_file",
+            "server_id",
+            "remote_book_id",
+            "remote_file_id",
+            unique=True,
+            sqlite_where=sa.text("remote_book_id IS NOT NULL AND remote_file_id IS NOT NULL"),
+        ),
+    )
 
     @property
     def raw_metadata_dict(self):
@@ -880,8 +902,12 @@ class GrimmoryBook(Base):
         authors: str | None = None,
         raw_metadata: str | None = None,
         server_id: str = "default",
+        remote_book_id: str | None = None,
+        remote_file_id: str | None = None,
     ):
         self.server_id = server_id
+        self.remote_book_id = str(remote_book_id) if remote_book_id is not None else None
+        self.remote_file_id = str(remote_file_id) if remote_file_id is not None else None
         self.filename = filename
         self.title = title
         self.authors = authors

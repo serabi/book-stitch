@@ -9,11 +9,202 @@
 (function () {
     'use strict';
 
+    if (window.PK_PAGE_DATA && window.PK_PAGE_DATA.pairingsInbox) {
+        initPairingsInbox();
+        return;
+    }
+
     var suggestionData = window.PK_PAGE_DATA.suggestionsData;
     var selectedSourceId = window.PK_PAGE_DATA.selectedSourceId;
-    var rescanPollTimer = null;
     var desktopMedia = window.matchMedia('(min-width: 961px)');
     var currentView = 'list';
+
+    function createRescanPoller(handlers) {
+        var timer = null;
+        var failures = 0;
+
+        function poll() {
+            fetch('/api/suggestions/rescan-status')
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (!data.success) throw new Error(data.error || 'Status failed');
+                    failures = 0;
+                    if (data.running) {
+                        handlers.onRunning(data);
+                        timer = setTimeout(poll, 1500);
+                    } else if (data.phase === 'complete' || data.phase === 'partial') {
+                        handlers.onComplete(data);
+                    } else {
+                        handlers.onIdle(data);
+                    }
+                })
+                .catch(function (error) {
+                    failures += 1;
+                    if (failures <= 3) {
+                        handlers.onRetry();
+                        timer = setTimeout(poll, 1000 * failures);
+                    } else {
+                        handlers.onError(error);
+                    }
+                });
+        }
+
+        return {
+            start: function () {
+                this.cancel();
+                failures = 0;
+                poll();
+            },
+            cancel: function () {
+                if (timer) {
+                    clearTimeout(timer);
+                    timer = null;
+                }
+            }
+        };
+    }
+
+    function initPairingsInbox() {
+        var button = document.getElementById('rescan-btn');
+        var status = document.getElementById('rescan-status');
+        var scanObserved = false;
+
+        function updatePairingBadges(resolvedCount) {
+            document.querySelectorAll('.nav-badge').forEach(function (badge) {
+                var count = Math.max(0, Number(badge.textContent) - resolvedCount);
+                if (count) badge.textContent = count;
+                else badge.remove();
+            });
+        }
+
+        function showCaughtUpState() {
+            var inbox = document.querySelector('.pairings-inbox');
+            var empty = document.createElement('section');
+            empty.className = 'pairings-empty';
+            empty.setAttribute('aria-labelledby', 'empty-heading');
+            empty.innerHTML = '<h2 id="empty-heading" tabindex="-1">All caught up</h2>' +
+                '<p>Every detected Currently Reading book has been resolved or dismissed.</p>';
+            inbox.appendChild(empty);
+            var heading = empty.querySelector('h2');
+            heading.focus();
+        }
+
+        function showIdleStatus(data) {
+            button.disabled = false;
+            status.textContent = data.message || '';
+        }
+
+        var poller = createRescanPoller({
+            onRunning: function (data) {
+                scanObserved = true;
+                button.disabled = true;
+                status.textContent = data.message || 'Rescan in progress...';
+            },
+            onComplete: function (data) {
+                if (scanObserved) {
+                    scanObserved = false;
+                    window.location.reload();
+                } else {
+                    showIdleStatus(data);
+                }
+            },
+            onIdle: showIdleStatus,
+            onRetry: function () {
+                button.disabled = true;
+                status.textContent = 'Connection interrupted. Retrying rescan status...';
+            },
+            onError: function (error) {
+                button.disabled = false;
+                status.textContent = 'Could not confirm rescan status: ' + (error.message || String(error));
+            }
+        });
+
+        button.addEventListener('click', function () {
+            poller.cancel();
+            button.disabled = true;
+            status.textContent = 'Queued source rescan...';
+            fetch('/api/suggestions/rescan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (!data.success) throw new Error(data.error || 'Rescan failed');
+                    status.textContent = data.message || 'Rescan started...';
+                    if (data.rate_limited) {
+                        button.disabled = false;
+                    } else {
+                        scanObserved = true;
+                        poller.start();
+                    }
+                })
+                .catch(function (error) {
+                    button.disabled = false;
+                    status.textContent = error.message || String(error);
+                });
+        });
+
+        function dismissCard(dismissButton, card, title) {
+            var identities = Array.prototype.map.call(
+                card.querySelectorAll('.pairing-activity'),
+                function (activity) { return activity.dataset; }
+            );
+            var cards = Array.prototype.slice.call(document.querySelectorAll('.pairing-card'));
+            var cardIndex = cards.indexOf(card);
+            var recoveryCard = cards[cardIndex + 1] || cards[cardIndex - 1];
+            dismissButton.disabled = true;
+            status.textContent = 'Dismissing ' + title + '...';
+            fetch('/api/detected/dismiss-group', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    identities: identities.map(function (identity) {
+                        return { source: identity.source, source_id: identity.sourceId };
+                    })
+                })
+            }).then(function (response) {
+                return response.json().then(function (data) {
+                    if (!response.ok || !data.success) throw new Error(data.error || 'Dismiss failed');
+                    return data;
+                });
+            })
+                .then(function () {
+                    var list = card.closest('.pairing-list');
+                    card.remove();
+                    updatePairingBadges(identities.length);
+                    status.textContent = 'Dismissed ' + title + '.';
+                    if (recoveryCard) {
+                        var recoveryAction = recoveryCard.querySelector('a, button');
+                        if (recoveryAction) recoveryAction.focus();
+                    } else if (!list.querySelector('.pairing-card')) {
+                        showCaughtUpState();
+                    }
+                })
+                .catch(function (error) {
+                    dismissButton.disabled = false;
+                    status.textContent = 'Could not dismiss ' + title + ': ' + (error.message || String(error));
+                });
+        }
+
+        document.querySelectorAll('.pairing-dismiss').forEach(function (dismissButton) {
+            dismissButton.addEventListener('click', function () {
+                var card = dismissButton.closest('.pairing-card');
+                var title = card.querySelector('h2').textContent;
+                PKModal.confirm({
+                    title: 'Dismiss Book?',
+                    message: '"' + title + '" will be removed from Currently Reading until new reading activity is detected.',
+                    confirmLabel: 'Dismiss',
+                    confirmClass: 'btn',
+                    onConfirm: function () {
+                        dismissCard(dismissButton, card, title);
+                    }
+                });
+            });
+        });
+
+        poller.start();
+    }
 
     /* ── helpers ── */
 
@@ -322,7 +513,7 @@
         fetch('/api/suggestions/rescan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify({ catalog: true })
         })
             .then(function (r) { return r.json(); })
             .then(function (data) {
@@ -333,7 +524,7 @@
                     return;
                 }
                 status.textContent = data.message || 'Suggestions rescan started...';
-                pollRescanStatus();
+                catalogPoller.start();
             })
             .catch(function (err) {
                 status.textContent = err.message || String(err);
@@ -341,42 +532,32 @@
             });
     }
 
-    function pollRescanStatus() {
-        if (rescanPollTimer) {
-            clearTimeout(rescanPollTimer);
-            rescanPollTimer = null;
+    var catalogPoller = createRescanPoller({
+        onRunning: function (data) {
+            document.getElementById('rescan-status').textContent = data.message || 'Rescan in progress...';
+            document.getElementById('rescan-btn').disabled = true;
+        },
+        onComplete: function (data) {
+            refreshSuggestionsData(data.message || 'Rescan complete.');
+        },
+        onIdle: function (data) {
+            var status = document.getElementById('rescan-status');
+            if (data.rate_limited) {
+                status.textContent = data.message || ('Please wait ' + (data.next_allowed_in || 0) + 's before rescanning again.');
+            } else if (data.message) {
+                status.textContent = data.message;
+            }
+            document.getElementById('rescan-btn').disabled = false;
+        },
+        onRetry: function () {
+            document.getElementById('rescan-btn').disabled = true;
+            document.getElementById('rescan-status').textContent = 'Connection interrupted. Retrying rescan status...';
+        },
+        onError: function (err) {
+            document.getElementById('rescan-status').textContent = err.message || String(err);
+            document.getElementById('rescan-btn').disabled = false;
         }
-        fetch('/api/suggestions/rescan-status')
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                if (!data.success) throw new Error(data.error || 'Status failed');
-                var status = document.getElementById('rescan-status');
-                var btn = document.getElementById('rescan-btn');
-
-                if (data.running) {
-                    status.textContent = data.message || 'Rescan in progress...';
-                    btn.disabled = true;
-                    rescanPollTimer = setTimeout(pollRescanStatus, 1500);
-                    return;
-                }
-
-                if (data.phase === 'complete') {
-                    refreshSuggestionsData(data.message || 'Rescan complete.');
-                    return;
-                }
-
-                if (data.rate_limited) {
-                    status.textContent = data.message || ('Please wait ' + (data.next_allowed_in || 0) + 's before rescanning again.');
-                } else if (data.message) {
-                    status.textContent = data.message;
-                }
-                btn.disabled = false;
-            })
-            .catch(function (err) {
-                document.getElementById('rescan-status').textContent = err.message || String(err);
-                document.getElementById('rescan-btn').disabled = false;
-            });
-    }
+    });
 
     function refreshSuggestionsData(statusMessage) {
         fetch('/api/suggestions')
@@ -434,7 +615,7 @@
     document.getElementById('rescan-btn').addEventListener('click', rescanSuggestions);
 
     renderSuggestions();
-    pollRescanStatus();
+    catalogPoller.start();
 
     /* ── expose functions called from inline onclick in rendered HTML ── */
     window.PK_Suggestions = {

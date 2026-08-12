@@ -15,6 +15,9 @@ from src.utils.logging_utils import sanitize_log_data
 
 logger = logging.getLogger(__name__)
 
+GRIMMORY_AUDIO_BOOK_TYPES = {"AUDIOBOOK"}
+GRIMMORY_MAX_PAGES = 1000
+
 
 class GrimmoryClient:
     def __init__(self, database_service=None, env_prefix="GRIMMORY", instance_id="default"):
@@ -27,6 +30,9 @@ class GrimmoryClient:
         self._book_case_insensitive_cache = {}
         self._book_case_insensitive_filenames = {}
         self._book_id_cache = {}
+        self._book_file_cache = {}
+        self._book_identity_cache = {}
+        self._filename_identities = {}
         self._cache_timestamp = 0
 
         self._token = None
@@ -133,11 +139,17 @@ class GrimmoryClient:
                     if not book_info:
                         book_info = {"fileName": db_book.filename, "title": db_book.title, "authors": db_book.authors}
 
-                    self._cache_book_info(db_book.filename, book_info)
+                    remote_book_id = getattr(db_book, "remote_book_id", None)
+                    remote_file_id = getattr(db_book, "remote_file_id", None)
+                    if isinstance(remote_book_id, (str, int)):
+                        book_info.setdefault("id", remote_book_id)
+                    if isinstance(remote_file_id, (str, int)):
+                        book_info.setdefault("bookFileId", remote_file_id)
+                    self._cache_book_info(db_book.filename, book_info, legacy_row_id=db_book.id)
 
                 # Set to 0 to force a refresh/validation against API on next access
                 self._cache_timestamp = 0
-                logger.info(f"Grimmory: Loaded {len(self._book_cache)} books from database")
+                logger.info(f"Grimmory: Loaded {len(self._book_identity_cache)} books from database")
             except Exception as e:
                 logger.error(f"Failed to load Grimmory cache from DB: {e}")
                 self._reset_book_caches()
@@ -147,28 +159,71 @@ class GrimmoryClient:
         self._book_case_insensitive_cache = {}
         self._book_case_insensitive_filenames = {}
         self._book_id_cache = {}
+        self._book_file_cache = {}
+        self._book_identity_cache = {}
+        self._filename_identities = {}
 
-    def _cache_book_info(self, filename, book_info):
+    def _cache_book_info(self, filename, book_info, legacy_row_id=None):
         cache_key = str(filename)
-        self._book_cache[cache_key] = book_info
-        lookup_key = cache_key.lower()
-        self._book_case_insensitive_filenames.setdefault(lookup_key, set()).add(cache_key)
+        bid = book_info.get("id")
+        file_id = book_info.get("bookFileId")
+        if bid is not None and file_id is not None:
+            identity = ("remote", str(bid), str(file_id))
+        else:
+            identity = ("legacy", str(legacy_row_id if legacy_row_id is not None else id(book_info)))
+
+        if identity in self._book_identity_cache:
+            self._remove_cached_identity(identity)
+        self._book_identity_cache[identity] = book_info
+        if bid is not None and file_id is not None:
+            self._book_file_cache[(str(bid), str(file_id))] = book_info
+        self._filename_identities.setdefault(cache_key, set()).add(identity)
+        self._refresh_filename_cache(cache_key)
+
+        if bid is not None and (book_info.get("isPrimary") or bid not in self._book_id_cache):
+            self._book_id_cache[bid] = book_info
+
+    def _refresh_filename_cache(self, filename):
+        identities = self._filename_identities.get(filename, set())
+        books = [self._book_identity_cache[identity] for identity in identities if identity in self._book_identity_cache]
+        if len(books) == 1:
+            self._book_cache[filename] = books[0]
+        else:
+            self._book_cache.pop(filename, None)
+        lookup_key = filename.lower()
+        self._book_case_insensitive_filenames.setdefault(lookup_key, set()).add(filename)
         self._update_case_insensitive_cache_entry(lookup_key)
 
-        bid = book_info.get("id")
-        if bid:
-            self._book_id_cache[bid] = book_info
+    def _remove_cached_identity(self, identity):
+        removed = self._book_identity_cache.pop(identity, None)
+        if not removed:
+            return
+        filename = str(removed.get("fileName", ""))
+        identities = self._filename_identities.get(filename)
+        if identities is not None:
+            identities.discard(identity)
+            if not identities:
+                self._filename_identities.pop(filename, None)
+        bid = removed.get("id")
+        file_id = removed.get("bookFileId")
+        if bid is not None and file_id is not None:
+            self._book_file_cache.pop((str(bid), str(file_id)), None)
+        if bid is not None and self._book_id_cache.get(bid) is removed:
+            replacement = next(
+                (book for book in self._book_identity_cache.values() if book.get("id") == bid),
+                None,
+            )
+            if replacement:
+                self._book_id_cache[bid] = replacement
+            else:
+                self._book_id_cache.pop(bid, None)
+        self._refresh_filename_cache(filename)
 
     def _remove_cached_filename(self, filename):
         cache_key = str(filename)
-        self._book_cache.pop(cache_key, None)
-        lookup_key = cache_key.lower()
-        filenames = self._book_case_insensitive_filenames.get(lookup_key)
-        if filenames is not None:
-            filenames.discard(cache_key)
-            if not filenames:
-                self._book_case_insensitive_filenames.pop(lookup_key, None)
-        self._update_case_insensitive_cache_entry(lookup_key)
+        identities = self._filename_identities.get(cache_key, set())
+        if len(identities) == 1:
+            self._remove_cached_identity(next(iter(identities)))
 
     def _update_case_insensitive_cache_entry(self, lookup_key):
         filenames = self._book_case_insensitive_filenames.get(lookup_key, set())
@@ -324,12 +379,13 @@ class GrimmoryClient:
             return
 
         all_books_list = []
+        seen_page_identities = set()
         page = 0
         batch_size = 200
 
         logger.info("Grimmory: Starting full library scan...")
 
-        while True:
+        while page < GRIMMORY_MAX_PAGES:
             endpoint = f"/api/v1/books?page={page}&size={batch_size}"
             response = self._make_request("GET", endpoint)
 
@@ -345,8 +401,25 @@ class GrimmoryClient:
             elif isinstance(data, dict) and "content" in data:
                 current_batch = data["content"]
 
+            raw_batch_size = len(current_batch)
+            is_last_page = isinstance(data, dict) and (
+                data.get("last") is True
+                or (isinstance(data.get("totalPages"), int) and page + 1 >= data["totalPages"])
+            )
+
             if not current_batch:
                 break
+
+            raw_identities = {
+                (str(book.get("id")), str(book_file.get("id") or book_file.get("fileName")))
+                for book in current_batch
+                for book_file, _is_primary in self._iter_book_files(book)
+                if book.get("id") is not None and (book_file.get("id") is not None or book_file.get("fileName"))
+            }
+            if isinstance(data, list) and page > 0 and not (raw_identities - seen_page_identities):
+                logger.warning("Grimmory: Stopping pagination after repeated raw list page %s", page)
+                break
+            seen_page_identities.update(raw_identities)
 
             if self.target_library_id and current_batch:
                 filtered_batch = []
@@ -365,83 +438,105 @@ class GrimmoryClient:
             all_books_list.extend(current_batch)
             logger.debug(f"Grimmory: Fetched page {page} ({len(current_batch)} items)")
 
-            if len(current_batch) != batch_size:
+            if is_last_page or raw_batch_size != batch_size:
                 break
 
             page += 1
 
+        if page >= GRIMMORY_MAX_PAGES:
+            logger.warning("Grimmory: Stopped library scan at the %s-page safety ceiling", GRIMMORY_MAX_PAGES)
+
         if not all_books_list:
             logger.debug("Grimmory: No books found in library")
             self._reset_book_caches()
+            if self.db:
+                try:
+                    self.db.reconcile_grimmory_books(self.instance_id, [])
+                except Exception as e:
+                    logger.error(f"Failed to reconcile empty Grimmory book cache: {e}")
             self._cache_timestamp = time.time()
             return True
 
         logger.info(f"Grimmory: Scan complete. Found {len(all_books_list)} total books.")
 
-        # Prune stale data
-        if self.db and all_books_list:
-            live_map = {str(b["id"]): b for b in all_books_list if b.get("id")}
+        live_files = {
+            (str(book.get("id")), str(book_file.get("id"))): str(book_file.get("fileName", "")).strip()
+            for book in all_books_list
+            for book_file, _is_primary in self._iter_book_files(book)
+            if book.get("id") is not None and book_file.get("id") is not None
+        }
+        live_legacy_files = {
+            (str(book.get("id")), str(book_file.get("fileName", "")).strip())
+            for book in all_books_list
+            for book_file, _is_primary in self._iter_book_files(book)
+            if book.get("id") is not None and book_file.get("fileName")
+        }
 
-            cached_filenames = list(self._book_cache.keys())
-            stale_count = 0
-
-            for fname in cached_filenames:
-                book_info = self._book_cache[fname]
-                bid = book_info.get("id")
-
-                is_stale = False
-
-                if not bid or str(bid) not in live_map:
-                    is_stale = True
-                    logger.debug(f"   Pruning {fname}: ID {bid} not in live map")
-                else:
-                    live_book = live_map[str(bid)]
-                    raw_live_filename = live_book.get("primaryFile", {}).get("fileName", live_book.get("fileName", ""))
-                    live_filename = str(raw_live_filename).strip() if raw_live_filename else ""
-                    cached_real_filename = book_info.get("fileName", fname)
-
-                    if live_filename and live_filename != str(cached_real_filename).strip():
-                        is_stale = True
-                        logger.debug(
-                            f"   Pruning {fname}: Filename mismatch. Live: {repr(raw_live_filename)} vs Cache: {repr(cached_real_filename)}"
-                        )
-
-                if is_stale:
-                    stale_count += 1
-                    self._remove_cached_filename(fname)
-                    if bid:
-                        self._book_id_cache.pop(bid, None)
-
-                    try:
-                        self.db.delete_grimmory_book(fname, server_id=self.instance_id)
-                    except Exception as e:
-                        logger.error(f"Failed to prune stale book {fname}: {e}")
-
-            if stale_count > 0:
-                logger.info(f"Grimmory: Pruned {stale_count} stale books from database.")
-
-        for book in all_books_list:
-            if book["id"] not in self._book_id_cache:
-                self._process_book_detail(book)
+        stale_count = 0
+        for identity, book_info in list(self._book_identity_cache.items()):
+            filename = str(book_info.get("fileName", ""))
+            book_id = book_info.get("id")
+            file_id = book_info.get("bookFileId")
+            cached_filename = str(book_info.get("fileName", filename)).strip()
+            if file_id is not None:
+                live_filename = live_files.get((str(book_id), str(file_id)))
+                is_stale = live_filename is None or live_filename != cached_filename
             else:
-                self._update_cached_progress(book)
+                is_stale = (str(book_id), cached_filename) not in live_legacy_files
+
+            if not is_stale:
+                continue
+            stale_count += 1
+            self._remove_cached_identity(identity)
+
+        if stale_count:
+            logger.info(f"Grimmory: Pruned {stale_count} stale books from database.")
+
+        persisted_books = []
+        for book in all_books_list:
+            persisted_books.extend(self._process_book_detail(book, persist=False))
+        if self.db:
+            try:
+                self.db.reconcile_grimmory_books(self.instance_id, persisted_books)
+            except Exception as e:
+                logger.error(f"Failed to reconcile Grimmory book cache: {e}")
 
         self._cache_timestamp = time.time()
         return True
 
-    def _process_book_detail(self, detail):
-        """Process a book detail response and add to cache."""
+    @staticmethod
+    def _iter_book_files(detail):
+        """Yield the primary and alternative BookFile DTOs once each."""
+        candidates = []
+        primary = detail.get("primaryFile")
+        if isinstance(primary, dict):
+            candidates.append((primary, True))
+        alternatives = detail.get("alternativeFormats") or []
+        if isinstance(alternatives, dict):
+            alternatives = list(alternatives.values())
+        candidates.extend((book_file, False) for book_file in alternatives if isinstance(book_file, dict))
+        if not candidates and detail.get("fileName"):
+            candidates.append((detail, True))
+
+        seen = set()
+        for book_file, is_primary in candidates:
+            filename = book_file.get("fileName")
+            if not filename:
+                continue
+            identity = (book_file.get("id"), filename)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            yield book_file, is_primary
+
+    def _process_book_detail(self, detail, persist=True):
+        """Cache every actual file attached to one Grimmory Book DTO."""
         if self.target_library_id:
             lid = detail.get("libraryId")
             if lid is not None and str(lid) != str(self.target_library_id):
-                return
+                return []
 
-        primary_file = detail.get("primaryFile", {})
-        filename = primary_file.get("fileName", detail.get("fileName", ""))
-        filepath = primary_file.get("filePath", detail.get("filePath", ""))
-        book_type = primary_file.get("bookType", detail.get("bookType", ""))
-        if not filename:
-            return
+        persisted_books = []
 
         metadata = detail.get("metadata") or {}
         authors = metadata.get("authors") or []
@@ -456,62 +551,127 @@ class GrimmoryClient:
 
         author_str = ", ".join(author_list)
         subtitle = metadata.get("subtitle") or ""
-        title = metadata.get("title") or detail.get("title") or filename
+        for book_file, is_primary in self._iter_book_files(detail):
+            filename = book_file["fileName"]
+            title = metadata.get("title") or detail.get("title") or filename
+            book_info = {
+                "id": detail.get("id"),
+                "fileName": filename,
+                "filePath": book_file.get("filePath", ""),
+                "title": title,
+                "subtitle": subtitle,
+                "authors": author_str,
+                "bookType": book_file.get("bookType", ""),
+                "bookFileId": book_file.get("id"),
+                "isPrimary": is_primary,
+                "lastReadTime": detail.get("lastReadTime"),
+                "epubProgress": detail.get("epubProgress"),
+                "pdfProgress": detail.get("pdfProgress"),
+                "cbxProgress": detail.get("cbxProgress"),
+                "koreaderProgress": detail.get("koreaderProgress"),
+                "audiobookProgress": detail.get("audiobookProgress"),
+            }
 
-        book_info = {
-            "id": detail.get("id"),
-            "fileName": filename,
-            "filePath": filepath,
-            "title": title,
-            "subtitle": subtitle,
-            "authors": author_str,
-            "bookType": book_type,
-            "bookFileId": primary_file.get("id"),
-            "lastReadTime": detail.get("lastReadTime"),
-            "epubProgress": detail.get("epubProgress"),
-            "pdfProgress": detail.get("pdfProgress"),
-            "cbxProgress": detail.get("cbxProgress"),
-            "koreaderProgress": detail.get("koreaderProgress"),
-        }
-
-        self._cache_book_info(filename, book_info)
-
-        if self.db:
-            try:
-                b_model = GrimmoryBook(
-                    filename=filename,
-                    title=title,
-                    authors=author_str,
-                    raw_metadata=json.dumps(book_info),
-                    server_id=self.instance_id,
-                )
-                self.db.save_grimmory_book(b_model)
-            except Exception as e:
-                logger.error(f"Failed to persist book {filename} to DB: {e}")
-
-    def _update_cached_progress(self, detail):
-        """Update progress fields on an already-cached book in-place."""
-        cached = self._book_id_cache.get(detail.get("id"))
-        if not cached:
-            return
-        primary_file = detail.get("primaryFile", {})
-        for key in ("epubProgress", "pdfProgress", "cbxProgress", "koreaderProgress"):
-            val = detail.get(key)
-            if val is not None:
-                cached[key] = val
-        if primary_file.get("id"):
-            cached["bookFileId"] = primary_file["id"]
-        if detail.get("lastReadTime"):
-            cached["lastReadTime"] = detail["lastReadTime"]
+            self._cache_book_info(filename, book_info)
+            model = GrimmoryBook(
+                filename=filename,
+                title=title,
+                authors=author_str,
+                raw_metadata=json.dumps(book_info),
+                server_id=self.instance_id,
+                remote_book_id=detail.get("id"),
+                remote_file_id=book_file.get("id"),
+            )
+            persisted_books.append(model)
+            if self.db and persist:
+                try:
+                    self.db.save_grimmory_book(model)
+                except Exception as e:
+                    logger.error(f"Failed to persist book {filename} to DB: {e}")
+        return persisted_books
 
     def extract_progress(self, book_info: dict) -> tuple[float | None, str | None]:
         """Extract (percentage_as_fraction, cfi) from any book type's progress."""
+        if (book_info.get("bookType") or "").upper() in GRIMMORY_AUDIO_BOOK_TYPES:
+            progress = book_info.get("audiobookProgress")
+            if progress is not None and progress.get("percentage") is not None:
+                return progress["percentage"] / 100.0, None
         for key in ("epubProgress", "pdfProgress", "cbxProgress"):
             progress = book_info.get(key)
             if progress is not None and progress.get("percentage") is not None:
                 pct = progress["percentage"]
                 return (pct / 100.0, progress.get("cfi"))
         return None, None
+
+    def audio_source_id(self, book_info: dict) -> str | None:
+        """Return the exact instance/book/file identity for a Grimmory audiobook."""
+        if (book_info.get("bookType") or "").upper() not in GRIMMORY_AUDIO_BOOK_TYPES:
+            return None
+        return self.book_file_source_id(book_info)
+
+    def book_file_source_id(self, book_info: dict) -> str | None:
+        """Return the exact instance/book/file identity for any Grimmory BookFile."""
+        book_id = book_info.get("id")
+        file_id = book_info.get("bookFileId")
+        if book_id is None or file_id is None:
+            return None
+        return f"{getattr(self, 'instance_id', 'default')}:{book_id}:{file_id}"
+
+    def find_book_file_by_source_id(self, source_id, allow_refresh=True):
+        """Resolve any exact qualified BookFile identity without filename matching."""
+        try:
+            instance_id, book_id, file_id = str(source_id).split(":", 2)
+        except ValueError:
+            return None
+        if instance_id != str(getattr(self, "instance_id", "default")):
+            return None
+
+        self._ensure_fresh_cache(allow_refresh)
+        book = self._book_file_cache.get((book_id, file_id))
+        if not book or self.book_file_source_id(book) != str(source_id):
+            return None
+        return book
+
+    def find_audiobook_by_source_id(self, source_id, allow_refresh=True):
+        """Resolve an exact qualified audiobook identity without filename matching."""
+        book = self.find_book_file_by_source_id(source_id, allow_refresh=allow_refresh)
+        if not book or (book.get("bookType") or "").upper() not in GRIMMORY_AUDIO_BOOK_TYPES:
+            return None
+        return book
+
+    def get_audio_files(self, source_id):
+        """Return an authenticated download descriptor for one exact audiobook file."""
+        book = self.find_audiobook_by_source_id(source_id)
+        token = self._get_fresh_token()
+        if not book or not token:
+            return []
+
+        book_id = book.get("id")
+        file_id = book.get("bookFileId")
+        filename = book.get("fileName") or "audiobook.mp3"
+        if book_id is None or file_id is None:
+            return []
+
+        if book.get("isPrimary"):
+            stream_url = f"{self.base_url}/api/v1/books/{book_id}/download"
+        else:
+            stream_url = f"{self.base_url}/api/v1/books/{book_id}/files/{file_id}/download"
+
+        return [
+            {
+                "stream_url": stream_url,
+                "ext": Path(filename).suffix.lstrip(".") or "mp3",
+                "headers": {"Authorization": f"Bearer {token}"},
+            }
+        ]
+
+    def get_book_file_progress(self, source_id):
+        book = self.find_book_file_by_source_id(source_id)
+        return self.extract_progress(book) if book else (None, None)
+
+    def get_audiobook_progress(self, source_id):
+        book = self.find_audiobook_by_source_id(source_id)
+        return self.extract_progress(book) if book else (None, None)
 
     def _normalize_string(self, s):
         """Remove non-alphanumeric characters and lowercase."""
@@ -523,7 +683,7 @@ class GrimmoryClient:
         """Refresh the in-memory book cache if it is empty or older than an hour."""
         if not allow_refresh:
             return
-        if not self._book_cache or time.time() - self._cache_timestamp > 3600:
+        if not self._book_identity_cache or time.time() - self._cache_timestamp > 3600:
             self._refresh_book_cache()
 
     def find_book_by_filename(self, ebook_filename, allow_refresh=True):
@@ -585,20 +745,20 @@ class GrimmoryClient:
     def get_all_books(self):
         """Get all books from cache, refreshing if necessary."""
         self._ensure_fresh_cache()
-        return list(self._book_cache.values())
+        return list(self._book_identity_cache.values())
 
     def search_books(self, search_term):
         """Search books by title, author, or filename. Returns list of matching books."""
         self._ensure_fresh_cache()
 
         if not search_term:
-            return list(self._book_cache.values())
+            return list(self._book_identity_cache.values())
 
         search_lower = search_term.lower()
         search_norm = self._normalize_string(search_term)
 
         results = []
-        for book_info in list(self._book_cache.values()):
+        for book_info in list(self._book_identity_cache.values()):
             title = (book_info.get("title") or "").lower()
             authors = (book_info.get("authors") or "").lower()
             filename = (book_info.get("fileName") or "").lower()
@@ -617,20 +777,30 @@ class GrimmoryClient:
 
         return results
 
-    def download_book(self, book_id):
-        """Download book content by ID. Returns bytes or None."""
+    def download_book(self, book_id, file_id=None):
+        """Download a primary book file or an exact selected alternative."""
         token = self._get_fresh_token()
         if not token:
             return None
 
         headers = {"Authorization": f"Bearer {token}"}
-        url = f"{self.base_url}/api/v1/books/{book_id}/download"
+        if file_id is not None:
+            selected = self._book_file_cache.get((str(book_id), str(file_id)))
+            if not selected:
+                self._refresh_book_cache()
+                selected = self._book_file_cache.get((str(book_id), str(file_id)))
+            if not selected or str(selected.get("id")) != str(book_id) or str(selected.get("bookFileId")) != str(file_id):
+                logger.warning("Grimmory: Refusing download for stale book/file identity %s/%s", book_id, file_id)
+                return None
+            url = f"{self.base_url}/api/v1/books/{book_id}/files/{file_id}/download"
+        else:
+            url = f"{self.base_url}/api/v1/books/{book_id}/download"
         logger.debug(f"Downloading book from {url}")
 
         try:
             response = self.session.get(url, headers=headers, timeout=60)
 
-            if response.status_code == 404:
+            if file_id is None and response.status_code == 404:
                 file_url = f"{self.base_url}/api/v1/books/{book_id}/file"
                 logger.debug(f"404 on /download, trying fallback: {file_url}")
                 response = self.session.get(file_url, headers=headers, timeout=60)
@@ -644,7 +814,9 @@ class GrimmoryClient:
             logger.error(f"Download error: {e}")
             return None
 
-    def get_progress(self, ebook_filename):
+    def get_progress(self, ebook_filename, instance_id=None):
+        if instance_id is not None and str(instance_id) != str(getattr(self, "instance_id", "default")):
+            return None, None
         book = self.find_book_by_filename(ebook_filename)
         if not book:
             return None, None
@@ -656,6 +828,16 @@ class GrimmoryClient:
             logger.debug(f"Grimmory: Book not found: {ebook_filename}")
             return False
 
+        return self._update_book_progress(book, ebook_filename, percentage, rich_locator)
+
+    def update_audiobook_progress(self, source_id, percentage):
+        book = self.find_audiobook_by_source_id(source_id)
+        if not book:
+            logger.debug("Grimmory: Audiobook identity no longer matches: %s", sanitize_log_data(source_id))
+            return False
+        return self._update_book_progress(book, source_id, percentage)
+
+    def _update_book_progress(self, book, display_name, percentage, rich_locator: LocatorResult | None = None):
         book_id = book["id"]
         book_type = (book.get("bookType") or "").upper()
         book_file_id = book.get("bookFileId")
@@ -681,16 +863,21 @@ class GrimmoryClient:
             progress_key = f"{book_type.lower()}Progress"
             payload = {"bookId": book_id, progress_key: {"percentage": pct_display}}
         else:
-            logger.warning(f"Grimmory: Unknown book type {book_type} for {sanitize_log_data(ebook_filename)}")
+            logger.warning(f"Grimmory: Unknown book type {book_type} for {sanitize_log_data(display_name)}")
             return False
 
         response = self._make_request("POST", "/api/v1/books/progress", payload)
         if response and response.status_code in [200, 201, 204]:
-            logger.info(f"Grimmory: {sanitize_log_data(ebook_filename)} -> {pct_display:.1f}%")
+            logger.info(f"Grimmory: {sanitize_log_data(display_name)} -> {pct_display:.1f}%")
             try:
-                cached = self._book_id_cache.get(book_id)
+                cached = book
                 if cached:
-                    progress_keys = {"EPUB": "epubProgress", "PDF": "pdfProgress", "CBX": "cbxProgress"}
+                    progress_keys = {
+                        "EPUB": "epubProgress",
+                        "PDF": "pdfProgress",
+                        "CBX": "cbxProgress",
+                        **{kind: "audiobookProgress" for kind in GRIMMORY_AUDIO_BOOK_TYPES},
+                    }
                     cached_type = (cached.get("bookType") or "").upper()
                     pk = progress_keys.get(cached_type)
                     if pk:
@@ -737,10 +924,10 @@ class GrimmoryClient:
             return False
 
     def get_recent_activity(self, min_progress=0.01):
-        if not self._book_cache:
+        if not self._book_identity_cache:
             self._refresh_book_cache()
         results = []
-        for _filename, book in list(self._book_cache.items()):
+        for book in list(self._book_identity_cache.values()):
             progress, _ = self.extract_progress(book)
             if progress is not None and progress >= min_progress:
                 results.append(
@@ -876,7 +1063,47 @@ class GrimmoryClientGroup:
                 results.append({**book, "_instance_id": c.instance_id})
         return results
 
-    def download_book(self, book_id):
+    def find_audiobook_by_source_id(self, source_id, allow_refresh=True):
+        for client in self._active:
+            book = client.find_audiobook_by_source_id(source_id, allow_refresh=allow_refresh)
+            if book:
+                return {**book, "_instance_id": client.instance_id}
+        return None
+
+    def find_book_file_by_source_id(self, source_id, allow_refresh=True):
+        for client in self._active:
+            book = client.find_book_file_by_source_id(source_id, allow_refresh=allow_refresh)
+            if book:
+                return {**book, "_instance_id": client.instance_id}
+        return None
+
+    def get_audio_files(self, source_id):
+        for client in self._active:
+            if str(source_id).startswith(f"{client.instance_id}:"):
+                return client.get_audio_files(source_id)
+        return []
+
+    def get_book_file_progress(self, source_id):
+        for client in self._active:
+            pct, locator = client.get_book_file_progress(source_id)
+            if pct is not None:
+                return pct, locator
+        return None, None
+
+    def get_audiobook_progress(self, source_id):
+        for client in self._active:
+            pct, locator = client.get_audiobook_progress(source_id)
+            if pct is not None:
+                return pct, locator
+        return None, None
+
+    def update_audiobook_progress(self, source_id, percentage):
+        for client in self._active:
+            if client.find_audiobook_by_source_id(source_id):
+                return client.update_audiobook_progress(source_id, percentage)
+        return False
+
+    def download_book(self, book_id, file_id=None):
         """Download from whichever client owns the book.
 
         book_id may be a plain int/str (legacy, tries all clients) or
@@ -887,11 +1114,11 @@ class GrimmoryClientGroup:
             target_instance, raw_id = bid_str.split(":", 1)
             for c in self._active:
                 if c.instance_id == target_instance:
-                    return c.download_book(raw_id)
+                    return c.download_book(raw_id, file_id=file_id)
             return None
 
         for c in self._active:
-            result = c.download_book(book_id)
+            result = c.download_book(book_id, file_id=file_id)
             if result:
                 return result
         return None
@@ -902,8 +1129,10 @@ class GrimmoryClientGroup:
             return c.base_url
         return None
 
-    def remove_from_shelf(self, ebook_filename, shelf_name=None):
+    def remove_from_shelf(self, ebook_filename, shelf_name=None, instance_id=None):
         for c in self._active:
+            if instance_id is not None and str(c.instance_id) != str(instance_id):
+                continue
             if c.remove_from_shelf(ebook_filename, shelf_name):
                 return True
         return False
@@ -914,8 +1143,10 @@ class GrimmoryClientGroup:
                 return True
         return False
 
-    def get_progress(self, ebook_filename):
+    def get_progress(self, ebook_filename, instance_id=None):
         for c in self._active:
+            if instance_id is not None and str(c.instance_id) != str(instance_id):
+                continue
             pct, cfi = c.get_progress(ebook_filename)
             if pct is not None:
                 return pct, cfi

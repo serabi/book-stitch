@@ -38,8 +38,9 @@ var PKModal = (function () {
     'use strict';
 
     /* ── cached DOM refs (resolved lazily) ── */
-    var _modal, _icon, _title, _message, _cancelBtn, _confirmBtn, _form, _hiddenContainer;
+    var _modal, _dialog, _icon, _title, _message, _cancelBtn, _confirmBtn, _form, _hiddenContainer;
     var _onConfirmCallback = null;
+    var _opener = null;
 
     function _el(id) { return document.getElementById(id); }
 
@@ -50,6 +51,7 @@ var PKModal = (function () {
             console.error('PKModal: #pk-confirm-modal not found — is confirm_modal.html included?');
             return;
         }
+        _dialog         = _el('pk-modal-dialog');
         _icon           = _el('pk-modal-icon');
         _title          = _el('pk-modal-title');
         _message        = _el('pk-modal-message');
@@ -78,7 +80,22 @@ var PKModal = (function () {
     }
 
     function _open() {
+        _opener = document.activeElement;
         _modal.style.display = 'flex';
+        setTimeout(function () {
+            var focusable = _focusableElements();
+            (focusable[0] || _dialog).focus();
+        }, 0);
+    }
+
+    function _focusableElements() {
+        if (!_dialog) return [];
+        return Array.prototype.filter.call(
+            _dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'),
+            function (element) {
+                return element.style.display !== 'none' && (!_form.contains(element) || _form.style.display !== 'none');
+            }
+        );
     }
 
     function _handleConfirmClick() {
@@ -202,12 +219,33 @@ var PKModal = (function () {
         _modal.style.display = 'none';
         _onConfirmCallback = null;
         _message.style.whiteSpace = '';
+        if (_opener && _opener.isConnected && typeof _opener.focus === 'function') {
+            _opener.focus();
+        }
+        _opener = null;
     }
 
     /* ── keyboard support ── */
     document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && _modal && _modal.style.display !== 'none') {
+        if (!_modal || _modal.style.display === 'none') return;
+        if (e.key === 'Escape') {
             close();
+        } else if (e.key === 'Tab') {
+            var focusable = _focusableElements();
+            if (!focusable.length) {
+                e.preventDefault();
+                _dialog.focus();
+                return;
+            }
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
         }
     });
 

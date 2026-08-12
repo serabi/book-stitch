@@ -74,6 +74,30 @@ def test_handle_put_progress_ignored_furthest_wins_uses_iso_timestamp():
     assert body["timestamp"] == "2026-01-15T12:30:00+00:00"
 
 
+def test_handle_put_progress_forwards_real_progress_to_detection():
+    service = _ServiceStub()
+    service._db.get_kosync_document.return_value = None
+    service._db.get_book_by_kosync_id.return_value = None
+    suggestion_service = service._container.suggestion_service.return_value
+    progress = _progress_service(service)
+
+    _, status = progress.handle_put_progress(
+        {
+            "document": "doc-123",
+            "percentage": 0.42,
+            "device": "KOReader",
+            "device_id": "device-1",
+        },
+        remote_addr="127.0.0.1",
+    )
+
+    assert status == 200
+    kwargs = suggestion_service.queue_kosync_suggestion.call_args.kwargs
+    assert kwargs["progress_percentage"] == 0.42
+    assert kwargs["device"] == "KOReader"
+    assert isinstance(kwargs["source_updated_at"], datetime)
+
+
 def test_resolve_best_progress_handles_state_without_last_updated():
     service = _ServiceStub()
     book = Mock(id=42, title="Test Book")

@@ -37,6 +37,41 @@ def test_get_kosync_id_grimmory_download_returns_none(flask_app, mock_container)
     assert result is None
 
 
+def test_get_kosync_id_downloads_selected_alternative_file(flask_app, mock_container):
+    bl_client = Mock()
+    bl_client.is_configured.return_value = True
+    bl_client.download_book.return_value = b"selected alternative epub"
+    mock_container.mock_ebook_parser.get_kosync_id_from_bytes.return_value = "alternative-hash"
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import get_kosync_id_for_ebook
+
+        result = get_kosync_id_for_ebook(
+            "book.epub",
+            grimmory_id=10,
+            grimmory_file_id=42,
+            bl_client=bl_client,
+        )
+
+    assert result == "alternative-hash"
+    bl_client.download_book.assert_called_once_with(10, file_id=42)
+    mock_container.mock_ebook_parser.get_kosync_id_from_bytes.assert_called_once_with(
+        "book.epub", b"selected alternative epub"
+    )
+
+
+def test_get_kosync_id_rejects_untrusted_remote_filename(flask_app):
+    bl_client = Mock()
+    bl_client.is_configured.return_value = True
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import get_kosync_id_for_ebook
+
+        assert get_kosync_id_for_ebook("../escape.epub", grimmory_id=10, bl_client=bl_client) is None
+
+    bl_client.download_book.assert_not_called()
+
+
 def test_get_kosync_id_abs_download_raises(flask_app, mock_container):
     """When ABS on-demand download raises, should return None gracefully."""
     mock_container.mock_abs_client.is_configured.return_value = True
@@ -115,6 +150,79 @@ def test_find_in_grimmory_no_match(flask_app, mock_container):
 
     assert book is None
     assert client is None
+
+
+def test_find_in_grimmory_uses_qualified_server_and_book_id(flask_app, mock_container):
+    primary = mock_container.mock_grimmory_client
+    secondary = Mock()
+    primary.is_configured.return_value = True
+    secondary.is_configured.return_value = True
+    secondary.find_book_by_filename.return_value = {"id": 22, "fileName": "same.epub"}
+    mock_container.grimmory_client_2 = lambda: secondary
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import find_in_grimmory
+
+        book, client = find_in_grimmory("same.epub", "2:22")
+
+    assert book["_instance_id"] == "2"
+    assert client is secondary
+    primary.find_book_by_filename.assert_not_called()
+
+
+def test_searchable_ebooks_keeps_same_filename_from_two_grimmory_servers(flask_app, mock_container):
+    group = mock_container.mock_grimmory_client
+    group.is_configured.return_value = True
+    group.search_books.return_value = [
+        {
+            "id": 11,
+            "bookFileId": 111,
+            "bookType": "EPUB",
+            "title": "Primary",
+            "fileName": "same.epub",
+            "_instance_id": "default",
+        },
+        {
+            "id": 22,
+            "bookFileId": 222,
+            "bookType": "EPUB",
+            "title": "Secondary",
+            "fileName": "same.epub",
+            "_instance_id": "2",
+        },
+    ]
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import get_searchable_ebooks
+
+        results = get_searchable_ebooks("same")
+
+    assert [(result.name, result.source_id) for result in results[:2]] == [
+        ("same.epub", "default:11:111"),
+        ("same.epub", "2:22:222"),
+    ]
+
+
+def test_find_in_grimmory_uses_exact_book_file_identity(flask_app, mock_container):
+    secondary = Mock()
+    secondary.is_configured.return_value = True
+    secondary.find_book_file_by_source_id.return_value = {
+        "id": 22,
+        "bookFileId": 222,
+        "fileName": "same.epub",
+    }
+    mock_container.mock_grimmory_client.is_configured.return_value = True
+    mock_container.grimmory_client_2 = lambda: secondary
+
+    with flask_app.app_context():
+        from src.blueprints.helpers import find_in_grimmory
+
+        book, client = find_in_grimmory("same.epub", "2:22:222")
+
+    assert book["_instance_id"] == "2"
+    assert book["bookFileId"] == 222
+    assert client is secondary
+    secondary.find_book_file_by_source_id.assert_called_once_with("2:22:222")
 
 
 # ── serialize_suggestion with None fields ─────────────────────────

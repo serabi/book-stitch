@@ -38,6 +38,14 @@
   color: var(--color-error);
 }
 
+.field-error {
+  color: var(--color-error);
+}
+
+input[aria-invalid="true"] {
+  border-color: var(--color-error);
+}
+
 .settings-page-header {
   display: flex;
   justify-content: space-between;
