@@ -9,6 +9,7 @@ import pytest
 
 pytestmark = pytest.mark.docker
 
+import logging
 import sys
 import unittest
 from pathlib import Path
@@ -64,9 +65,15 @@ class TestGrimmoryOnlyDetection(unittest.TestCase):
     def test_grimmory_book_outside_window_is_dropped(self):
         self.grimmory.get_progress.return_value = (0.97, None)  # above 95% window
 
-        self.service._check_cross_ebook_suggestions()
+        with self.assertLogs("src.services.suggestion_service", level=logging.DEBUG) as logs:
+            self.service._check_cross_ebook_suggestions()
 
         self.mock_db.save_detected_book.assert_not_called()
+        exclusion_records = [record for record in logs.records if "outside the 1%-95% progress window" in record.getMessage()]
+        self.assertEqual(len(exclusion_records), 1)
+        self.assertEqual(exclusion_records[0].levelno, logging.DEBUG)
+        self.assertIn("excluded 1 books", exclusion_records[0].getMessage())
+        self.assertIn("retained 0", exclusion_records[0].getMessage())
 
     def test_grimmory_book_within_widened_window_is_surfaced(self):
         self.grimmory.get_progress.return_value = (0.80, None)  # within new 1-95% window

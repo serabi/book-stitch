@@ -704,6 +704,7 @@ class SuggestionService:
             return []
 
         results = []
+        outside_window_count = 0
         for bl_book in bl_books:
             try:
                 title = bl_book.get("title", "")
@@ -721,11 +722,7 @@ class SuggestionService:
                     continue
                 pct = float(pct_raw or 0)
                 if not self._in_detection_window(pct):
-                    logger.info(
-                        f"Grimmory detection: dropping '{title}' — progress "
-                        f"{pct:.1%} outside detection window "
-                        f"({_DETECTION_WINDOW_MIN:.0%}-{_DETECTION_WINDOW_MAX:.0%})"
-                    )
+                    outside_window_count += 1
                     continue
                 results.append(
                     {
@@ -741,6 +738,14 @@ class SuggestionService:
                 )
             except Exception:
                 continue
+        if outside_window_count:
+            logger.debug(
+                "Grimmory detection: excluded %d books outside the %.0f%%-%.0f%% progress window; retained %d",
+                outside_window_count,
+                _DETECTION_WINDOW_MIN * 100,
+                _DETECTION_WINDOW_MAX * 100,
+                len(results),
+            )
         return results
 
     def _get_kosync_books_with_progress(
