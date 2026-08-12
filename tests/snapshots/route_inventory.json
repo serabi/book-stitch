@@ -1,0 +1,910 @@
+[
+  {
+    "rule": "/",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "dashboard.index",
+    "kind": "page"
+  },
+  {
+    "rule": "/api/abs/libraries",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "abs.get_abs_libraries",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/book/<abs_id>/cover",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "hardcover.delete_book_cover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/book/<abs_id>/cover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "hardcover.set_book_cover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/bookfusion/save-journal",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "bookfusion.save_highlight_to_journal",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/bookfusion/sync-book",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "bookfusion.sync_book_highlights",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/bookfusion/sync-highlights",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "bookfusion.sync_highlights",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/bookfusion/upload",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "bookfusion.upload_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/cover-proxy/<book_ref>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "abs.proxy_cover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/cover-proxy/grimmory/<int:book_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "covers.proxy_grimmory_cover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/cover-proxy/grimmory2/<int:book_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "covers.proxy_grimmory2_cover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/detected",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.get_detected_books",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/detected/<source_id>/dismiss",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.dismiss_detected_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/detected/<source_id>/resolve",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.resolve_detected_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/dnf/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.dnf_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/grimmory/libraries",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.get_grimmory_libraries",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/grimmory/link/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.api_grimmory_link",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/grimmory/search",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.api_grimmory_search",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/grimmory2/libraries",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.get_grimmory2_libraries",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/hardcover/cover-search",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "hardcover.api_cover_search",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/hardcover/resolve",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "hardcover.api_hardcover_resolve",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync_admin.api_get_kosync_documents",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents/<doc_hash>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "kosync_admin.api_delete_kosync_document",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents/<doc_hash>/create-book",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync_admin.api_create_book_from_hash",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents/<doc_hash>/link",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync_admin.api_link_kosync_document",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents/<doc_hash>/unlink",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync_admin.api_unlink_kosync_document",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents/clear-orphan/<int:book_id>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync_admin.api_clear_orphaned_hash",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents/orphaned",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync_admin.api_get_orphaned_kosync_books",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync-documents/resolve-orphan/<int:book_id>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync_admin.api_resolve_orphaned_hash",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kosync/test",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "settings_page.test_kosync_connection",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/logs",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "logs_page.api_logs",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/logs/hardcover",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "logs_page.api_logs_hardcover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/logs/live",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "logs_page.api_logs_live",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/mark-complete/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.mark_complete",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/pause/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.pause_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/processing-status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.api_processing_status",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.get_reading_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/dates",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.update_dates",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/dates/pull-hardcover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.pull_dates_from_hardcover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/dates/sync-hardcover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.sync_dates_to_hardcover",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/journal",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.add_journal",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/metadata-overrides",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.update_metadata_overrides",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/progress",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.update_progress",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/rating",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.update_rating",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/book/<book_ref>/status",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.update_status",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/books",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.get_reading_books",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/goal/<int:year>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.get_goal",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/goal/<int:year>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "reading.set_goal",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/journal/<int:journal_id>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "reading.delete_journal",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/journal/<int:journal_id>",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "reading.update_journal",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/library-search",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "tbr.search_library_books",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/stats/<int:year>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.get_stats",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "tbr.get_tbr_items",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/<int:item_id>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "tbr.delete_tbr_item",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/<int:item_id>",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "tbr.update_tbr_item",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/<int:item_id>/link",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.link_tbr_to_library",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/<int:item_id>/link",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "tbr.unlink_tbr_from_library",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/<int:item_id>/start",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.start_tbr_item",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/add",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.add_tbr_item",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/enrich",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.enrich_tbr_items",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/from-library",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.add_tbr_from_library",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/hardcover-lists",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "tbr.get_hardcover_lists",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/import-hardcover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.import_hardcover_wtr",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/import-hardcover-list",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.import_hardcover_list",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/reading/tbr/search",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "tbr.search_tbr",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/realign/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.realign_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/resume/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.resume_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/retry-transcription/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.retry_transcription",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/settings/secret/<key>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "settings_page.get_secret",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.api_status",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/storyteller/link/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.api_storyteller_link",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/storyteller/search",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.api_storyteller_search",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.get_suggestions",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions/<source_id>/hide",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.hide_suggestion",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions/<source_id>/ignore",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.ignore_suggestion",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions/<source_id>/link-bookfusion",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.link_suggestion_bookfusion",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions/<source_id>/unhide",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.unhide_suggestion",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions/clear_stale",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.clear_stale_suggestions",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions/rescan",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.rescan_suggestions",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/suggestions/rescan-status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.rescan_suggestions_status",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/sync-now/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.sync_now",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/sync-reading-dates",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.sync_reading_dates_api",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/test-connection/<service>",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "settings_page.test_connection",
+    "kind": "api"
+  },
+  {
+    "rule": "/batch-match",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "matching.batch_match",
+    "kind": "page"
+  },
+  {
+    "rule": "/clear-progress/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.clear_progress",
+    "kind": "page"
+  },
+  {
+    "rule": "/covers/<path:filename>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "covers.serve_cover",
+    "kind": "asset"
+  },
+  {
+    "rule": "/delete/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.delete_mapping",
+    "kind": "page"
+  },
+  {
+    "rule": "/healthcheck",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync.kosync_healthcheck",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/koreader/healthcheck",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync.kosync_healthcheck",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/koreader/syncs/progress",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "kosync.kosync_put_progress",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/koreader/syncs/progress/<doc_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync.kosync_get_progress",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/koreader/users/auth",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync.kosync_users_auth",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/koreader/users/create",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync.kosync_users_create",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/koreader/users/login",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync.kosync_users_login",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/kosync-documents",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync_admin.kosync_documents_page",
+    "kind": "page"
+  },
+  {
+    "rule": "/link-hardcover/<abs_id>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "hardcover.link_hardcover",
+    "kind": "page"
+  },
+  {
+    "rule": "/logs",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "logs_page.logs_view",
+    "kind": "page"
+  },
+  {
+    "rule": "/match",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "matching.match",
+    "kind": "page"
+  },
+  {
+    "rule": "/reading",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.reading_index",
+    "kind": "page"
+  },
+  {
+    "rule": "/reading/book/<book_ref>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.reading_detail",
+    "kind": "page"
+  },
+  {
+    "rule": "/reading/stats",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.reading_index",
+    "kind": "page"
+  },
+  {
+    "rule": "/reading/tbr",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.reading_index",
+    "kind": "page"
+  },
+  {
+    "rule": "/reading/tbr/<int:item_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "reading.tbr_detail",
+    "kind": "page"
+  },
+  {
+    "rule": "/readyz",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.readyz",
+    "kind": "api"
+  },
+  {
+    "rule": "/settings",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "endpoint": "settings_page.settings",
+    "kind": "page"
+  },
+  {
+    "rule": "/suggestions",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "matching.suggestions",
+    "kind": "page"
+  },
+  {
+    "rule": "/syncs/progress",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "kosync.kosync_put_progress",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/syncs/progress/<doc_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync.kosync_get_progress",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/update-hash/<book_ref>",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "books.update_hash",
+    "kind": "page"
+  },
+  {
+    "rule": "/users/auth",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kosync.kosync_users_auth",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/users/create",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync.kosync_users_create",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/users/login",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kosync.kosync_users_login",
+    "kind": "protocol"
+  },
+  {
+    "rule": "/view_log",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "logs_page.view_log",
+    "kind": "page"
+  }
+]

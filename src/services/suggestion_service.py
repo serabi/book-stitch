@@ -27,6 +27,12 @@ _CONFIDENCE_HIGH_THRESHOLD = 0.93
 _CONFIDENCE_MEDIUM_THRESHOLD = 0.82
 _MIN_CANDIDATE_SCORE = 0.72
 
+# Detection progress window (as fractions): a book is only surfaced for detection
+# when its external progress falls within these bounds. The lower bound filters
+# out untouched books; the upper bound avoids surfacing near-finished books.
+_DETECTION_WINDOW_MIN = 0.01
+_DETECTION_WINDOW_MAX = 0.95
+
 
 class SuggestionService:
     """Handles detected-book discovery plus legacy suggestion workflows."""
@@ -159,6 +165,9 @@ class SuggestionService:
         device: str | None = None,
         ebook_filename: str | None = None,
     ):
+        # Pass NULL (not "[]") for empty matches so an upsert from a no-match code
+        # path never clobbers cross-source matches recorded by an earlier pass.
+        matches_json = json.dumps(matches) if matches else None
         detected = DetectedBook(
             source=source,
             source_id=source_id,
@@ -166,7 +175,7 @@ class SuggestionService:
             author=author or "",
             cover_url=cover_url,
             progress_percentage=max(0.0, min(progress_percentage, 1.0)),
-            matches_json=json.dumps(matches or []),
+            matches_json=matches_json,
             device=device,
             ebook_filename=ebook_filename,
         )
@@ -544,10 +553,13 @@ class SuggestionService:
                             logger.debug(f"Skipping {abs_id}: detected entry dismissed")
                             continue
 
-                        # Check if book is already mostly finished (>70%)
-                        # If a user has listened to >70% elsewhere, they probably don't need a suggestion
-                        if pct > 0.70:
-                            logger.debug(f"Skipping {abs_id}: progress {pct:.1%} > 70% threshold")
+                        # Skip near-finished books — if a user is mostly done elsewhere,
+                        # surfacing a fresh detection adds little value.
+                        if pct > _DETECTION_WINDOW_MAX:
+                            logger.info(
+                                f"ABS detection: dropping {abs_id} — progress {pct:.1%} "
+                                f"above detection window max ({_DETECTION_WINDOW_MAX:.0%})"
+                            )
                             continue
 
                         logger.debug(f"Creating detected entry for {abs_id} (progress: {pct:.1%})")
@@ -590,7 +602,7 @@ class SuggestionService:
         for title_lower, pos_data in positions.items():
             pct = pos_data.get("pct", 0)
             uuid = pos_data.get("uuid")
-            if not uuid or pct < 0.01 or pct > 0.70:
+            if not uuid or not self._in_detection_window(pct):
                 continue
             if mapped_uuids and uuid in mapped_uuids:
                 continue
@@ -605,8 +617,13 @@ class SuggestionService:
             )
         return results
 
+    @staticmethod
+    def _in_detection_window(pct: float | None) -> bool:
+        """Return True when progress falls within the detection window (see module constants)."""
+        return bool(pct) and _DETECTION_WINDOW_MIN <= pct <= _DETECTION_WINDOW_MAX
+
     def _get_grimmory_books_with_progress(self, mapped_filenames: set | None = None) -> list[dict]:
-        """Fetch Grimmory books with 1-70% progress, excluding already-mapped filenames."""
+        """Fetch Grimmory books within the detection window, excluding already-mapped filenames."""
         if not self.grimmory_client or not self.grimmory_client.is_configured():
             return []
         try:
@@ -627,7 +644,12 @@ class SuggestionService:
                 pct_raw, _ = self.grimmory_client.get_progress(filename)
             except Exception:
                 continue
-            if not pct_raw or pct_raw < 0.01 or pct_raw > 0.70:
+            if not self._in_detection_window(pct_raw):
+                logger.info(
+                    f"Grimmory detection: dropping '{title}' — progress "
+                    f"{(pct_raw or 0):.1%} outside detection window "
+                    f"({_DETECTION_WINDOW_MIN:.0%}-{_DETECTION_WINDOW_MAX:.0%})"
+                )
                 continue
             results.append(
                 {
@@ -753,22 +775,27 @@ class SuggestionService:
 
             other_candidates = ebook_candidates.get("storyteller", []) + ebook_candidates.get("kosync", [])
             matches = self._rank_candidates_for_book(bl_book["title"], bl_book["author"], other_candidates)
+            cover = self._cover_url_for("grimmory", filename, bl_book)
+
+            # Legacy suggestion only when there's a cross-source match to act on.
             if matches:
-                cover = self._cover_url_for("grimmory", filename, bl_book)
                 self._save_suggestion_with_merge(
                     "grimmory", filename, bl_book["title"], bl_book["author"], cover, matches
                 )
-                self._upsert_detected_book(
-                    source="grimmory",
-                    source_id=filename,
-                    title=bl_book["title"],
-                    progress_percentage=bl_book.get("pct", 0.0),
-                    author=bl_book.get("author", ""),
-                    cover_url=cover,
-                    matches=matches,
-                    ebook_filename=filename,
-                )
-                existing_titles.add(norm_title)
+
+            # Surface every in-progress Grimmory book as a DetectedBook — even with no
+            # cross-source match — so Grimmory-only reads still appear for manual promotion.
+            self._upsert_detected_book(
+                source="grimmory",
+                source_id=filename,
+                title=bl_book["title"],
+                progress_percentage=bl_book.get("pct", 0.0),
+                author=bl_book.get("author", ""),
+                cover_url=cover,
+                matches=matches,
+                ebook_filename=filename,
+            )
+            existing_titles.add(norm_title)
 
     def _check_reverse_suggestions(self):
         """Check Storyteller and Grimmory for books with progress that could match ABS audiobooks."""

@@ -24,6 +24,8 @@ class GrimmoryClient:
 
         # In-memory cache for performance (populated from DB)
         self._book_cache = {}
+        self._book_case_insensitive_cache = {}
+        self._book_case_insensitive_filenames = {}
         self._book_id_cache = {}
         self._cache_timestamp = 0
 
@@ -51,8 +53,7 @@ class GrimmoryClient:
         if self.is_configured():
             self._load_cache()
         else:
-            self._book_cache = {}
-            self._book_id_cache = {}
+            self._reset_book_caches()
             self._cache_timestamp = 0
 
     @property
@@ -125,26 +126,74 @@ class GrimmoryClient:
         if self.db:
             try:
                 db_books = self.db.get_all_grimmory_books(server_id=self.instance_id)
-                self._book_cache = {}
-                self._book_id_cache = {}
+                self._reset_book_caches()
 
                 for db_book in db_books:
                     book_info = db_book.raw_metadata_dict
                     if not book_info:
                         book_info = {"fileName": db_book.filename, "title": db_book.title, "authors": db_book.authors}
 
-                    self._book_cache[db_book.filename] = book_info
-
-                    bid = book_info.get("id")
-                    if bid:
-                        self._book_id_cache[bid] = book_info
+                    self._cache_book_info(db_book.filename, book_info)
 
                 # Set to 0 to force a refresh/validation against API on next access
                 self._cache_timestamp = 0
                 logger.info(f"Grimmory: Loaded {len(self._book_cache)} books from database")
             except Exception as e:
                 logger.error(f"Failed to load Grimmory cache from DB: {e}")
-                self._book_cache = {}
+                self._reset_book_caches()
+
+    def _reset_book_caches(self):
+        self._book_cache = {}
+        self._book_case_insensitive_cache = {}
+        self._book_case_insensitive_filenames = {}
+        self._book_id_cache = {}
+
+    def _cache_book_info(self, filename, book_info):
+        cache_key = str(filename)
+        self._book_cache[cache_key] = book_info
+        lookup_key = cache_key.lower()
+        self._book_case_insensitive_filenames.setdefault(lookup_key, set()).add(cache_key)
+        self._update_case_insensitive_cache_entry(lookup_key)
+
+        bid = book_info.get("id")
+        if bid:
+            self._book_id_cache[bid] = book_info
+
+    def _remove_cached_filename(self, filename):
+        cache_key = str(filename)
+        self._book_cache.pop(cache_key, None)
+        lookup_key = cache_key.lower()
+        filenames = self._book_case_insensitive_filenames.get(lookup_key)
+        if filenames is not None:
+            filenames.discard(cache_key)
+            if not filenames:
+                self._book_case_insensitive_filenames.pop(lookup_key, None)
+        self._update_case_insensitive_cache_entry(lookup_key)
+
+    def _update_case_insensitive_cache_entry(self, lookup_key):
+        filenames = self._book_case_insensitive_filenames.get(lookup_key, set())
+        cached_filenames = [filename for filename in filenames if filename in self._book_cache]
+
+        if not cached_filenames:
+            self._book_case_insensitive_cache.pop(lookup_key, None)
+            return
+
+        if len(cached_filenames) == 1:
+            self._book_case_insensitive_cache[lookup_key] = self._book_cache[cached_filenames[0]]
+            return
+
+        self._book_case_insensitive_cache[lookup_key] = None
+
+    def _rebuild_case_insensitive_cache(self):
+        self._book_case_insensitive_cache = {}
+        self._book_case_insensitive_filenames = {}
+        for filename, book_info in self._book_cache.items():
+            lookup_key = filename.lower()
+            self._book_case_insensitive_filenames.setdefault(lookup_key, set()).add(filename)
+            if lookup_key not in self._book_case_insensitive_cache:
+                self._book_case_insensitive_cache[lookup_key] = book_info
+            elif self._book_case_insensitive_cache[lookup_key] is not book_info:
+                self._book_case_insensitive_cache[lookup_key] = None
 
     def _get_fresh_token(self):
         if self._token and (time.time() - self._token_timestamp) < self._token_max_age:
@@ -323,8 +372,7 @@ class GrimmoryClient:
 
         if not all_books_list:
             logger.debug("Grimmory: No books found in library")
-            self._book_cache = {}
-            self._book_id_cache = {}
+            self._reset_book_caches()
             self._cache_timestamp = time.time()
             return True
 
@@ -360,7 +408,7 @@ class GrimmoryClient:
 
                 if is_stale:
                     stale_count += 1
-                    self._book_cache.pop(fname, None)
+                    self._remove_cached_filename(fname)
                     if bid:
                         self._book_id_cache.pop(bid, None)
 
@@ -386,7 +434,7 @@ class GrimmoryClient:
         if self.target_library_id:
             lid = detail.get("libraryId")
             if lid is not None and str(lid) != str(self.target_library_id):
-                return None
+                return
 
         primary_file = detail.get("primaryFile", {})
         filename = primary_file.get("fileName", detail.get("fileName", ""))
@@ -431,13 +479,12 @@ class GrimmoryClient:
             "googleId": metadata.get("googleId"),
         }
 
-        self._book_cache[filename.lower()] = book_info
-        self._book_id_cache[detail["id"]] = book_info
+        self._cache_book_info(filename, book_info)
 
         if self.db:
             try:
                 b_model = GrimmoryBook(
-                    filename=filename.lower(),
+                    filename=filename,
                     title=title,
                     authors=author_str,
                     raw_metadata=json.dumps(book_info),
@@ -446,8 +493,6 @@ class GrimmoryClient:
                 self.db.save_grimmory_book(b_model)
             except Exception as e:
                 logger.error(f"Failed to persist book {filename} to DB: {e}")
-
-        return None
 
     def _update_cached_progress(self, detail):
         """Update progress fields on an already-cached book in-place."""
@@ -479,19 +524,30 @@ class GrimmoryClient:
             return ""
         return re.sub(r"[\W_]+", "", s.lower())
 
+    def _ensure_fresh_cache(self, allow_refresh=True):
+        """Refresh the in-memory book cache if it is empty or older than an hour."""
+        if not allow_refresh:
+            return
+        if not self._book_cache or time.time() - self._cache_timestamp > 3600:
+            self._refresh_book_cache()
+
     def find_book_by_filename(self, ebook_filename, allow_refresh=True):
         """Find a book by its filename using exact, stem, or normalized matching."""
-        if not self._book_cache and allow_refresh:
-            self._refresh_book_cache()
+        self._ensure_fresh_cache(allow_refresh)
 
-        if allow_refresh and time.time() - self._cache_timestamp > 3600:
-            self._refresh_book_cache()
-
-        target_name = Path(ebook_filename).name.lower()
+        target_name = Path(ebook_filename).name
 
         # 1. Exact Filename Match
         if target_name in self._book_cache:
             return self._book_cache[target_name]
+
+        lookup_key = target_name.lower()
+        if lookup_key in self._book_case_insensitive_cache:
+            book_info = self._book_case_insensitive_cache[lookup_key]
+            if book_info is not None:
+                return book_info
+            logger.debug(f"Grimmory: Ambiguous case-insensitive filename match for {sanitize_log_data(ebook_filename)}")
+            return None
 
         target_stem = Path(ebook_filename).stem.lower()
 
@@ -502,7 +558,8 @@ class GrimmoryClient:
 
         # 3. Partial Stem Match
         for cached_name, book_info in list(self._book_cache.items()):
-            if target_stem in cached_name or cached_name.replace(".epub", "") in target_stem:
+            cached_name_lower = cached_name.lower()
+            if target_stem in cached_name_lower or cached_name_lower.replace(".epub", "") in target_stem:
                 return book_info
 
         # 4. Fuzzy / Normalized Match
@@ -532,18 +589,12 @@ class GrimmoryClient:
 
     def get_all_books(self):
         """Get all books from cache, refreshing if necessary."""
-        if time.time() - self._cache_timestamp > 3600:
-            self._refresh_book_cache()
-        if not self._book_cache:
-            self._refresh_book_cache()
+        self._ensure_fresh_cache()
         return list(self._book_cache.values())
 
     def search_books(self, search_term):
         """Search books by title, author, or filename. Returns list of matching books."""
-        if time.time() - self._cache_timestamp > 3600:
-            self._refresh_book_cache()
-        if not self._book_cache:
-            self._refresh_book_cache()
+        self._ensure_fresh_cache()
 
         if not search_term:
             return list(self._book_cache.values())

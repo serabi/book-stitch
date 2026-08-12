@@ -125,6 +125,600 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         self.assertEqual(resolved.status, "resolved")
         self.assertEqual(still_active.status, "detected")
 
+    def test_dismiss_detected_book_sets_status_on_existing_row(self):
+        """Dismissing an existing detected book sets status to dismissed and returns True."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="dismiss-existing", title="D", progress_percentage=0.1)
+        )
+
+        self.assertTrue(self.db_service.dismiss_detected_book("dismiss-existing", source="abs"))
+
+        row = self.db_service.get_detected_book("dismiss-existing", source="abs")
+        self.assertEqual(row.status, "dismissed")
+
+    def test_resolve_detected_book_sets_status_on_existing_row(self):
+        """Resolving an existing detected book sets status to resolved and returns True."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="resolve-existing", title="R", progress_percentage=0.1)
+        )
+
+        self.assertTrue(self.db_service.resolve_detected_book("resolve-existing", source="abs"))
+
+        row = self.db_service.get_detected_book("resolve-existing", source="abs")
+        self.assertEqual(row.status, "resolved")
+
+    def test_dismiss_detected_book_missing_returns_false_and_creates_nothing(self):
+        """Dismissing a missing detected book returns False without inserting a row."""
+        self.assertFalse(self.db_service.dismiss_detected_book("dismiss-missing", source="abs"))
+        self.assertIsNone(self.db_service.get_detected_book("dismiss-missing", source="abs"))
+
+    def test_resolve_detected_book_missing_returns_false_and_creates_nothing(self):
+        """Resolving a missing detected book returns False without inserting a row."""
+        self.assertFalse(self.db_service.resolve_detected_book("resolve-missing", source="abs"))
+        self.assertIsNone(self.db_service.get_detected_book("resolve-missing", source="abs"))
+
+    def test_dismiss_detected_book_scoped_by_source(self):
+        """Dismissing a detected book only affects the matching source row."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="dismiss-shared", title="ABS", progress_percentage=0.2)
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(source="kosync", source_id="dismiss-shared", title="KOSync", progress_percentage=0.3)
+        )
+
+        self.assertTrue(self.db_service.dismiss_detected_book("dismiss-shared", source="abs"))
+
+        dismissed = self.db_service.get_detected_book("dismiss-shared", source="abs")
+        still_active = self.db_service.get_detected_book("dismiss-shared", source="kosync")
+        self.assertEqual(dismissed.status, "dismissed")
+        self.assertEqual(still_active.status, "detected")
+
+    def test_dismiss_and_resolve_advance_last_seen_at(self):
+        """Both dismiss and resolve refresh last_seen_at on the existing row."""
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        old_seen = datetime(2020, 1, 1, tzinfo=UTC)
+
+        dismiss_book = DetectedBook(source="abs", source_id="dismiss-seen", title="D", progress_percentage=0.1)
+        dismiss_book.last_seen_at = old_seen
+        self.db_service.save_detected_book(dismiss_book)
+
+        resolve_book = DetectedBook(source="abs", source_id="resolve-seen", title="R", progress_percentage=0.1)
+        resolve_book.last_seen_at = old_seen
+        self.db_service.save_detected_book(resolve_book)
+
+        self.assertTrue(self.db_service.dismiss_detected_book("dismiss-seen", source="abs"))
+        self.assertTrue(self.db_service.resolve_detected_book("resolve-seen", source="abs"))
+
+        dismissed = self.db_service.get_detected_book("dismiss-seen", source="abs")
+        resolved = self.db_service.get_detected_book("resolve-seen", source="abs")
+        self.assertGreater(dismissed.last_seen_at.replace(tzinfo=UTC), old_seen)
+        self.assertGreater(resolved.last_seen_at.replace(tzinfo=UTC), old_seen)
+
+    def test_save_detected_book_repeat_save_does_not_duplicate(self):
+        """Re-saving the same (source_id, source) updates in place, never inserts a duplicate."""
+        from src.db.models import DetectedBook
+
+        for _ in range(3):
+            self.db_service.save_detected_book(
+                DetectedBook(source="abs", source_id="dup-check", title="Dup", progress_percentage=0.1)
+            )
+
+        all_for_source = [b for b in self.db_service.get_active_detected_books() if b.source_id == "dup-check"]
+        self.assertEqual(len(all_for_source), 1)
+
+    def test_save_detected_book_keeps_dismissed_when_incoming_detected(self):
+        """A dismissed row stays dismissed when a later 'detected' save arrives."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="dismiss-keep", title="Keep", progress_percentage=0.1)
+        )
+        self.assertTrue(self.db_service.dismiss_detected_book("dismiss-keep", source="abs"))
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs", source_id="dismiss-keep", title="Keep", progress_percentage=0.4, status="detected"
+            )
+        )
+
+        row = self.db_service.get_detected_book("dismiss-keep", source="abs")
+        self.assertEqual(row.status, "dismissed")
+        self.assertAlmostEqual(row.progress_percentage, 0.4)
+
+    def test_save_detected_book_resolved_status_is_applied(self):
+        """An incoming non-detected status (e.g. resolved) is applied over a detected row."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="status-apply", title="S", progress_percentage=0.1)
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs", source_id="status-apply", title="S", progress_percentage=0.2, status="resolved"
+            )
+        )
+
+        row = self.db_service.get_detected_book("status-apply", source="abs")
+        self.assertEqual(row.status, "resolved")
+
+    def test_save_detected_book_preserves_truthy_only_fields(self):
+        """Falsy incoming title/author/cover_url/device/ebook_filename do not overwrite existing values."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="truthy",
+                title="Original Title",
+                author="Original Author",
+                cover_url="/cover/orig",
+                progress_percentage=0.1,
+                device="OriginalDevice",
+                ebook_filename="orig.epub",
+            )
+        )
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="truthy",
+                title="",
+                author=None,
+                cover_url="",
+                progress_percentage=0.5,
+                device="",
+                ebook_filename=None,
+            )
+        )
+
+        row = self.db_service.get_detected_book("truthy", source="abs")
+        self.assertEqual(row.title, "Original Title")
+        self.assertEqual(row.author, "Original Author")
+        self.assertEqual(row.cover_url, "/cover/orig")
+        self.assertEqual(row.device, "OriginalDevice")
+        self.assertEqual(row.ebook_filename, "orig.epub")
+        self.assertAlmostEqual(row.progress_percentage, 0.5)
+
+    def test_save_detected_book_updates_truthy_fields(self):
+        """Truthy incoming values for the conditional fields do overwrite existing values."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="truthy-upd", title="Old", progress_percentage=0.1)
+        )
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="truthy-upd",
+                title="New",
+                author="New Author",
+                cover_url="/cover/new",
+                progress_percentage=0.2,
+                device="NewDevice",
+                ebook_filename="new.epub",
+            )
+        )
+
+        row = self.db_service.get_detected_book("truthy-upd", source="abs")
+        self.assertEqual(row.title, "New")
+        self.assertEqual(row.author, "New Author")
+        self.assertEqual(row.cover_url, "/cover/new")
+        self.assertEqual(row.device, "NewDevice")
+        self.assertEqual(row.ebook_filename, "new.epub")
+
+    def test_save_detected_book_matches_json_none_does_not_overwrite(self):
+        """matches_json updates only when incoming is not None; None preserves existing matches."""
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id="matches",
+                title="M",
+                progress_percentage=0.1,
+                matches_json='[{"filename": "a.epub"}]',
+            )
+        )
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="matches", title="M", progress_percentage=0.2, matches_json=None)
+        )
+        preserved = self.db_service.get_detected_book("matches", source="abs")
+        self.assertEqual(preserved.matches_json, '[{"filename": "a.epub"}]')
+
+        self.db_service.save_detected_book(
+            DetectedBook(source="abs", source_id="matches", title="M", progress_percentage=0.3, matches_json="[]")
+        )
+        replaced = self.db_service.get_detected_book("matches", source="abs")
+        self.assertEqual(replaced.matches_json, "[]")
+
+    def test_save_detected_book_last_seen_and_first_detected_behavior(self):
+        """last_seen_at advances to incoming value; first_detected_at stays fixed once set."""
+        from datetime import UTC, datetime
+
+        from src.db.models import DetectedBook
+
+        original_first = datetime(2020, 1, 1, tzinfo=UTC)
+        original_last = datetime(2020, 1, 2, tzinfo=UTC)
+        first = DetectedBook(source="abs", source_id="times", title="T", progress_percentage=0.1)
+        first.first_detected_at = original_first
+        first.last_seen_at = original_last
+        self.db_service.save_detected_book(first)
+
+        new_last = datetime(2021, 6, 15, tzinfo=UTC)
+        second = DetectedBook(source="abs", source_id="times", title="T", progress_percentage=0.2)
+        second.first_detected_at = datetime(2099, 1, 1, tzinfo=UTC)
+        second.last_seen_at = new_last
+        self.db_service.save_detected_book(second)
+
+        row = self.db_service.get_detected_book("times", source="abs")
+        self.assertEqual(row.first_detected_at.replace(tzinfo=UTC), original_first)
+        self.assertEqual(row.last_seen_at.replace(tzinfo=UTC), new_last)
+
+    def test_save_detected_book_normalizes_against_concurrently_inserted_row(self):
+        """Regression: a row that appears only inside the upsert transaction (not at
+        any earlier pre-read) must still get detected-book normalization applied.
+
+        Simulates the race the old code lost: a writer's pre-read sees no row, then a
+        concurrent insert lands a dismissed row before the update transaction runs.
+        Normalization must run against the row found inside _upsert, so the dismissed
+        status is preserved instead of being clobbered back to 'detected'. The
+        pre-read is simulated as returning None to prove normalization no longer
+        depends on it."""
+        from unittest.mock import patch
+
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        repo = self.db_service._detected
+
+        # A concurrent writer inserts a dismissed row after the (simulated) pre-read.
+        with repo.get_session() as session:
+            session.add(
+                DetectedBook(
+                    source="abs",
+                    source_id="race-update",
+                    title="Existing Title",
+                    author="Existing Author",
+                    progress_percentage=0.1,
+                    status="dismissed",
+                    matches_json='[{"filename": "x.epub"}]',
+                )
+            )
+
+        # Pre-read returns None: the concurrent insert had not yet landed when an
+        # earlier-design caller would have read. The fix must not rely on it.
+        with patch.object(DetectedRepository, "get_detected_book", return_value=None):
+            repo.save_detected_book(
+                DetectedBook(
+                    source="abs",
+                    source_id="race-update",
+                    title="",
+                    author=None,
+                    progress_percentage=0.6,
+                    status="detected",
+                    matches_json=None,
+                )
+            )
+
+        row = self.db_service.get_detected_book("race-update", source="abs")
+        self.assertEqual(row.status, "dismissed")
+        self.assertEqual(row.title, "Existing Title")
+        self.assertEqual(row.author, "Existing Author")
+        self.assertEqual(row.matches_json, '[{"filename": "x.epub"}]')
+        self.assertAlmostEqual(row.progress_percentage, 0.6)
+
+    def test_save_detected_book_normalizes_in_integrity_error_recovery(self):
+        """Regression: the IntegrityError race-recovery branch of _upsert must also
+        apply detected-book normalization.
+
+        Forces _upsert down its insert path (existing lookup returns None) while a
+        concurrent insert already committed the same (source_id, source). The insert
+        raises IntegrityError, recovery re-finds the row, and normalization must run
+        against it so the dismissed status survives."""
+        from src.db.models import DetectedBook
+
+        repo = self.db_service._detected
+
+        # Pre-existing dismissed row that the recovery lookup will find.
+        with repo.get_session() as session:
+            session.add(
+                DetectedBook(
+                    source="abs",
+                    source_id="race-integrity",
+                    title="Existing Title",
+                    author="Existing Author",
+                    progress_percentage=0.1,
+                    status="dismissed",
+                )
+            )
+
+        # Force _upsert's initial lookup to miss so it attempts an insert, hitting
+        # the unique constraint and dropping into IntegrityError recovery.
+        from sqlalchemy.orm import Query
+
+        real_first = Query.first
+        state = {"calls": 0}
+
+        def fake_first(self):
+            # Only intercept the very first lookup inside _upsert for this model.
+            if state["calls"] == 0 and self.column_descriptions and self.column_descriptions[0]["type"] is DetectedBook:
+                state["calls"] += 1
+                return None
+            return real_first(self)
+
+        Query.first = fake_first
+        try:
+            repo.save_detected_book(
+                DetectedBook(
+                    source="abs",
+                    source_id="race-integrity",
+                    title="",
+                    author=None,
+                    progress_percentage=0.7,
+                    status="detected",
+                )
+            )
+        finally:
+            Query.first = real_first
+
+        row = self.db_service.get_detected_book("race-integrity", source="abs")
+        self.assertEqual(row.status, "dismissed")
+        self.assertEqual(row.title, "Existing Title")
+        self.assertEqual(row.author, "Existing Author")
+        self.assertAlmostEqual(row.progress_percentage, 0.7)
+
+    def _make_detected(self, source_id, last_seen_at, status="detected"):
+        from src.db.models import DetectedBook
+
+        book = DetectedBook(
+            source="abs",
+            source_id=source_id,
+            title=source_id,
+            progress_percentage=0.1,
+            status=status,
+        )
+        book.last_seen_at = last_seen_at
+        return book
+
+    def test_get_active_detected_books_returns_only_detected_status(self):
+        """Only rows with status 'detected' are returned; dismissed/resolved are excluded."""
+        from datetime import UTC, datetime
+
+        base = datetime(2023, 1, 1, tzinfo=UTC)
+        for source_id, status in (
+            ("active-a", "detected"),
+            ("active-b", "detected"),
+            ("gone-dismissed", "detected"),
+            ("gone-resolved", "detected"),
+        ):
+            self.db_service.save_detected_book(self._make_detected(source_id, base, status))
+
+        self.assertTrue(self.db_service.dismiss_detected_book("gone-dismissed", source="abs"))
+        self.assertTrue(self.db_service.resolve_detected_book("gone-resolved", source="abs"))
+
+        active_ids = {b.source_id for b in self.db_service.get_active_detected_books()}
+        self.assertEqual(active_ids, {"active-a", "active-b"})
+
+    def test_get_active_detected_books_orders_by_last_seen_desc(self):
+        """Results are ordered by last_seen_at descending."""
+        from datetime import UTC, datetime
+
+        self.db_service.save_detected_book(
+            self._make_detected("oldest", datetime(2020, 1, 1, tzinfo=UTC))
+        )
+        self.db_service.save_detected_book(
+            self._make_detected("newest", datetime(2024, 1, 1, tzinfo=UTC))
+        )
+        self.db_service.save_detected_book(
+            self._make_detected("middle", datetime(2022, 1, 1, tzinfo=UTC))
+        )
+
+        ordered = [b.source_id for b in self.db_service.get_active_detected_books()]
+        self.assertEqual(ordered, ["newest", "middle", "oldest"])
+
+    def test_get_active_detected_books_honors_limit(self):
+        """A positive limit caps the number of returned rows, keeping DESC order."""
+        from datetime import UTC, datetime
+
+        for i in range(5):
+            self.db_service.save_detected_book(
+                self._make_detected(f"limit-{i}", datetime(2020, 1, 1 + i, tzinfo=UTC))
+            )
+
+        limited = self.db_service.get_active_detected_books(limit=2)
+        self.assertEqual([b.source_id for b in limited], ["limit-4", "limit-3"])
+
+    def test_get_active_detected_books_limit_zero_returns_empty(self):
+        """limit=0 applies .limit(0) and returns an empty list."""
+        from datetime import UTC, datetime
+
+        self.db_service.save_detected_book(
+            self._make_detected("present", datetime(2023, 1, 1, tzinfo=UTC))
+        )
+
+        self.assertEqual(self.db_service.get_active_detected_books(limit=0), [])
+
+    def test_get_active_detected_books_empty_when_none_active(self):
+        """Returns an empty list when no active detected rows exist."""
+        from datetime import UTC, datetime
+
+        self.db_service.save_detected_book(
+            self._make_detected("only-dismissed", datetime(2023, 1, 1, tzinfo=UTC))
+        )
+        self.assertTrue(self.db_service.dismiss_detected_book("only-dismissed", source="abs"))
+
+        self.assertEqual(self.db_service.get_active_detected_books(), [])
+
+    def test_get_active_detected_books_rows_detached_after_session_close(self):
+        """Returned rows are expunged, so their attributes remain usable after the session closes."""
+        from datetime import UTC, datetime
+
+        self.db_service.save_detected_book(
+            self._make_detected("detached", datetime(2023, 5, 5, tzinfo=UTC))
+        )
+
+        rows = self.db_service.get_active_detected_books()
+        self.assertEqual(len(rows), 1)
+        # Accessing attributes outside any open session must not raise DetachedInstanceError.
+        self.assertEqual(rows[0].source_id, "detached")
+        self.assertEqual(rows[0].status, "detected")
+        self.assertEqual(rows[0].title, "detached")
+
+    def _save_detected_with_matches(self, source_id, matches_json, status="detected"):
+        """Persist a detected row carrying an explicit matches_json string.
+
+        Built directly (not via _make_detected) because that helper does not set
+        matches_json. Non-active statuses are applied through the dismiss/resolve
+        mutators so normalization does not clobber them back to 'detected'.
+        """
+        from src.db.models import DetectedBook
+
+        self.db_service.save_detected_book(
+            DetectedBook(
+                source="abs",
+                source_id=source_id,
+                title=source_id,
+                progress_percentage=0.1,
+                matches_json=matches_json,
+            )
+        )
+        if status == "dismissed":
+            self.db_service.dismiss_detected_book(source_id, source="abs")
+        elif status == "resolved":
+            self.db_service.resolve_detected_book(source_id, source="abs")
+
+    def test_get_all_ebook_filenames_returns_filenames_from_active_rows(self):
+        """Filenames are collected from active detected rows' matches_json."""
+        self._save_detected_with_matches(
+            "active-one", '[{"filename": "alpha.epub"}, {"filename": "beta.epub"}]'
+        )
+
+        self.assertEqual(
+            self.db_service.get_all_ebook_filenames(), {"alpha.epub", "beta.epub"}
+        )
+
+    def test_get_all_ebook_filenames_excludes_dismissed_and_resolved(self):
+        """Dismissed and resolved rows are excluded even when they carry matches."""
+        self._save_detected_with_matches("active", '[{"filename": "active.epub"}]')
+        self._save_detected_with_matches(
+            "dismissed", '[{"filename": "dismissed.epub"}]', status="dismissed"
+        )
+        self._save_detected_with_matches(
+            "resolved", '[{"filename": "resolved.epub"}]', status="resolved"
+        )
+
+        self.assertEqual(self.db_service.get_all_ebook_filenames(), {"active.epub"})
+
+    def test_get_all_ebook_filenames_ignores_matches_json_none(self):
+        """Rows with matches_json=None are filtered out by the DB query."""
+        self._save_detected_with_matches("has-matches", '[{"filename": "keep.epub"}]')
+        self._save_detected_with_matches("no-matches", None)
+
+        self.assertEqual(self.db_service.get_all_ebook_filenames(), {"keep.epub"})
+
+    def test_get_all_ebook_filenames_corrupt_json_contributes_nothing(self):
+        """Corrupt JSON yields [] from the matches property and adds no filenames."""
+        self._save_detected_with_matches("good", '[{"filename": "good.epub"}]')
+        self._save_detected_with_matches("corrupt", "{not valid json")
+
+        self.assertEqual(self.db_service.get_all_ebook_filenames(), {"good.epub"})
+
+    def test_get_all_ebook_filenames_ignores_entries_without_filename(self):
+        """Match dicts missing filename or with falsey filename values are skipped."""
+        self._save_detected_with_matches(
+            "mixed",
+            '[{"filename": "kept.epub"}, {"author": "no filename"}, '
+            '{"filename": ""}, {"filename": null}]',
+        )
+
+        self.assertEqual(self.db_service.get_all_ebook_filenames(), {"kept.epub"})
+
+    def test_get_all_ebook_filenames_collapses_duplicates(self):
+        """Identical filenames across rows collapse to a single set entry."""
+        self._save_detected_with_matches("first", '[{"filename": "dup.epub"}]')
+        self._save_detected_with_matches(
+            "second", '[{"filename": "dup.epub"}, {"filename": "dup.epub"}]'
+        )
+
+        self.assertEqual(self.db_service.get_all_ebook_filenames(), {"dup.epub"})
+
+    def test_get_all_ebook_filenames_empty_set_when_no_usable_filenames(self):
+        """Returns an empty set (not None/list) when nothing usable exists."""
+        self._save_detected_with_matches("empty-matches", "[]")
+        self._save_detected_with_matches("no-filenames", '[{"author": "x"}]')
+
+        result = self.db_service.get_all_ebook_filenames()
+        self.assertEqual(result, set())
+        self.assertIsInstance(result, set)
+
+    def test_get_all_ebook_filenames_extracts_after_session_close(self):
+        """The matches property is read after _query_and_expunge detaches the rows.
+
+        Reading matches_json post-expunge must not raise DetachedInstanceError;
+        a non-empty result proves the scalar column was available after detach.
+        """
+        self._save_detected_with_matches(
+            "detached", '[{"filename": "detached.epub"}]'
+        )
+
+        self.assertEqual(
+            self.db_service.get_all_ebook_filenames(), {"detached.epub"}
+        )
+
+    def test_upsert_without_normalize_hook_is_unaffected(self):
+        """Default _upsert callers (no normalize hook) keep blind attribute-copy
+        semantics: the existing-row update path overwrites every update attr."""
+        from src.db.detected_repository import DetectedRepository
+        from src.db.models import DetectedBook
+
+        repo = self.db_service._detected
+
+        with repo.get_session() as session:
+            session.add(
+                DetectedBook(
+                    source="abs",
+                    source_id="no-hook",
+                    title="Existing Title",
+                    author="Existing Author",
+                    progress_percentage=0.1,
+                    status="dismissed",
+                )
+            )
+
+        incoming = DetectedBook(
+            source="abs",
+            source_id="no-hook",
+            title="Replaced",
+            author="Replaced Author",
+            progress_percentage=0.9,
+            status="detected",
+        )
+        repo._upsert(
+            DetectedBook,
+            [
+                DetectedBook.source_id == "no-hook",
+                DetectedBook.source == "abs",
+            ],
+            incoming,
+            DetectedRepository.UPSERT_ATTRS,
+        )
+
+        row = self.db_service.get_detected_book("no-hook", source="abs")
+        self.assertEqual(row.status, "detected")
+        self.assertEqual(row.title, "Replaced")
+        self.assertEqual(row.author, "Replaced Author")
+        self.assertAlmostEqual(row.progress_percentage, 0.9)
+
     def test_delete_book(self):
         """Test deleting a book record with cascading deletes for states and hardcover details."""
         test_abs_id = "test-book-delete"
@@ -1393,6 +1987,114 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
 
             conn.close()
 
+    def test_startup_script_delegates_migrations_to_app(self):
+        """start.sh must not run Alembic directly. On a pre-Alembic DB a direct
+        `alembic upgrade head` fails with 'table books already exists' and
+        leaves an empty alembic_version table behind, which used to poison the
+        app's legacy recovery path. DatabaseService is the single migration
+        authority for container startup.
+        """
+        start_sh = (Path(__file__).parent.parent / "start.sh").read_text()
+        command_lines = [line for line in start_sh.splitlines() if not line.lstrip().startswith("#")]
+        self.assertNotIn("alembic", "\n".join(command_lines))
+
+    def test_legacy_db_poisoned_by_direct_alembic_recovers_on_startup(self):
+        """Simulates the released container startup path against a pre-Alembic DB:
+        start.sh used to run `alembic upgrade head` before the app started. That
+        fails on 'table books already exists' and leaves an EMPTY alembic_version
+        table. DatabaseService startup must recover that exact state instead of
+        failing and continuing on the old schema.
+        """
+        import sqlite3
+
+        from sqlalchemy.exc import OperationalError
+
+        from alembic import command
+        from src.db.database_service import DatabaseService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "poisoned.db")
+            self._make_legacy_db(db_path)
+
+            # Step 1: what start.sh's direct `alembic upgrade head` did
+            with self.assertRaises(OperationalError):
+                command.upgrade(self._alembic_config(db_path), "head")
+
+            # Precondition: poisoned state — empty alembic_version + legacy schema
+            conn = sqlite3.connect(db_path)
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            self.assertIn("alembic_version", tables)
+            self.assertEqual(conn.execute("SELECT count(*) FROM alembic_version").fetchone()[0], 0)
+            conn.close()
+
+            # Step 2: app startup must fully recover, not continue degraded
+            db_service = DatabaseService(db_path)
+            self.assertEqual(db_service.startup_ready(), (True, "ok"))
+            book = db_service.get_book_by_abs_id("legacy-book-1")
+            db_service.db_manager.close()
+            self.assertIsNotNone(book, "Pre-existing legacy book was lost during recovery")
+            self.assertEqual(book.title, "My Legacy Book")
+
+            conn = sqlite3.connect(db_path)
+            version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+            self.assertIsNotNone(version, "alembic_version still empty after recovery")
+            books_cols = {row[1] for row in conn.execute("PRAGMA table_info(books)").fetchall()}
+            self.assertIn("title", books_cols, "abs_title→title migration did not run during recovery")
+            states_cols = {row[1] for row in conn.execute("PRAGMA table_info(states)").fetchall()}
+            self.assertIn("book_id", states_cols, "states.book_id not added during recovery")
+            conn.close()
+
+    def test_empty_alembic_version_on_unknown_db_fails_closed(self):
+        """A populated DB with an empty alembic_version table that does NOT match
+        the pre-Alembic baseline is an interrupted migration we cannot resume.
+        Startup must abort loudly instead of stamping or patching the schema.
+        """
+        import sqlite3
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "unknown.db")
+            conn = sqlite3.connect(db_path)
+            conn.executescript("""
+                CREATE TABLE books (abs_id TEXT PRIMARY KEY, abs_title TEXT);
+                CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL);
+            """)
+            conn.execute("INSERT INTO books (abs_id, abs_title) VALUES ('b1', 'Book')")
+            conn.commit()
+            conn.close()
+
+            with self.assertRaises(DatabaseSchemaError):
+                DatabaseService(db_path)
+
+            # The DB must not have been stamped or mutated
+            conn = sqlite3.connect(db_path)
+            self.assertEqual(conn.execute("SELECT count(*) FROM alembic_version").fetchone()[0], 0)
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            conn.close()
+            self.assertEqual(tables, {"books", "alembic_version"})
+
+    def test_interrupted_migration_recovery_failure_fails_closed(self):
+        """If baseline-stamp recovery itself fails, startup must abort rather than
+        continue with a partially migrated schema.
+        """
+        import sqlite3
+        from unittest.mock import patch
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "broken_recovery.db")
+            self._make_legacy_db(db_path)
+            conn = sqlite3.connect(db_path)
+            conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+            conn.commit()
+            conn.close()
+
+            with patch("alembic.command.upgrade", side_effect=RuntimeError("boom")):
+                with self.assertRaises(DatabaseSchemaError):
+                    DatabaseService(db_path)
+
     def test_state_uniqueness_migration_dedupes_before_index(self):
         """Duplicate states from the previous head are collapsed before adding uniqueness."""
         import sqlite3
@@ -1595,6 +2297,230 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
             self.assertTrue(Path(db_path).exists(), "Database file was not created")
 
 
+class TestUnsafeSchemaFailsClosed(unittest.TestCase):
+    """
+    Populated databases that cannot be verified as a known upgrade path must
+    fail closed: DatabaseService must raise DatabaseSchemaError without
+    stamping alembic_version or mutating the schema. Silently stamping or
+    patching such databases can permanently corrupt user data.
+    """
+
+    LEGACY_TABLE_DDL = {
+        "books": """
+            CREATE TABLE books (
+                abs_id TEXT PRIMARY KEY,
+                abs_title TEXT,
+                ebook_filename TEXT,
+                kosync_doc_id TEXT,
+                transcript_file TEXT,
+                status TEXT DEFAULT 'active',
+                duration REAL
+            );
+        """,
+        "hardcover_details": """
+            CREATE TABLE hardcover_details (
+                abs_id TEXT PRIMARY KEY,
+                hardcover_book_id TEXT,
+                hardcover_edition_id TEXT,
+                hardcover_pages INTEGER,
+                isbn TEXT,
+                asin TEXT,
+                matched_by TEXT
+            );
+        """,
+        "states": """
+            CREATE TABLE states (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                abs_id TEXT NOT NULL,
+                client_name TEXT NOT NULL,
+                last_updated REAL,
+                percentage REAL,
+                timestamp REAL,
+                xpath TEXT,
+                cfi TEXT
+            );
+        """,
+        "jobs": """
+            CREATE TABLE jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                abs_id TEXT NOT NULL,
+                last_attempt REAL,
+                retry_count INTEGER DEFAULT 0,
+                last_error TEXT
+            );
+        """,
+    }
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = str(Path(self.temp_dir) / "unsafe.db")
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _make_db(self, tables, with_empty_alembic_version=False):
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        for table in tables:
+            conn.executescript(self.LEGACY_TABLE_DDL[table])
+        if "books" in tables:
+            conn.execute("INSERT INTO books (abs_id, abs_title) VALUES ('user-book-1', 'Precious Data')")
+        if with_empty_alembic_version:
+            conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+    def _table_names(self):
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        conn.close()
+        return tables
+
+    def _assert_fails_closed(self, expected_tables):
+        """DatabaseService must raise and leave the database untouched."""
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        tables = self._table_names()
+        self.assertEqual(
+            tables - {"sqlite_sequence"},
+            expected_tables,
+            "Fail-closed startup must not create or drop tables",
+        )
+        self.assertNotIn("alembic_version", tables, "Unsafe database must not be stamped")
+
+    def test_partial_legacy_books_and_states_only_fails_closed(self):
+        """A legacy DB missing hardcover_details and jobs must not be baseline-stamped:
+        replaying migrations on it fails midway and leaves a half-upgraded schema."""
+        self._make_db(["books", "states"])
+        self._assert_fails_closed({"books", "states"})
+
+    def test_partial_legacy_missing_hardcover_details_fails_closed(self):
+        self._make_db(["books", "states", "jobs"])
+        self._assert_fails_closed({"books", "states", "jobs"})
+
+    def test_partial_legacy_missing_jobs_fails_closed(self):
+        self._make_db(["books", "states", "hardcover_details"])
+        self._assert_fails_closed({"books", "states", "hardcover_details"})
+
+    def test_unknown_populated_books_only_fails_closed(self):
+        """An unknown populated schema must never be stamped at head."""
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TABLE books (abs_id TEXT, abs_title TEXT)")
+        conn.execute("INSERT INTO books VALUES ('user-book-1', 'Precious Data')")
+        conn.commit()
+        conn.close()
+
+        self._assert_fails_closed({"books"})
+
+    def test_baseline_table_missing_column_fails_closed(self):
+        """All four tables present but a baseline column missing must not be stamped."""
+        import sqlite3
+
+        self._make_db(["states", "hardcover_details", "jobs"])
+        conn = sqlite3.connect(self.db_path)
+        # books without abs_title — e.g. a manually repaired or renamed schema
+        conn.execute("CREATE TABLE books (abs_id TEXT PRIMARY KEY, title TEXT)")
+        conn.commit()
+        conn.close()
+
+        self._assert_fails_closed({"books", "states", "hardcover_details", "jobs"})
+
+    def test_empty_alembic_version_with_verified_baseline_recovers(self):
+        """An empty alembic_version table (left by an interrupted direct
+        `alembic upgrade head`) on a fully verified baseline must recover:
+        baseline-stamp, upgrade to head, and preserve data."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseService
+
+        self._make_db(["books", "states", "hardcover_details", "jobs"], with_empty_alembic_version=True)
+
+        db_service = DatabaseService(self.db_path)
+        book = db_service.get_book_by_abs_id("user-book-1")
+        db_service.db_manager.close()
+
+        self.assertIsNotNone(book, "Pre-existing book was lost during recovery")
+        self.assertEqual(book.title, "Precious Data")
+
+        conn = sqlite3.connect(self.db_path)
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        books_cols = {r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()}
+        conn.close()
+        self.assertIsNotNone(version, "alembic_version was not stamped during recovery")
+        self.assertIn("id", books_cols, "Later migrations did not run after recovery stamp")
+
+    def test_empty_alembic_version_with_unknown_schema_fails_closed(self):
+        """An empty alembic_version table on an unverified schema must not be stamped."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        self._make_db(["books"], with_empty_alembic_version=True)
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        conn = sqlite3.connect(self.db_path)
+        versions = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+        conn.close()
+        self.assertEqual(versions, [], "Unverified database must not be stamped")
+
+    def test_stale_alembic_version_fails_closed(self):
+        """A revision unknown to the migration history must abort startup unchanged."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        db_service = DatabaseService(self.db_path)
+        db_service.db_manager.close()
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("UPDATE alembic_version SET version_num = 'deadbeef12345'")
+        conn.commit()
+        conn.close()
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        conn = sqlite3.connect(self.db_path)
+        versions = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+        conn.close()
+        self.assertEqual(versions, [("deadbeef12345",)], "Stale revision must be left untouched")
+
+    def test_missing_model_column_after_migrations_fails_closed(self):
+        """A model column missing from an up-to-date DB must abort startup instead
+        of being patched in with a raw ALTER TABLE (the previous behavior)."""
+        import sqlite3
+
+        from src.db.database_service import DatabaseSchemaError, DatabaseService
+
+        db_service = DatabaseService(self.db_path)
+        db_service.db_manager.close()
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("ALTER TABLE books DROP COLUMN subtitle")
+        conn.commit()
+        conn.close()
+
+        with self.assertRaises(DatabaseSchemaError):
+            DatabaseService(self.db_path)
+
+        conn = sqlite3.connect(self.db_path)
+        books_cols = {r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()}
+        conn.close()
+        self.assertNotIn("subtitle", books_cols, "Missing model column must not be silently patched in")
+
+
 class TestSuggestionSourceScoping(unittest.TestCase):
     """Tests that suggestion operations are scoped by (source_id, source)."""
 
@@ -1625,6 +2551,54 @@ class TestSuggestionSourceScoping(unittest.TestCase):
         self.assertTrue(self.db_service.suggestion_exists("id1", source="kosync"))
         self.assertFalse(self.db_service.suggestion_exists("id1", source="abs"))
 
+    def test_suggestion_exists_true_regardless_of_status(self):
+        """suggestion_exists returns True for any row, including hidden and ignored."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Test", source="abs")
+        )
+        self.assertTrue(self.db_service.suggestion_exists("id1", source="abs"))
+
+        self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
+        self.assertEqual(self.db_service.get_suggestion("id1", source="abs").status, "hidden")
+        self.assertTrue(self.db_service.suggestion_exists("id1", source="abs"))
+
+        self.assertTrue(self.db_service.ignore_suggestion("id1", source="abs"))
+        self.assertEqual(self.db_service.get_suggestion("id1", source="abs").status, "ignored")
+        self.assertTrue(self.db_service.suggestion_exists("id1", source="abs"))
+
+    def test_suggestion_exists_false_when_missing(self):
+        """suggestion_exists returns False when no matching row exists."""
+        self.assertFalse(self.db_service.suggestion_exists("missing", source="abs"))
+
+    def test_is_suggestion_ignored_only_for_ignored_status(self):
+        """is_suggestion_ignored returns True only when the row's status is exactly 'ignored'."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Test", source="abs")
+        )
+        self.assertFalse(self.db_service.is_suggestion_ignored("id1", source="abs"))
+
+        self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
+        self.assertFalse(self.db_service.is_suggestion_ignored("id1", source="abs"))
+
+        self.assertTrue(self.db_service.ignore_suggestion("id1", source="abs"))
+        self.assertTrue(self.db_service.is_suggestion_ignored("id1", source="abs"))
+
+    def test_is_suggestion_ignored_scoped_by_source(self):
+        """is_suggestion_ignored only matches the row under the given source."""
+        s_abs = self.PendingSuggestion(source_id="id1", title="ABS", source="abs")
+        s_kosync = self.PendingSuggestion(source_id="id1", title="KOSync", source="kosync")
+        self.db_service.save_pending_suggestion(s_abs)
+        self.db_service.save_pending_suggestion(s_kosync)
+
+        self.assertTrue(self.db_service.ignore_suggestion("id1", source="kosync"))
+
+        self.assertTrue(self.db_service.is_suggestion_ignored("id1", source="kosync"))
+        self.assertFalse(self.db_service.is_suggestion_ignored("id1", source="abs"))
+
+    def test_is_suggestion_ignored_false_when_missing(self):
+        """is_suggestion_ignored returns False when no matching row exists."""
+        self.assertFalse(self.db_service.is_suggestion_ignored("missing", source="abs"))
+
     def test_upsert_different_source_creates_two_rows(self):
         """save_pending_suggestion with same source_id but different source creates distinct rows."""
         s1 = self.PendingSuggestion(source_id="id1", title="ABS Title", source="abs")
@@ -1650,6 +2624,272 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
         self.assertFalse(self.db_service.suggestion_exists("id1", source="abs"))
         self.assertTrue(self.db_service.suggestion_exists("id1", source="kosync"))
+
+    def test_save_pending_suggestion_insert_returns_persisted_row(self):
+        """First save inserts a row and returns it with the given fields."""
+        suggestion = self.PendingSuggestion(
+            source_id="id1",
+            title="Title",
+            author="Author",
+            cover_url="http://example/c.jpg",
+            matches_json="[1]",
+            source="abs",
+        )
+        saved = self.db_service.save_pending_suggestion(suggestion)
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.title, "Title")
+        self.assertEqual(saved.status, "pending")
+
+        fetched = self.db_service.get_suggestion("id1", source="abs")
+        self.assertIsNotNone(fetched)
+        self.assertEqual(fetched.author, "Author")
+        self.assertEqual(fetched.cover_url, "http://example/c.jpg")
+        self.assertEqual(fetched.matches_json, "[1]")
+
+    def test_save_pending_suggestion_update_mutates_existing_fields(self):
+        """Second save for the same (source_id, source) updates the existing row's fields."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Old", author="A1", matches_json="[1]", source="abs")
+        )
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="New", author="A2", matches_json="[2]", source="abs")
+        )
+
+        fetched = self.db_service.get_suggestion("id1", source="abs")
+        self.assertEqual(fetched.title, "New")
+        self.assertEqual(fetched.author, "A2")
+        self.assertEqual(fetched.matches_json, "[2]")
+
+    def test_save_pending_suggestion_repeated_save_creates_no_duplicate(self):
+        """Repeated saves for the same (source_id, source) keep exactly one row."""
+        from src.db.models import PendingSuggestion
+
+        for _ in range(3):
+            self.db_service.save_pending_suggestion(
+                self.PendingSuggestion(source_id="id1", title="Title", source="abs")
+            )
+
+        with self.db_service.db_manager.get_session() as session:
+            count = (
+                session.query(PendingSuggestion)
+                .filter(PendingSuggestion.source_id == "id1", PendingSuggestion.source == "abs")
+                .count()
+            )
+        self.assertEqual(count, 1)
+
+    def test_fresh_db_enforces_suggestion_source_uniqueness(self):
+        """A fresh DB created via create_all must have the unique (source_id, source) index.
+
+        Fresh databases are created with Base.metadata.create_all + stamp head,
+        skipping migrations. The unique index added by revision p6q7r8s9t0u1
+        must therefore also exist in the ORM metadata, or fresh installs would
+        silently allow duplicate suggestions that migrated installs reject.
+        """
+        import sqlite3
+
+        conn = sqlite3.connect(self.test_db_path)
+        try:
+            indexes = conn.execute("PRAGMA index_list(pending_suggestions)").fetchall()
+            unique_by_name = {row[1]: row[2] for row in indexes}
+            self.assertIn("ix_pending_suggestions_source_id_source", unique_by_name)
+            self.assertEqual(unique_by_name["ix_pending_suggestions_source_id_source"], 1,
+                             "Index exists but is not UNIQUE")
+
+            columns = [
+                row[2]
+                for row in conn.execute(
+                    "PRAGMA index_info(ix_pending_suggestions_source_id_source)"
+                ).fetchall()
+            ]
+            self.assertEqual(columns, ["source_id", "source"])
+
+            conn.execute(
+                "INSERT INTO pending_suggestions (source, source_id, title, status)"
+                " VALUES ('abs', 'dup-id', 'First', 'pending')"
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO pending_suggestions (source, source_id, title, status)"
+                    " VALUES ('abs', 'dup-id', 'Second', 'pending')"
+                )
+        finally:
+            conn.close()
+
+    def test_save_pending_suggestion_hidden_stays_hidden_when_incoming_pending(self):
+        """A hidden suggestion must remain hidden when re-saved as pending."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Title", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
+
+        saved = self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Updated", status="pending", source="abs")
+        )
+
+        self.assertEqual(saved.status, "hidden")
+        fetched = self.db_service.get_suggestion("id1", source="abs")
+        self.assertEqual(fetched.status, "hidden")
+        self.assertEqual(fetched.title, "Updated")
+
+    def test_save_pending_suggestion_hidden_overwritten_by_incoming_non_pending(self):
+        """An incoming non-pending status replaces an existing hidden status as before."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Title", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
+
+        saved = self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Title", status="ignored", source="abs")
+        )
+
+        self.assertEqual(saved.status, "ignored")
+        self.assertEqual(self.db_service.get_suggestion("id1", source="abs").status, "ignored")
+
+    def test_save_pending_suggestion_hidden_preservation_scoped_by_source(self):
+        """Hidden preservation only applies within the same source, not across sources."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="ABS", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
+
+        kosync_saved = self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="KOSync", status="pending", source="kosync")
+        )
+
+        self.assertEqual(kosync_saved.status, "pending")
+        self.assertEqual(self.db_service.get_suggestion("id1", source="abs").status, "hidden")
+
+    def test_save_pending_suggestion_preserves_hidden_from_row_inside_upsert(self):
+        """Regression: hidden preservation must be decided by the row found inside
+        the upsert transaction, not an earlier pre-read.
+
+        Simulates the race the old code lost: a pre-read sees no hidden row, then a
+        concurrent hide lands before the update transaction runs. The pre-read is
+        simulated as returning None to prove preservation no longer depends on it."""
+        from unittest.mock import patch
+
+        from src.db.suggestion_repository import SuggestionRepository
+
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="race-hide", title="Title", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("race-hide", source="abs"))
+
+        # Pre-read returns None: the concurrent hide had not yet landed when an
+        # earlier-design caller would have read. The fix must not rely on it.
+        with patch.object(SuggestionRepository, "get_suggestion", return_value=None):
+            saved = self.db_service._suggestions.save_pending_suggestion(
+                self.PendingSuggestion(source_id="race-hide", title="Updated", status="pending", source="abs")
+            )
+
+        self.assertEqual(saved.status, "hidden")
+        fetched = self.db_service.get_suggestion("race-hide", source="abs")
+        self.assertEqual(fetched.status, "hidden")
+        self.assertEqual(fetched.title, "Updated")
+
+    def test_save_pending_suggestion_preserves_hidden_in_integrity_error_recovery(self):
+        """Regression: the IntegrityError race-recovery branch of _upsert must also
+        preserve hidden status.
+
+        Forces _upsert down its insert path (initial lookup returns None) and makes
+        the insert flush raise IntegrityError, as a concurrent insert of the same
+        (source_id, source) does under the unique index. Recovery re-finds the
+        hidden row and preservation must run against it."""
+        from sqlalchemy.exc import IntegrityError
+        from sqlalchemy.orm import Query, Session
+
+        from src.db.models import PendingSuggestion
+
+        repo = self.db_service._suggestions
+
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="race-integrity", title="Existing", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("race-integrity", source="abs"))
+
+        real_first = Query.first
+        real_flush = Session.flush
+        state = {"first_calls": 0, "flush_calls": 0}
+
+        def fake_first(query_self):
+            # Only intercept the very first lookup inside _upsert for this model.
+            if (
+                state["first_calls"] == 0
+                and query_self.column_descriptions
+                and query_self.column_descriptions[0]["type"] is PendingSuggestion
+            ):
+                state["first_calls"] += 1
+                return None
+            return real_first(query_self)
+
+        def fake_flush(session_self, *args, **kwargs):
+            # Only the insert flush fails, simulating a lost concurrent-insert race.
+            state["flush_calls"] += 1
+            if state["flush_calls"] == 1:
+                raise IntegrityError("INSERT", {}, Exception("simulated unique violation"))
+            return real_flush(session_self, *args, **kwargs)
+
+        Query.first = fake_first
+        Session.flush = fake_flush
+        try:
+            saved = repo.save_pending_suggestion(
+                self.PendingSuggestion(source_id="race-integrity", title="Updated", status="pending", source="abs")
+            )
+        finally:
+            Query.first = real_first
+            Session.flush = real_flush
+
+        self.assertEqual(saved.status, "hidden")
+        fetched = self.db_service.get_suggestion("race-integrity", source="abs")
+        self.assertEqual(fetched.status, "hidden")
+        self.assertEqual(fetched.title, "Updated")
+
+    def test_pending_suggestion_count_empty_database_returns_zero(self):
+        """get_pending_suggestion_count returns 0 when no suggestions exist."""
+        self.assertEqual(self.db_service.get_pending_suggestion_count(), 0)
+
+    def test_pending_suggestion_count_counts_pending_rows(self):
+        """get_pending_suggestion_count counts suggestions whose status is pending."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="A", source="abs")
+        )
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id2", title="B", source="abs")
+        )
+        self.assertEqual(self.db_service.get_pending_suggestion_count(), 2)
+
+    def test_pending_suggestion_count_excludes_non_pending_statuses(self):
+        """Hidden, ignored, and dismissed suggestions are excluded from the pending count."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="pending", title="P", source="abs")
+        )
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="hidden", title="H", source="abs")
+        )
+        self.assertTrue(self.db_service.hide_suggestion("hidden", source="abs"))
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="ignored", title="I", source="abs")
+        )
+        self.assertTrue(self.db_service.ignore_suggestion("ignored", source="abs"))
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="dismissed", title="D", source="abs", status="dismissed")
+        )
+
+        self.assertEqual(self.db_service.get_pending_suggestion_count(), 1)
+
+    def test_pending_suggestion_count_ignores_source_when_pending(self):
+        """Source value does not matter for the pending count as long as status is pending."""
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="ABS", source="abs")
+        )
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="KOSync", source="kosync")
+        )
+        self.db_service.save_pending_suggestion(
+            self.PendingSuggestion(source_id="id1", title="Storyteller", source="storyteller")
+        )
+        self.assertEqual(self.db_service.get_pending_suggestion_count(), 3)
 
 
 if __name__ == "__main__":

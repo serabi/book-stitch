@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 # Valid book statuses
 VALID_STATUSES = {"active", "completed", "paused", "dnf", "not_started"}
 
+# A not_started book is promoted to active only once reported progress clears this
+# fraction, mirroring the >1% "genuinely reading" bar used across the pipeline.
+PROGRESS_ACTIVATION_THRESHOLD = 0.01
+
 # Status → journal event mapping
 EVENT_MAP = {
     "completed": "finished",
@@ -113,6 +117,25 @@ class StatusMachine:
             self._push_to_grimmory(book, new_status, old_status, container)
 
         return {"success": True, "status": new_status, "previous_status": old_status}
+
+    def promote_not_started(self, book, pct, *, container=None, source_label=""):
+        """Promote a not_started book to active once external progress clears the bar.
+
+        Shared by the ABS socket listener and the sync-cycle discovery pass. Returns
+        the transition result dict when a promotion is attempted, or None when the
+        reported progress is at/below the activation threshold (caller does nothing).
+        """
+        if not pct or pct <= PROGRESS_ACTIVATION_THRESHOLD:
+            return None
+
+        result = self.transition(book, "active", source="completion_sync", container=container)
+        prefix = f"{source_label}: " if source_label else ""
+        title = sanitize_log_data(book.title)
+        if result.get("success"):
+            logger.info(f"{prefix}Promoted not_started book '{title}' to active ({pct:.1%} progress)")
+        else:
+            logger.warning(f"{prefix}Failed to promote '{title}': {result.get('error')}")
+        return result
 
     def _cleanup_tbr(self, book):
         """Remove any TBR item for this book, falling back to HC book ID lookup."""

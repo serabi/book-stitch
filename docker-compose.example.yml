@@ -15,10 +15,14 @@ services:
       - TZ=America/New_York
       # - LOG_LEVEL=INFO
       # - KOSYNC_PORT=5758 # Enable Split-Port Mode (Safe for Internet Exposure)
-      # Encrypts API secrets at rest in the database. Generate with:
+      # Encrypts API secrets at rest in the database. Strongly recommended.
+      # Generate with:
       #   python -c "import secrets; print(secrets.token_urlsafe(32))"
-      # Losing this key makes stored secrets unrecoverable (re-enter them in Settings).
+      # Losing this key means stored secret values must be re-entered in Settings.
       # If unset, the persistent Flask secret in /data is used as a fallback.
+      # On first run a pre-encryption DB backup
+      # (database.db.pre-settings-encryption-*) is created before the one-way
+      # migration, giving an upgrade recovery path.
       # - PAGEKEEPER_SETTINGS_ENCRYPTION_KEY=replace-with-a-strong-random-secret
       # For key rotation, keep the old value here while setting a new key above:
       # - PAGEKEEPER_SETTINGS_ENCRYPTION_KEY_PREVIOUS=previous-secret

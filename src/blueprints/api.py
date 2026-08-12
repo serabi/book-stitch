@@ -84,6 +84,24 @@ def resolve_detected_book(source_id):
     return jsonify({"success": False, "error": "Not found"}), 404
 
 
+# ---------------- Readiness ----------------
+
+
+@api_bp.route("/readyz")
+def readyz():
+    """Readiness probe backing the Docker HEALTHCHECK.
+
+    503 until database migrations/schema are known safe. Liveness/connectivity
+    stays on the unconditional KOSync /healthcheck.
+    """
+    database_service = current_app.config.get("database_service")
+    try:
+        ready, reason = database_service.startup_ready()
+    except Exception:
+        ready, reason = False, "database service unavailable"
+    return jsonify({"ready": ready, "reason": reason}), (200 if ready else 503)
+
+
 # ---------------- Status ----------------
 
 

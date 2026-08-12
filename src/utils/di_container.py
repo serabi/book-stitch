@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 class Container(containers.DeclarativeContainer):
     """Main dependency injection container using dependency-injector library."""
 
+    # Self-reference so singletons (e.g. SyncManager) can be handed the container
+    # for status-transition side effects that run off the request thread.
+    __self__ = providers.Self()
+
     # Configuration
     config = providers.Configuration()
 
@@ -229,6 +233,7 @@ class Container(containers.DeclarativeContainer):
     # Sync Manager
     sync_manager = providers.Singleton(
         SyncManager,
+        container=__self__,
         abs_client=abs_client,
         grimmory_client=grimmory_client_group,
         hardcover_client=hardcover_client,

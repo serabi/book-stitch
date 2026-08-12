@@ -76,24 +76,19 @@ class BookFusionRepository(BaseRepository):
 
     def get_bookfusion_highlights(self):
         with self.get_session() as session:
-            highlights = (
-                session.query(BookfusionHighlight)
-                .order_by(BookfusionHighlight.book_title, BookfusionHighlight.id)
-                .all()
+            query = session.query(BookfusionHighlight).order_by(
+                BookfusionHighlight.book_title, BookfusionHighlight.id
             )
-            session.expunge_all()
-            return highlights
+            return self._query_and_expunge(session, query, one=False)
 
     def get_unmatched_bookfusion_highlights(self):
         with self.get_session() as session:
-            highlights = (
+            query = (
                 session.query(BookfusionHighlight)
                 .filter(BookfusionHighlight.matched_book_id.is_(None))
                 .order_by(BookfusionHighlight.book_title, BookfusionHighlight.id)
-                .all()
             )
-            session.expunge_all()
-            return highlights
+            return self._query_and_expunge(session, query, one=False)
 
     def link_bookfusion_highlights_by_book_id(self, bookfusion_book_id, book_id):
         """Link all highlights for a BookFusion book to a library book by book_id."""
@@ -110,14 +105,12 @@ class BookFusionRepository(BaseRepository):
     def get_bookfusion_highlights_for_book_by_book_id(self, book_id):
         """Get highlights matched to a book by book_id."""
         with self.get_session() as session:
-            highlights = (
+            query = (
                 session.query(BookfusionHighlight)
                 .filter(BookfusionHighlight.matched_book_id == book_id)
                 .order_by(BookfusionHighlight.highlighted_at.desc().nullslast(), BookfusionHighlight.id)
-                .all()
             )
-            session.expunge_all()
-            return highlights
+            return self._query_and_expunge(session, query, one=False)
 
     # ── BookFusion Books (Library Catalog) ──
 
@@ -188,10 +181,8 @@ class BookFusionRepository(BaseRepository):
     def get_bookfusion_books_by_book_id(self, book_id):
         """Get all BookFusion catalog entries linked to a specific PageKeeper book."""
         with self.get_session() as session:
-            books = session.query(BookfusionBook).filter(BookfusionBook.matched_book_id == book_id).all()
-            for b in books:
-                session.expunge(b)
-            return books
+            query = session.query(BookfusionBook).filter(BookfusionBook.matched_book_id == book_id)
+            return self._query_and_expunge(session, query, one=False)
 
     def save_bookfusion_book(self, bookfusion_book):
         """Save a single BookFusion catalog entry."""

@@ -21,13 +21,25 @@ class GrimmoryRepository(BaseRepository):
     def get_all_grimmory_books(self, server_id=None):
         if server_id is None:
             return self._get_all(GrimmoryBook)
-        with self.get_session() as session:
-            rows = session.query(GrimmoryBook).filter(GrimmoryBook.server_id == server_id).all()
-            for r in rows:
-                session.expunge(r)
-            return rows
+        return self._get_all(GrimmoryBook, GrimmoryBook.server_id == server_id)
 
     def save_grimmory_book(self, grimmory_book):
+        return self._upsert(
+            GrimmoryBook,
+            [
+                GrimmoryBook.server_id == grimmory_book.server_id,
+                GrimmoryBook.filename == grimmory_book.filename,
+            ],
+            grimmory_book,
+            ["title", "authors", "raw_metadata"],
+        )
+
+    def replace_grimmory_book_filename(self, old_filename, grimmory_book):
+        """Atomically upsert *grimmory_book* and remove the old filename row.
+
+        If the replacement filename already exists as a distinct exact row, keep
+        both rows so case-sensitive Grimmory libraries do not lose one book.
+        """
         with self.get_session() as session:
             existing = (
                 session.query(GrimmoryBook)
@@ -39,20 +51,29 @@ class GrimmoryRepository(BaseRepository):
             )
 
             if existing:
+                if old_filename != grimmory_book.filename:
+                    # Preserve distinct exact-filename rows, including case-only
+                    # collisions such as Book.epub and book.epub.
+                    logger.warning(
+                        "Refusing to replace Grimmory filename '%s' with existing distinct row '%s'",
+                        old_filename,
+                        grimmory_book.filename,
+                    )
+                    session.expunge(existing)
+                    return existing
+
+                target = existing
                 for attr in ["title", "authors", "raw_metadata"]:
                     if hasattr(grimmory_book, attr):
-                        setattr(existing, attr, getattr(grimmory_book, attr))
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
+                        setattr(target, attr, getattr(grimmory_book, attr))
             else:
                 try:
                     session.add(grimmory_book)
                     session.flush()
+                    target = grimmory_book
                 except IntegrityError:
                     session.rollback()
-                    existing = (
+                    target = (
                         session.query(GrimmoryBook)
                         .filter(
                             GrimmoryBook.server_id == grimmory_book.server_id,
@@ -60,18 +81,34 @@ class GrimmoryRepository(BaseRepository):
                         )
                         .first()
                     )
-                    if existing:
-                        for attr in ["title", "authors", "raw_metadata"]:
-                            if hasattr(grimmory_book, attr):
-                                setattr(existing, attr, getattr(grimmory_book, attr))
-                        session.flush()
-                        session.refresh(existing)
-                        session.expunge(existing)
-                        return existing
-                    raise
-                session.refresh(grimmory_book)
-                session.expunge(grimmory_book)
-                return grimmory_book
+                    if not target:
+                        raise
+                    if old_filename != grimmory_book.filename:
+                        logger.warning(
+                            "Refusing to replace Grimmory filename '%s' with existing distinct row '%s'",
+                            old_filename,
+                            grimmory_book.filename,
+                        )
+                        session.expunge(target)
+                        return target
+                    for attr in ["title", "authors", "raw_metadata"]:
+                        if hasattr(grimmory_book, attr):
+                            setattr(target, attr, getattr(grimmory_book, attr))
+
+            if old_filename != grimmory_book.filename:
+                (
+                    session.query(GrimmoryBook)
+                    .filter(
+                        GrimmoryBook.server_id == grimmory_book.server_id,
+                        GrimmoryBook.filename == old_filename,
+                    )
+                    .delete(synchronize_session=False)
+                )
+
+            session.flush()
+            session.refresh(target)
+            session.expunge(target)
+            return target
 
     # ── ABS -> Grimmory migration audit ──
 

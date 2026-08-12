@@ -40,6 +40,7 @@ ENVELOPE_PREFIX = "pkenc:v1:fernet:"
 
 _HKDF_INFO = b"pagekeeper-settings-encryption-v1"
 _HKDF_LENGTH = 32
+_HKDF_SALT = b"pagekeeper-settings-encryption-salt-v1"
 
 # Separates the bound setting name from its value inside the sealed
 # plaintext. A NUL byte cannot appear in a setting key, so the split is
@@ -60,7 +61,7 @@ def _derive_fernet_key(master_secret: str) -> bytes:
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
         length=_HKDF_LENGTH,
-        salt=None,
+        salt=_HKDF_SALT,
         info=_HKDF_INFO,
     )
     derived = hkdf.derive(master_secret.encode("utf-8"))

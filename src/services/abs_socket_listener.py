@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import socketio
 
+from src.services.status_machine import PROGRESS_ACTIVATION_THRESHOLD, StatusMachine
 from src.services.write_tracker import is_own_write as _tracker_is_own_write
 from src.services.write_tracker import record_write
 
@@ -45,6 +46,7 @@ class ABSSocketListener:
         abs_api_token: str,
         database_service,
         sync_manager,
+        container=None,
     ):
         """
         Initialize the ABSSocketListener with server credentials, services, and internal runtime state.
@@ -54,12 +56,16 @@ class ABSSocketListener:
             abs_api_token (str): API token used to authenticate requests; may be exchanged for a socket-compatible token.
             database_service: Database access service used to look up books and their status.
             sync_manager: Manager responsible for performing downstream sync cycles for given ABS item IDs.
+            container: DI container, forwarded to status transitions so completion_sync side
+                effects (real started_at pull, Grimmory push) fire on promotion.
         """
         self._server_url = abs_server_url.rstrip("/").replace("/api", "")
         self._api_token = abs_api_token
         self._socket_token: str | None = None
         self._db = database_service
         self._sync_manager = sync_manager
+        self._container = container
+        self._status_machine = StatusMachine(database_service)
 
         self._debounce_window = int(os.environ.get("ABS_SOCKET_DEBOUNCE_SECONDS", "30"))
 
@@ -184,6 +190,25 @@ class ABSSocketListener:
         def on_progress_updated(data):
             self._handle_progress_event(data)
 
+    @staticmethod
+    def _extract_progress_fraction(inner: dict, data: dict) -> float | None:
+        """Pull a 0-1 progress fraction from an ABS progress event, if present.
+
+        ABS MediaProgress carries an explicit `progress` fraction; fall back to
+        currentTime/duration. Looks in the nested `data` dict first, then top level.
+        """
+        for source in (inner, data):
+            if not isinstance(source, dict):
+                continue
+            progress = source.get("progress")
+            if isinstance(progress, (int, float)):
+                return float(progress)
+            duration = source.get("duration")
+            current_time = source.get("currentTime")
+            if isinstance(duration, (int, float)) and duration > 0 and isinstance(current_time, (int, float)):
+                return current_time / duration
+        return None
+
     def _handle_progress_event(self, data: dict) -> None:
         """Record a progress event in the debounce dict if it belongs to an active book."""
         if not isinstance(data, dict):
@@ -215,7 +240,26 @@ class ABSSocketListener:
             )
             self._suggestion_pool.submit(self._sync_manager.queue_suggestion, library_item_id)
             return
-        if book.status in ("paused", "dnf", "not_started") and not book.activity_flag:
+
+        # A not_started book never syncs (the poll only touches active books), so it
+        # would deadlock at 0%. Promote it to active when ABS reports real progress.
+        if book.status == "not_started":
+            pct = self._extract_progress_fraction(inner if isinstance(inner, dict) else {}, data)
+            if pct is not None and pct > PROGRESS_ACTIVATION_THRESHOLD:
+                self._status_machine.promote_not_started(
+                    book, pct, container=self._container, source_label="ABS Socket.IO"
+                )
+                with self._lock:
+                    self._pending[library_item_id] = time.time()
+                    self._fired.discard(library_item_id)
+                return
+            if not book.activity_flag:
+                book.activity_flag = True
+                self._db.save_book(book)
+                logger.info(f"ABS Socket.IO: Activity detected on not_started book '{book.title}'")
+            return
+
+        if book.status in ("paused", "dnf") and not book.activity_flag:
             book.activity_flag = True
             self._db.save_book(book)
             logger.info(f"ABS Socket.IO: Activity detected on {book.status} book '{book.title}'")

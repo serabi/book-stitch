@@ -25,103 +25,99 @@ class DetectedRepository(BaseRepository):
             )
             if limit is not None:
                 query = query.limit(limit)
-            items = query.all()
-            for item in items:
-                session.expunge(item)
-            return items
+            return self._query_and_expunge(session, query, one=False)
+
+    UPSERT_ATTRS = (
+        "title",
+        "author",
+        "cover_url",
+        "matches_json",
+        "device",
+        "ebook_filename",
+        "progress_percentage",
+        "status",
+        "last_seen_at",
+        "first_detected_at",
+    )
 
     def save_detected_book(self, detected_book):
-        """Upsert a detected book while preserving dismissed status."""
-        filters = [
-            DetectedBook.source_id == detected_book.source_id,
-            DetectedBook.source == detected_book.source,
-        ]
+        """Upsert a detected book while preserving dismissed status.
+
+        Normalization runs against the existing row inside the upsert transaction
+        so a concurrent insert of the same (source_id, source) cannot bypass the
+        conditional update rules.
+        """
+        return self._upsert(
+            DetectedBook,
+            [
+                DetectedBook.source_id == detected_book.source_id,
+                DetectedBook.source == detected_book.source,
+            ],
+            detected_book,
+            self.UPSERT_ATTRS,
+            normalize=self._normalize_for_update,
+        )
+
+    def _normalize_for_update(self, detected_book, existing):
+        """Reconcile incoming values against an existing row so an unconditional
+        attribute copy preserves the original conditional update rules."""
+        now = datetime.now(UTC)
+
+        if existing.status == "dismissed" and detected_book.status == "detected":
+            detected_book.status = "dismissed"
+
+        for attr in ("title", "author", "cover_url", "device", "ebook_filename"):
+            if not getattr(detected_book, attr):
+                setattr(detected_book, attr, getattr(existing, attr))
+
+        if detected_book.matches_json is None:
+            detected_book.matches_json = existing.matches_json
+
+        detected_book.last_seen_at = detected_book.last_seen_at or now
+        if existing.first_detected_at is None:
+            detected_book.first_detected_at = detected_book.first_detected_at or now
+        else:
+            detected_book.first_detected_at = existing.first_detected_at
+
+    def _set_detected_status(self, source_id, source, status):
+        """Set the status of a matching detected book, refreshing last_seen_at.
+
+        Returns True only when a row scoped by (source_id, source) exists; returns
+        False without inserting anything when none does.
+        """
         with self.get_session() as session:
-            existing = session.query(DetectedBook).filter(*filters).first()
-            now = datetime.now(UTC)
-            if existing:
-                if existing.status == "dismissed" and detected_book.status == "detected":
-                    detected_book.status = "dismissed"
-
-                if detected_book.title:
-                    existing.title = detected_book.title
-                if detected_book.author:
-                    existing.author = detected_book.author
-                if detected_book.cover_url:
-                    existing.cover_url = detected_book.cover_url
-                if detected_book.matches_json is not None:
-                    existing.matches_json = detected_book.matches_json
-                if detected_book.device:
-                    existing.device = detected_book.device
-                if detected_book.ebook_filename:
-                    existing.ebook_filename = detected_book.ebook_filename
-
-                existing.progress_percentage = detected_book.progress_percentage
-                existing.status = detected_book.status
-                existing.last_seen_at = detected_book.last_seen_at or now
-                if existing.first_detected_at is None:
-                    existing.first_detected_at = detected_book.first_detected_at or now
-
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-
-            session.add(detected_book)
-            session.flush()
-            session.refresh(detected_book)
-            session.expunge(detected_book)
-            return detected_book
+            detected = (
+                session.query(DetectedBook)
+                .filter(
+                    DetectedBook.source_id == source_id,
+                    DetectedBook.source == source,
+                )
+                .first()
+            )
+            if not detected:
+                return False
+            detected.status = status
+            detected.last_seen_at = datetime.now(UTC)
+            return True
 
     def dismiss_detected_book(self, source_id, source="abs"):
-        with self.get_session() as session:
-            detected = (
-                session.query(DetectedBook)
-                .filter(
-                    DetectedBook.source_id == source_id,
-                    DetectedBook.source == source,
-                )
-                .first()
-            )
-            if not detected:
-                return False
-            detected.status = "dismissed"
-            detected.last_seen_at = datetime.now(UTC)
-            return True
+        return self._set_detected_status(source_id, source, "dismissed")
 
     def resolve_detected_book(self, source_id, source="abs"):
-        with self.get_session() as session:
-            detected = (
-                session.query(DetectedBook)
-                .filter(
-                    DetectedBook.source_id == source_id,
-                    DetectedBook.source == source,
-                )
-                .first()
-            )
-            if not detected:
-                return False
-            detected.status = "resolved"
-            detected.last_seen_at = datetime.now(UTC)
-            return True
+        return self._set_detected_status(source_id, source, "resolved")
 
     def get_all_ebook_filenames(self):
         """Get all ebook filenames from detected books with matches."""
         with self.get_session() as session:
-            results = (
-                session.query(DetectedBook)
-                .filter(
-                    DetectedBook.status.in_(self.ACTIVE_STATUSES),
-                    DetectedBook.matches_json.isnot(None),
-                )
-                .all()
+            query = session.query(DetectedBook).filter(
+                DetectedBook.status.in_(self.ACTIVE_STATUSES),
+                DetectedBook.matches_json.isnot(None),
             )
+            results = self._query_and_expunge(session, query, one=False)
             filenames = set()
             for detected in results:
                 matches = detected.matches or []
                 for match in matches:
                     if match.get("filename"):
                         filenames.add(match["filename"])
-            for item in results:
-                session.expunge(item)
             return filenames

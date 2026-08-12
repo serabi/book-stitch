@@ -5,7 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -132,6 +132,92 @@ class TestReadingTrackerModels(unittest.TestCase):
         refreshed = self.db.get_book_by_abs_id("test-book-1")
         self.assertEqual(refreshed.title, "Test Book")
 
+    def test_update_book_reading_fields_all_allowed_fields(self):
+        """Updates every allowed reading field in one call."""
+        book = self._create_book()
+        updated = self.db.update_book_reading_fields(
+            book.id,
+            started_at="2026-03-01",
+            finished_at="2026-03-20",
+            rating=4.0,
+            read_count=3,
+        )
+        self.assertEqual(updated.started_at, "2026-03-01")
+        self.assertEqual(updated.finished_at, "2026-03-20")
+        self.assertEqual(updated.rating, 4.0)
+        self.assertEqual(updated.read_count, 3)
+
+    def test_update_book_reading_fields_writes_none_for_nullable_fields(self):
+        """Passing None for allowed nullable fields writes the None through."""
+        book = self._create_book()
+        self.db.update_book_reading_fields(
+            book.id,
+            started_at="2026-03-01",
+            finished_at="2026-03-20",
+            rating=4.0,
+        )
+
+        cleared = self.db.update_book_reading_fields(
+            book.id,
+            started_at=None,
+            finished_at=None,
+            rating=None,
+        )
+        self.assertIsNone(cleared.started_at)
+        self.assertIsNone(cleared.finished_at)
+        self.assertIsNone(cleared.rating)
+
+        refreshed = self.db.get_book_by_abs_id("test-book-1")
+        self.assertIsNone(refreshed.started_at)
+        self.assertIsNone(refreshed.finished_at)
+        self.assertIsNone(refreshed.rating)
+
+    def test_update_book_reading_fields_unknown_only_returns_unchanged_book(self):
+        """Unknown-only kwargs return the unchanged detached book without mutating it."""
+        book = self._create_book()
+        self.db.update_book_reading_fields(book.id, started_at="2026-03-01", rating=4.0)
+
+        result = self.db.update_book_reading_fields(book.id, title="HACKED", author="HACKED")
+        self.assertIsNotNone(result)
+        # Pre-existing reading fields untouched, ignored kwargs not applied.
+        self.assertEqual(result.started_at, "2026-03-01")
+        self.assertEqual(result.rating, 4.0)
+        self.assertEqual(result.title, "Test Book")
+
+        refreshed = self.db.get_book_by_abs_id("test-book-1")
+        self.assertEqual(refreshed.title, "Test Book")
+        self.assertEqual(refreshed.started_at, "2026-03-01")
+
+    def test_update_book_reading_fields_detached_after_session_close(self):
+        """Returned book is usable after the session has closed."""
+        book = self._create_book()
+        updated = self.db.update_book_reading_fields(book.id, started_at="2026-03-01", rating=4.0)
+        # Accessing attributes after the session closed must not raise DetachedInstanceError.
+        self.assertEqual(updated.started_at, "2026-03-01")
+        self.assertEqual(updated.rating, 4.0)
+        self.assertEqual(updated.id, book.id)
+
+    def test_update_book_reading_fields_rejects_invalid_rating(self):
+        """An out-of-range rating raises ValueError."""
+        book = self._create_book()
+        for invalid in (-0.5, 5.5):
+            with self.subTest(rating=invalid):
+                with self.assertRaises(ValueError):
+                    self.db.update_book_reading_fields(book.id, rating=invalid)
+
+    def test_update_book_reading_fields_rejects_invalid_read_count(self):
+        """A read_count below 1 raises ValueError."""
+        book = self._create_book()
+        with self.assertRaises(ValueError):
+            self.db.update_book_reading_fields(book.id, read_count=0)
+
+    def test_update_book_reading_fields_validates_before_lookup(self):
+        """Validation runs before the DB lookup, so invalid input raises even for a missing book."""
+        with self.assertRaises(ValueError):
+            self.db.update_book_reading_fields(99999, rating=9.0)
+        with self.assertRaises(ValueError):
+            self.db.update_book_reading_fields(99999, read_count=0)
+
     def test_update_book_reading_fields_nonexistent(self):
         """Returns None for a missing book."""
         result = self.db.update_book_reading_fields(99999, rating=3.0)
@@ -194,6 +280,166 @@ class TestReadingTrackerModels(unittest.TestCase):
         """get_reading_journals returns empty list for unknown book_id."""
         self.assertEqual(self.db.get_reading_journals(99999), [])
 
+    # -- get_reading_journal_entries_for_book --
+
+    def test_journal_entries_for_book_returns_only_that_book_newest_first(self):
+        """Returns all entries for the given book only, ordered newest-first."""
+        book = self._create_book(abs_id="book-a", title="Book A")
+        other = self._create_book(abs_id="book-b", title="Book B")
+        self.db.add_reading_journal(book.id, event="started", created_at=datetime(2026, 1, 1, 0, 0, 0))
+        self.db.add_reading_journal(book.id, event="note", entry="middle", created_at=datetime(2026, 1, 2, 0, 0, 0))
+        self.db.add_reading_journal(book.id, event="finished", created_at=datetime(2026, 1, 3, 0, 0, 0))
+        self.db.add_reading_journal(other.id, event="started", created_at=datetime(2026, 1, 2, 12, 0, 0))
+
+        entries = self.db.get_reading_journal_entries_for_book(book.id)
+        self.assertEqual(len(entries), 3)
+        self.assertEqual([e.event for e in entries], ["finished", "note", "started"])
+
+    def test_journal_entries_for_book_filters_by_event(self):
+        """Passing an event restricts results to that event type."""
+        book = self._create_book()
+        self.db.add_reading_journal(book.id, event="highlight", entry="h1", created_at=datetime(2026, 1, 1, 0, 0, 0))
+        self.db.add_reading_journal(book.id, event="note", entry="n1", created_at=datetime(2026, 1, 2, 0, 0, 0))
+        self.db.add_reading_journal(book.id, event="highlight", entry="h2", created_at=datetime(2026, 1, 3, 0, 0, 0))
+
+        highlights = self.db.get_reading_journal_entries_for_book(book.id, "highlight")
+        self.assertEqual([e.entry for e in highlights], ["h2", "h1"])
+
+    def test_journal_entries_for_book_no_event_filter_when_falsy(self):
+        """A falsy event (None or empty string) applies no event filter."""
+        book = self._create_book()
+        self.db.add_reading_journal(book.id, event="started", created_at=datetime(2026, 1, 1, 0, 0, 0))
+        self.db.add_reading_journal(book.id, event="note", entry="n1", created_at=datetime(2026, 1, 2, 0, 0, 0))
+
+        self.assertEqual(len(self.db.get_reading_journal_entries_for_book(book.id, None)), 2)
+        self.assertEqual(len(self.db.get_reading_journal_entries_for_book(book.id, "")), 2)
+
+    def test_journal_entries_for_book_empty_for_no_matches(self):
+        """Returns an empty list when nothing matches."""
+        book = self._create_book()
+        self.assertEqual(self.db.get_reading_journal_entries_for_book(book.id), [])
+        self.assertEqual(self.db.get_reading_journal_entries_for_book(99999), [])
+
+    def test_journal_entries_for_book_detached_after_session_close(self):
+        """Returned rows are usable after the session has closed."""
+        book = self._create_book()
+        self.db.add_reading_journal(book.id, event="note", entry="detached", created_at=datetime(2026, 1, 1, 0, 0, 0))
+
+        entries = self.db.get_reading_journal_entries_for_book(book.id)
+        # Accessing attributes after the session closed must not raise DetachedInstanceError.
+        self.assertEqual(entries[0].entry, "detached")
+        self.assertEqual(entries[0].book_id, book.id)
+
+    # -- find_journal_by_event --
+
+    def test_find_journal_by_event_returns_newest_match(self):
+        """Returns the most recent journal of the requested event for the book."""
+        book = self._create_book()
+        self.db.add_reading_journal(book.id, event="progress", percentage=0.2, created_at=datetime(2026, 1, 1, 0, 0, 0))
+        self.db.add_reading_journal(book.id, event="progress", percentage=0.8, created_at=datetime(2026, 1, 5, 0, 0, 0))
+        self.db.add_reading_journal(book.id, event="progress", percentage=0.5, created_at=datetime(2026, 1, 3, 0, 0, 0))
+
+        journal = self.db.find_journal_by_event(book.id, "progress")
+        self.assertIsNotNone(journal)
+        self.assertAlmostEqual(journal.percentage, 0.8)
+
+    def test_find_journal_by_event_ignores_other_books_and_events(self):
+        """Only matches the given book and event."""
+        book = self._create_book(abs_id="book-a", title="Book A")
+        other = self._create_book(abs_id="book-b", title="Book B")
+        self.db.add_reading_journal(book.id, event="started", created_at=datetime(2026, 1, 1, 0, 0, 0))
+        self.db.add_reading_journal(other.id, event="finished", created_at=datetime(2026, 1, 2, 0, 0, 0))
+
+        self.assertIsNone(self.db.find_journal_by_event(book.id, "finished"))
+        self.assertIsNotNone(self.db.find_journal_by_event(book.id, "started"))
+
+    def test_find_journal_by_event_none_when_no_match(self):
+        """Returns None when no journal matches."""
+        book = self._create_book()
+        self.assertIsNone(self.db.find_journal_by_event(book.id, "finished"))
+
+    def test_find_journal_by_event_detached_after_session_close(self):
+        """Returned object is usable after the session has closed."""
+        book = self._create_book()
+        self.db.add_reading_journal(book.id, event="note", entry="detached", created_at=datetime(2026, 1, 1, 0, 0, 0))
+
+        journal = self.db.find_journal_by_event(book.id, "note")
+        self.assertEqual(journal.entry, "detached")
+        self.assertEqual(journal.book_id, book.id)
+
+    # -- update_reading_journal --
+
+    def test_update_reading_journal_updates_entry_only(self):
+        """Passing only entry updates the entry and leaves created_at intact."""
+        book = self._create_book()
+        created = datetime(2026, 1, 1, 0, 0, 0)
+        j = self.db.add_reading_journal(book.id, event="note", entry="old", created_at=created)
+
+        updated = self.db.update_reading_journal(j.id, entry="new")
+        self.assertEqual(updated.entry, "new")
+        self.assertEqual(updated.created_at, created)
+
+    def test_update_reading_journal_updates_created_at_only(self):
+        """Passing only created_at updates the timestamp and leaves entry intact."""
+        book = self._create_book()
+        j = self.db.add_reading_journal(
+            book.id, event="note", entry="keep", created_at=datetime(2026, 1, 1, 0, 0, 0)
+        )
+
+        new_dt = datetime(2026, 2, 2, 12, 30, 0)
+        updated = self.db.update_reading_journal(j.id, created_at=new_dt)
+        self.assertEqual(updated.entry, "keep")
+        self.assertEqual(updated.created_at, new_dt)
+
+    def test_update_reading_journal_updates_both(self):
+        """Passing both entry and created_at updates both fields."""
+        book = self._create_book()
+        j = self.db.add_reading_journal(
+            book.id, event="note", entry="old", created_at=datetime(2026, 1, 1, 0, 0, 0)
+        )
+
+        new_dt = datetime(2026, 3, 3, 9, 0, 0)
+        updated = self.db.update_reading_journal(j.id, entry="new", created_at=new_dt)
+        self.assertEqual(updated.entry, "new")
+        self.assertEqual(updated.created_at, new_dt)
+
+    def test_update_reading_journal_none_does_not_clear_fields(self):
+        """Passing None for entry/created_at leaves the existing values intact."""
+        book = self._create_book()
+        created = datetime(2026, 1, 1, 0, 0, 0)
+        j = self.db.add_reading_journal(book.id, event="note", entry="keep", created_at=created)
+
+        updated = self.db.update_reading_journal(j.id, entry=None, created_at=None)
+        self.assertEqual(updated.entry, "keep")
+        self.assertEqual(updated.created_at, created)
+
+    def test_update_reading_journal_no_kwargs_returns_unchanged(self):
+        """Calling with no update kwargs returns the unchanged journal."""
+        book = self._create_book()
+        created = datetime(2026, 1, 1, 0, 0, 0)
+        j = self.db.add_reading_journal(book.id, event="note", entry="keep", created_at=created)
+
+        updated = self.db.update_reading_journal(j.id)
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.entry, "keep")
+        self.assertEqual(updated.created_at, created)
+
+    def test_update_reading_journal_nonexistent(self):
+        """Returns None for a missing journal."""
+        self.assertIsNone(self.db.update_reading_journal(99999, entry="x"))
+
+    def test_update_reading_journal_detached_after_session_close(self):
+        """Returned journal is usable after the session has closed."""
+        book = self._create_book()
+        j = self.db.add_reading_journal(
+            book.id, event="note", entry="old", created_at=datetime(2026, 1, 1, 0, 0, 0)
+        )
+
+        updated = self.db.update_reading_journal(j.id, entry="detached")
+        # Accessing attributes after the session closed must not raise DetachedInstanceError.
+        self.assertEqual(updated.entry, "detached")
+        self.assertEqual(updated.book_id, book.id)
+
     # -- ReadingGoal CRUD --
 
     def test_save_and_get_goal(self):
@@ -217,6 +463,42 @@ class TestReadingTrackerModels(unittest.TestCase):
     def test_get_goal_nonexistent(self):
         """Returns None for a year with no goal."""
         self.assertIsNone(self.db.get_reading_goal(1999))
+
+    def test_save_goal_no_duplicate_row_on_repeated_save(self):
+        """Repeated saves for the same year update in place, never inserting a duplicate."""
+        from src.db.models import ReadingGoal
+
+        self.db.save_reading_goal(2026, 24)
+        self.db.save_reading_goal(2026, 50)
+        self.db.save_reading_goal(2026, 7)
+
+        with self.db._reading.get_session() as session:
+            rows = session.query(ReadingGoal).filter(ReadingGoal.year == 2026).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].target_books, 7)
+
+    def test_save_goal_inserts_then_updates(self):
+        """First save inserts, second save for the same year updates the same row."""
+        inserted = self.db.save_reading_goal(2026, 24)
+        self.assertEqual(inserted.target_books, 24)
+
+        updated = self.db.save_reading_goal(2026, 30)
+        self.assertEqual(updated.target_books, 30)
+        self.assertEqual(updated.year, 2026)
+        self.assertEqual(self.db.get_reading_goal(2026).target_books, 30)
+
+    def test_save_goal_allows_zero(self):
+        """A target of zero is a valid non-negative goal."""
+        goal = self.db.save_reading_goal(2026, 0)
+        self.assertEqual(goal.target_books, 0)
+
+    def test_save_goal_rejects_invalid_targets(self):
+        """Invalid target_books values raise ValueError without persisting a goal."""
+        for invalid in (None, True, False, 3.5, "12", -1):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    self.db.save_reading_goal(2030, invalid)
+        self.assertIsNone(self.db.get_reading_goal(2030))
 
     # -- Reading stats --
 

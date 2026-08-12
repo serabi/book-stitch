@@ -132,6 +132,187 @@ class TestKosyncDocument(unittest.TestCase):
         retrieved = self.db_service.get_kosync_document("f" * 32)
         self.assertIsNone(retrieved)
 
+    def test_save_insert_creates_single_document(self):
+        """A first save inserts exactly one row for the hash."""
+        doc = KosyncDocument(document_hash="1" * 32, percentage=0.2)
+        self.db_service.save_kosync_document(doc)
+
+        with self.db_service.get_session() as session:
+            count = session.query(KosyncDocument).filter(KosyncDocument.document_hash == "1" * 32).count()
+        self.assertEqual(count, 1)
+
+    def test_save_update_does_not_duplicate(self):
+        """Re-saving the same detached object updates in place, no duplicate row."""
+        doc = KosyncDocument(document_hash="2" * 32, percentage=0.1)
+        saved = self.db_service.save_kosync_document(doc)
+
+        saved.percentage = 0.8
+        self.db_service.save_kosync_document(saved)
+
+        with self.db_service.get_session() as session:
+            rows = session.query(KosyncDocument).filter(KosyncDocument.document_hash == "2" * 32).all()
+            count = len(rows)
+        self.assertEqual(count, 1)
+        retrieved = self.db_service.get_kosync_document("2" * 32)
+        self.assertAlmostEqual(float(retrieved.percentage), 0.8)
+
+    def test_save_updates_last_updated(self):
+        """last_updated is refreshed on every save."""
+        doc = KosyncDocument(document_hash="3" * 32, percentage=0.1)
+        first = self.db_service.save_kosync_document(doc)
+        first_updated = first.last_updated
+
+        time.sleep(0.01)
+        first.percentage = 0.4
+        second = self.db_service.save_kosync_document(first)
+
+        self.assertGreater(second.last_updated, first_updated)
+
+    def test_save_new_object_with_existing_hash_overwrites_fields(self):
+        """A freshly constructed object with an existing hash overwrites all merged columns.
+
+        merge() copies every column attribute from the incoming object, so
+        fields left at their constructor defaults overwrite the stored values.
+        This characterizes current behavior and must not regress.
+        """
+        original = KosyncDocument(
+            document_hash="4" * 32,
+            percentage=0.5,
+            device="OriginalDevice",
+            progress="/body/div[1]",
+        )
+        self.db_service.save_kosync_document(original)
+
+        # A brand-new object reusing the hash; device/progress left at defaults (None).
+        replacement = KosyncDocument(document_hash="4" * 32, percentage=0.9)
+        self.db_service.save_kosync_document(replacement)
+
+        retrieved = self.db_service.get_kosync_document("4" * 32)
+        self.assertAlmostEqual(float(retrieved.percentage), 0.9)
+        # merge copies the None defaults onto the existing row.
+        self.assertIsNone(retrieved.device)
+        self.assertIsNone(retrieved.progress)
+
+    def test_save_new_object_with_existing_hash_overwrites_first_seen(self):
+        """first_seen is overwritten when a new object reuses an existing hash.
+
+        __init__ always stamps first_seen, and merge() copies it onto the
+        existing row. Saving the SAME detached object back, by contrast,
+        preserves first_seen. Both branches are characterized here so a future
+        switch to _upsert (which would preserve first_seen) is caught.
+        """
+        original = KosyncDocument(document_hash="5" * 32, percentage=0.5)
+        saved = self.db_service.save_kosync_document(original)
+        original_first_seen = saved.first_seen
+
+        # Re-saving the same object preserves first_seen (no new __init__ stamp).
+        saved.percentage = 0.6
+        again = self.db_service.save_kosync_document(saved)
+        self.assertEqual(again.first_seen, original_first_seen)
+
+        # A new object reusing the hash overwrites first_seen with its own stamp.
+        # The DB column is timezone-naive, so compare naive wall-clock values:
+        # the stored first_seen tracks the replacement's stamp, not the original's.
+        time.sleep(0.01)
+        replacement = KosyncDocument(document_hash="5" * 32, percentage=0.7)
+        replacement_first_seen = replacement.first_seen.replace(tzinfo=None)
+        merged = self.db_service.save_kosync_document(replacement)
+        self.assertEqual(merged.first_seen.replace(tzinfo=None), replacement_first_seen)
+        self.assertNotEqual(
+            merged.first_seen.replace(tzinfo=None),
+            original_first_seen.replace(tzinfo=None),
+        )
+
+    def test_save_returns_expunged_detached_instance(self):
+        """Returned object is detached (expunged) yet has its attributes loaded."""
+        doc = KosyncDocument(document_hash="6" * 32, percentage=0.3)
+        saved = self.db_service.save_kosync_document(doc)
+
+        # Accessing attributes after the session closes must not raise (expunged + refreshed).
+        self.assertEqual(saved.document_hash, "6" * 32)
+        self.assertAlmostEqual(float(saved.percentage), 0.3)
+
+    def test_link_sets_both_book_id_and_abs_id(self):
+        """Linking an existing document sets linked_book_id and linked_abs_id exactly as passed."""
+        doc = KosyncDocument(document_hash="7" * 32, percentage=0.3)
+        self.db_service.save_kosync_document(doc)
+        book = Book(abs_id="book-link", title="Link Book")
+        book = self.db_service.save_book(book)
+
+        result = self.db_service.link_kosync_document("7" * 32, book.id, "abs-7")
+
+        self.assertTrue(result)
+        retrieved = self.db_service.get_kosync_document("7" * 32)
+        self.assertEqual(retrieved.linked_book_id, book.id)
+        self.assertEqual(retrieved.linked_abs_id, "abs-7")
+
+    def test_link_with_abs_id_none_sets_abs_id_none(self):
+        """Linking with abs_id=None stores linked_abs_id as None while setting the book id."""
+        doc = KosyncDocument(document_hash="8" * 32, percentage=0.3, linked_abs_id="stale-abs")
+        self.db_service.save_kosync_document(doc)
+        book = Book(abs_id="book-none", title="None Book")
+        book = self.db_service.save_book(book)
+
+        result = self.db_service.link_kosync_document("8" * 32, book.id)
+
+        self.assertTrue(result)
+        retrieved = self.db_service.get_kosync_document("8" * 32)
+        self.assertEqual(retrieved.linked_book_id, book.id)
+        self.assertIsNone(retrieved.linked_abs_id)
+
+    def test_link_missing_document_returns_false_and_creates_nothing(self):
+        """Linking a missing hash returns False and inserts no row."""
+        result = self.db_service.link_kosync_document("9" * 32, 12345, "abs-missing")
+
+        self.assertFalse(result)
+        self.assertIsNone(self.db_service.get_kosync_document("9" * 32))
+        with self.db_service.get_session() as session:
+            count = session.query(KosyncDocument).filter(KosyncDocument.document_hash == "9" * 32).count()
+        self.assertEqual(count, 0)
+
+    def test_unlink_clears_both_link_fields(self):
+        """Unlinking an existing document clears linked_book_id and linked_abs_id."""
+        doc = KosyncDocument(document_hash="a" * 31 + "0", percentage=0.3)
+        self.db_service.save_kosync_document(doc)
+        book = Book(abs_id="book-unlink", title="Unlink Book")
+        book = self.db_service.save_book(book)
+        self.db_service.link_kosync_document("a" * 31 + "0", book.id, "abs-unlink")
+
+        result = self.db_service.unlink_kosync_document("a" * 31 + "0")
+
+        self.assertTrue(result)
+        retrieved = self.db_service.get_kosync_document("a" * 31 + "0")
+        self.assertIsNone(retrieved.linked_book_id)
+        self.assertIsNone(retrieved.linked_abs_id)
+
+    def test_unlink_missing_document_returns_false_and_creates_nothing(self):
+        """Unlinking a missing hash returns False and inserts no row."""
+        result = self.db_service.unlink_kosync_document("b" * 31 + "0")
+
+        self.assertFalse(result)
+        self.assertIsNone(self.db_service.get_kosync_document("b" * 31 + "0"))
+        with self.db_service.get_session() as session:
+            count = session.query(KosyncDocument).filter(KosyncDocument.document_hash == "b" * 31 + "0").count()
+        self.assertEqual(count, 0)
+
+    def test_link_and_unlink_update_last_updated(self):
+        """last_updated is refreshed on both link and unlink of an existing document."""
+        doc = KosyncDocument(document_hash="c" * 31 + "0", percentage=0.3)
+        saved = self.db_service.save_kosync_document(doc)
+        baseline = saved.last_updated
+        book = Book(abs_id="book-ts", title="Timestamp Book")
+        book = self.db_service.save_book(book)
+
+        time.sleep(0.01)
+        self.db_service.link_kosync_document("c" * 31 + "0", book.id, "abs-ts")
+        after_link = self.db_service.get_kosync_document("c" * 31 + "0").last_updated
+        self.assertGreater(after_link, baseline)
+
+        time.sleep(0.01)
+        self.db_service.unlink_kosync_document("c" * 31 + "0")
+        after_unlink = self.db_service.get_kosync_document("c" * 31 + "0").last_updated
+        self.assertGreater(after_unlink, after_link)
+
 
 class _KosyncMockContainer:
     """Lightweight mock container to avoid importing epubcfi (Docker-only)."""

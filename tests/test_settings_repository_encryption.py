@@ -68,6 +68,14 @@ class TestEncryptOnSaveDecryptOnRead:
         assert _raw_value(db_service, "HARDCOVER_TOKEN") is None
         assert db_service.get_setting("HARDCOVER_TOKEN") is None
 
+    def test_missing_key_returns_default(self, encryption_key, db_service):
+        sentinel = object()
+        assert db_service.get_setting("NEVER_STORED") is None
+        assert db_service.get_setting("NEVER_STORED", sentinel) is sentinel
+
+    def test_get_all_empty_db_returns_empty_dict(self, encryption_key, db_service):
+        assert db_service.get_all_settings() == {}
+
     def test_resave_does_not_double_encrypt(self, encryption_key, db_service):
         db_service.set_setting("KOSYNC_KEY", "dummy-kosync-key")
         # Round-trip the decrypted value back through set_setting.
@@ -122,6 +130,175 @@ class TestMigration:
         assert _raw_value(db_service, "ABS_SERVER") == "https://abs.example"
 
 
+class TestPreEncryptionBackup:
+    """The one-way encryption migration must back up the DB before mutating."""
+
+    def _backups(self, db_service):
+        db_path = Path(db_service.db_manager.db_path)
+        return sorted(db_path.parent.glob(f"{db_path.name}.pre-settings-encryption-*"))
+
+    def _seed_plaintext(self, db_service, key, value):
+        with db_service.get_session() as session:
+            session.add(Setting(key=key, value=value))
+
+    def test_backup_created_before_encrypting(self, encryption_key, db_service):
+        self._seed_plaintext(db_service, "ABS_KEY", "dummy-abs-key")
+
+        assert self._backups(db_service) == []
+        migrated = db_service.encrypt_plaintext_secrets()
+
+        assert migrated == 1
+        backups = self._backups(db_service)
+        assert len(backups) == 1
+
+        # The backup is a standalone SQLite DB still holding the PLAINTEXT secret,
+        # proving it was taken before the row was encrypted.
+        backup_service = DatabaseService(str(backups[0]))
+        assert _raw_value(backup_service, "ABS_KEY") == "dummy-abs-key"
+        # Live DB is now encrypted.
+        assert SettingsCrypto.is_encrypted(_raw_value(db_service, "ABS_KEY"))
+
+    def test_backup_is_owner_read_write_only(self, encryption_key, db_service):
+        # The backup contains plaintext secrets: it must be 0600 (owner rw only).
+        self._seed_plaintext(db_service, "ABS_KEY", "dummy-abs-key")
+
+        assert db_service.encrypt_plaintext_secrets() == 1
+
+        (backup,) = self._backups(db_service)
+        assert os.stat(backup).st_mode & 0o777 == 0o600
+
+    def test_existing_plaintext_backups_are_hardened_without_new_migration(self, encryption_key, db_service):
+        db_path = Path(db_service.db_manager.db_path)
+        backup = db_path.with_name(f"{db_path.name}.pre-settings-encryption-legacy")
+        backup.write_bytes(b"plaintext backup")
+        backup.chmod(0o644)
+
+        assert db_service.encrypt_plaintext_secrets() == 0
+        assert backup.stat().st_mode & 0o777 == 0o600
+
+    def test_existing_backup_symlink_is_rejected(self, encryption_key, db_service, tmp_path):
+        db_path = Path(db_service.db_manager.db_path)
+        target = tmp_path / "unrelated"
+        target.write_bytes(b"not a backup")
+        target.chmod(0o644)
+        backup = db_path.with_name(f"{db_path.name}.pre-settings-encryption-symlink")
+        backup.symlink_to(target)
+
+        with pytest.raises(OSError):
+            db_service.encrypt_plaintext_secrets()
+
+        assert target.stat().st_mode & 0o777 != 0o600
+
+    def test_backups_created_in_same_second_do_not_collide(self, encryption_key, db_service, monkeypatch):
+        from src.db import settings_repository
+
+        real_datetime = settings_repository.datetime
+
+        class FixedDatetime:
+            @staticmethod
+            def now():
+                return real_datetime(2026, 7, 15, 12, 0, 0)
+
+        monkeypatch.setattr(settings_repository, "datetime", FixedDatetime)
+
+        first = db_service._settings._backup_database_before_encryption()
+        second = db_service._settings._backup_database_before_encryption()
+        assert first != second
+
+    def test_no_plaintext_means_no_backup(self, encryption_key, db_service):
+        # Already-encrypted secret only — nothing pending.
+        db_service.set_setting("ABS_KEY", "dummy-abs-key")
+        assert SettingsCrypto.is_encrypted(_raw_value(db_service, "ABS_KEY"))
+
+        assert db_service.encrypt_plaintext_secrets() == 0
+        assert self._backups(db_service) == []
+
+    def test_empty_db_means_no_backup(self, encryption_key, db_service):
+        assert db_service.encrypt_plaintext_secrets() == 0
+        assert self._backups(db_service) == []
+
+    def test_backup_failure_fails_closed(self, encryption_key, db_service, monkeypatch):
+        self._seed_plaintext(db_service, "ABS_KEY", "dummy-abs-key")
+
+        def boom(self):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(
+            "src.db.settings_repository.SettingsRepository._backup_database_before_encryption",
+            boom,
+        )
+
+        with pytest.raises(OSError):
+            db_service.encrypt_plaintext_secrets()
+
+        # Plaintext is untouched (not partially encrypted) and no backup remains.
+        assert _raw_value(db_service, "ABS_KEY") == "dummy-abs-key"
+        assert self._backups(db_service) == []
+
+
+class TestUndecryptableSecretDiagnostics:
+    def test_lists_only_undecryptable_secret_keys(self, encryption_key, db_service, monkeypatch):
+        db_service.set_setting("ABS_KEY", "dummy-abs-key")  # good
+        db_service.set_setting("HARDCOVER_TOKEN", "dummy-hardcover-token")  # will break
+        db_service.set_setting("ABS_SERVER", "https://abs.example")  # non-secret
+
+        with db_service.get_session() as session:
+            row = session.query(Setting).filter(Setting.key == "HARDCOVER_TOKEN").one()
+            row.value = row.value + "tampered"
+
+        undecryptable = db_service.get_undecryptable_secret_keys()
+        assert undecryptable == ["HARDCOVER_TOKEN"]
+
+    def test_no_undecryptable_returns_empty(self, encryption_key, db_service):
+        db_service.set_setting("ABS_KEY", "dummy-abs-key")
+        assert db_service.get_undecryptable_secret_keys() == []
+
+
+class TestKeySourceDiagnostics:
+    def test_explicit_env_var_source(self, monkeypatch):
+        from src import app_runtime
+
+        monkeypatch.setenv("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY", "dummy-explicit")
+        assert app_runtime.get_settings_key_source() == app_runtime.KEY_SOURCE_EXPLICIT
+
+    def test_flask_env_source(self, monkeypatch):
+        from src import app_runtime
+
+        monkeypatch.delenv("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY", raising=False)
+        monkeypatch.setenv("FLASK_SECRET_KEY", "dummy-flask-secret")
+        assert app_runtime.get_settings_key_source() == app_runtime.KEY_SOURCE_FLASK_ENV
+
+    def test_flask_file_source(self, monkeypatch, tmp_path):
+        from src import app_runtime
+
+        monkeypatch.delenv("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY", raising=False)
+        monkeypatch.delenv("FLASK_SECRET_KEY", raising=False)
+        monkeypatch.setenv("DATA_DIR", str(tmp_path))
+        assert app_runtime.get_settings_key_source() == app_runtime.KEY_SOURCE_FLASK_FILE
+
+    def test_source_label_never_contains_secret_value(self, monkeypatch):
+        from src import app_runtime
+
+        monkeypatch.setenv("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY", "super-secret-value-xyz")
+        label = app_runtime.get_settings_key_source()
+        assert "super-secret-value-xyz" not in label
+
+    def test_log_emitted_once(self, monkeypatch, caplog):
+        import logging
+
+        from src import app_runtime
+
+        monkeypatch.setattr(app_runtime, "_key_source_logged", False)
+        monkeypatch.setenv("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY", "dummy-explicit")
+
+        with caplog.at_level(logging.INFO):
+            app_runtime.log_settings_key_source()
+            app_runtime.log_settings_key_source()
+
+        source_logs = [r for r in caplog.records if "Settings encryption key source" in r.message]
+        assert len(source_logs) == 1
+
+
 class TestWrongKeyFailsClosed:
     def test_read_with_wrong_key_raises(self, encryption_key, db_service, monkeypatch):
         db_service.set_setting("HARDCOVER_TOKEN", "dummy-hardcover-token")
@@ -152,6 +329,60 @@ class TestWrongKeyFailsClosed:
         # Targeted reads still fail closed for the bad key.
         with pytest.raises(SettingsDecryptionError):
             db_service.get_setting("HARDCOVER_TOKEN")
+
+
+class TestUndecryptableSecretNotOverwritten:
+    """A blank secret submission must not clobber an undecryptable secret row.
+
+    Mirrors the settings-route save logic: secret keys submitted blank are
+    skipped so the stored ciphertext is preserved. This guards against a
+    wrong-key startup leading to silent data loss when the user saves the
+    Settings form (whose secret fields render blank) without re-entering
+    every credential.
+    """
+
+    def _apply_settings_save(self, db_service, submitted):
+        """Replicate the settings route's persist loop for *submitted* values."""
+        from src.utils.secret_settings import SECRET_SETTING_KEYS
+
+        current_settings = {}
+        try:
+            current_settings = db_service.get_all_settings()
+        except Exception:
+            current_settings = {}
+
+        for key, value in submitted.items():
+            clean_value = value.strip()
+            if not clean_value and key in SECRET_SETTING_KEYS:
+                continue  # preserve existing secret
+            if clean_value:
+                db_service.set_setting(key, clean_value)
+            elif key in current_settings:
+                db_service.set_setting(key, "")
+
+    def test_blank_secret_post_preserves_undecryptable_row(self, encryption_key, db_service):
+        db_service.set_setting("HARDCOVER_TOKEN", "dummy-hardcover-token")
+
+        # Simulate a wrong/lost key: corrupt the stored ciphertext so it cannot decrypt.
+        with db_service.get_session() as session:
+            row = session.query(Setting).filter(Setting.key == "HARDCOVER_TOKEN").one()
+            row.value = row.value + "tampered"
+        corrupted_raw = _raw_value(db_service, "HARDCOVER_TOKEN")
+
+        # User saves the settings form with the secret field left blank.
+        self._apply_settings_save(db_service, {"HARDCOVER_TOKEN": "", "ABS_SERVER": "https://abs.example"})
+
+        # The undecryptable secret row is untouched (not blanked, not re-encrypted).
+        assert _raw_value(db_service, "HARDCOVER_TOKEN") == corrupted_raw
+        # A non-secret submitted alongside it still persists normally.
+        assert _raw_value(db_service, "ABS_SERVER") == "https://abs.example"
+
+    def test_explicit_new_secret_overwrites(self, encryption_key, db_service):
+        db_service.set_setting("HARDCOVER_TOKEN", "dummy-old-token")
+
+        self._apply_settings_save(db_service, {"HARDCOVER_TOKEN": "dummy-new-token"})
+
+        assert db_service.get_setting("HARDCOVER_TOKEN") == "dummy-new-token"
 
 
 class TestKeyRotationThroughRepository:
@@ -207,6 +438,9 @@ class TestMasterSecretDiscovery:
         encrypt secrets with a key that vanishes on the next restart,
         permanently stranding them.
         """
+        if os.geteuid() == 0:
+            pytest.skip("root bypasses directory permissions")
+
         from src.app_runtime import EphemeralSecretKeyError, get_settings_master_secret
 
         monkeypatch.delenv("PAGEKEEPER_SETTINGS_ENCRYPTION_KEY", raising=False)

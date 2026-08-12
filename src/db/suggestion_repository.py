@@ -23,57 +23,45 @@ class SuggestionRepository(BaseRepository):
         )
 
     def suggestion_exists(self, source_id, source="abs"):
-        with self.get_session() as session:
-            return (
-                session.query(PendingSuggestion)
-                .filter(
-                    PendingSuggestion.source_id == source_id,
-                    PendingSuggestion.source == source,
-                )
-                .first()
-                is not None
-            )
+        return self._exists(
+            PendingSuggestion,
+            PendingSuggestion.source_id == source_id,
+            PendingSuggestion.source == source,
+        )
 
     def is_suggestion_ignored(self, source_id, source="abs"):
-        with self.get_session() as session:
-            return (
-                session.query(PendingSuggestion)
-                .filter(
-                    PendingSuggestion.source_id == source_id,
-                    PendingSuggestion.source == source,
-                    PendingSuggestion.status == "ignored",
-                )
-                .first()
-                is not None
-            )
+        return self._exists(
+            PendingSuggestion,
+            PendingSuggestion.source_id == source_id,
+            PendingSuggestion.source == source,
+            PendingSuggestion.status == "ignored",
+        )
 
     def save_pending_suggestion(self, suggestion):
-        """Upsert a suggestion, preserving hidden status if already hidden."""
-        filters = [
-            PendingSuggestion.source_id == suggestion.source_id,
-            PendingSuggestion.source == suggestion.source,
-        ]
-        with self.get_session() as session:
-            existing = session.query(PendingSuggestion).filter(*filters).first()
-            if existing:
-                if existing.status == "hidden" and suggestion.status == "pending":
-                    suggestion.status = "hidden"
-                for attr in ("title", "author", "cover_url", "matches_json", "status"):
-                    setattr(existing, attr, getattr(suggestion, attr))
-                session.flush()
-                session.refresh(existing)
-                session.expunge(existing)
-                return existing
-            else:
-                session.add(suggestion)
-                session.flush()
-                session.refresh(suggestion)
-                session.expunge(suggestion)
-                return suggestion
+        """Upsert a suggestion, preserving hidden status if already hidden.
+
+        Hidden preservation runs against the existing row inside the upsert
+        transaction so a hide landing after any earlier read cannot be
+        clobbered back to pending.
+        """
+        return self._upsert(
+            PendingSuggestion,
+            [
+                PendingSuggestion.source_id == suggestion.source_id,
+                PendingSuggestion.source == suggestion.source,
+            ],
+            suggestion,
+            ["title", "author", "cover_url", "matches_json", "status"],
+            normalize=self._preserve_hidden_status,
+        )
+
+    @staticmethod
+    def _preserve_hidden_status(suggestion, existing):
+        if existing.status == "hidden" and suggestion.status == "pending":
+            suggestion.status = "hidden"
 
     def get_pending_suggestion_count(self):
-        with self.get_session() as session:
-            return session.query(PendingSuggestion).filter(PendingSuggestion.status == "pending").count()
+        return self._count(PendingSuggestion, PendingSuggestion.status == "pending")
 
     def get_all_pending_suggestions(self):
         return self._get_all(

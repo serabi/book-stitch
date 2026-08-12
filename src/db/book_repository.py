@@ -104,10 +104,8 @@ class BookRepository(BaseRepository):
         if not query or not query.strip():
             return []
         with self.get_session() as session:
-            results = session.query(Book).filter(Book.title.ilike(f"%{query}%")).limit(limit).all()
-            for r in results:
-                session.expunge(r)
-            return results
+            db_query = session.query(Book).filter(Book.title.ilike(f"%{query}%")).limit(limit)
+            return self._query_and_expunge(session, db_query, one=False)
 
     def get_book_by_ebook_filename(self, filename):
         """Find a book by its ebook filename (current or original)."""
@@ -147,22 +145,37 @@ class BookRepository(BaseRepository):
         else:
             return self._save_new(book)
 
+    def _mutate_first_and_detach(self, query_factory, mutate):
+        """Load the first row from ``query_factory``, mutate it, and return it detached.
+
+        Returns ``None`` when no row matches. Otherwise applies ``mutate(obj)``
+        for the method's domain-specific semantics, then flushes, refreshes, and
+        expunges the row so callers receive a detached, usable object after the
+        session closes.
+        """
+        with self.get_session() as session:
+            obj = query_factory(session).first()
+            if not obj:
+                return None
+            mutate(obj)
+            session.flush()
+            session.refresh(obj)
+            session.expunge(obj)
+            return obj
+
     def update_book_metadata_overrides(self, book_id, *, title_override=_UNSET, author_override=_UNSET):
         """Update PageKeeper-local metadata override fields for a book."""
-        with self.get_session() as session:
-            book = session.query(Book).filter(Book.id == book_id).first()
-            if not book:
-                return None
 
+        def mutate(book):
             if title_override is not _UNSET:
                 book.title_override = title_override or None
             if author_override is not _UNSET:
                 book.author_override = author_override or None
 
-            session.flush()
-            session.refresh(book)
-            session.expunge(book)
-            return book
+        return self._mutate_first_and_detach(
+            lambda session: session.query(Book).filter(Book.id == book_id),
+            mutate,
+        )
 
     def delete_book(self, book_id):
         with self.get_session() as session:
@@ -458,10 +471,8 @@ class BookRepository(BaseRepository):
 
     def get_latest_job(self, book_id):
         with self.get_session() as session:
-            job = session.query(Job).filter(Job.book_id == book_id).order_by(Job.last_attempt.desc()).first()
-            if job:
-                session.expunge(job)
-            return job
+            db_query = session.query(Job).filter(Job.book_id == book_id).order_by(Job.last_attempt.desc())
+            return self._query_and_expunge(session, db_query, one=True)
 
     def get_latest_jobs_bulk(self, book_ids):
         """Fetch the latest job for each book_id in one query.
@@ -480,18 +491,14 @@ class BookRepository(BaseRepository):
                 .group_by(Job.book_id)
                 .subquery()
             )
-            rows = (
-                session.query(Job)
-                .join(
-                    latest,
-                    (Job.book_id == latest.c.book_id)
-                    & (func.coalesce(Job.last_attempt, "1970-01-01") == func.coalesce(latest.c.max_ts, "1970-01-01")),
-                )
-                .all()
+            db_query = session.query(Job).join(
+                latest,
+                (Job.book_id == latest.c.book_id)
+                & (func.coalesce(Job.last_attempt, "1970-01-01") == func.coalesce(latest.c.max_ts, "1970-01-01")),
             )
+            rows = self._query_and_expunge(session, db_query, one=False)
             result = {}
             for job in rows:
-                session.expunge(job)
                 result[job.book_id] = job
             return result
 
@@ -505,19 +512,17 @@ class BookRepository(BaseRepository):
         return self._save_new(job)
 
     def update_latest_job(self, book_id, **kwargs):
-        with self.get_session() as session:
-            job = session.query(Job).filter(Job.book_id == book_id).order_by(Job.last_attempt.desc()).first()
-            if job:
-                for key, value in kwargs.items():
-                    if hasattr(job, key):
-                        setattr(job, key, value)
-                    else:
-                        logger.warning(f"update_latest_job: unknown attribute '{key}' for job {job.id}")
-                session.flush()
-                session.refresh(job)
-                session.expunge(job)
-                return job
-            return None
+        def mutate(job):
+            for key, value in kwargs.items():
+                if hasattr(job, key):
+                    setattr(job, key, value)
+                else:
+                    logger.warning(f"update_latest_job: unknown attribute '{key}' for job {job.id}")
+
+        return self._mutate_first_and_detach(
+            lambda session: session.query(Job).filter(Job.book_id == book_id).order_by(Job.last_attempt.desc()),
+            mutate,
+        )
 
     def delete_jobs_for_book(self, book_id):
         with self.get_session() as session:
@@ -534,29 +539,23 @@ class BookRepository(BaseRepository):
                 .group_by(State.book_id)
                 .subquery()
             )
-            books = (
+            db_query = (
                 session.query(Book)
                 .join(latest, Book.id == latest.c.book_id)
                 .order_by(latest.c.max_updated.desc())
                 .limit(limit)
-                .all()
             )
-            for book in books:
-                session.expunge(book)
-            return books
+            return self._query_and_expunge(session, db_query, one=False)
 
     def get_failed_jobs(self, limit=20):
         with self.get_session() as session:
-            jobs = (
+            db_query = (
                 session.query(Job)
                 .filter(Job.last_error.isnot(None))
                 .order_by(Job.last_attempt.desc())
                 .limit(limit)
-                .all()
             )
-            for job in jobs:
-                session.expunge(job)
-            return jobs
+            return self._query_and_expunge(session, db_query, one=False)
 
     def get_statistics(self):
         with self.get_session() as session:

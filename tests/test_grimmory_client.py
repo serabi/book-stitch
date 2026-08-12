@@ -60,6 +60,137 @@ def test_init_loads_from_db(mock_db):
         assert client._book_id_cache["123"]["title"] == "Test Book"
 
 
+def test_mixed_case_filename_preserves_exact_key_and_resolves_case_insensitive_lookup(mock_db):
+    """A mixed-case DB row keeps its exact key but still resolves lowercase lookups."""
+    mock_book = MagicMock()
+    mock_book.filename = "Mixed_Case.epub"
+    mock_book.title = "Mixed Case Book"
+    mock_book.authors = "Author"
+    mock_book.raw_metadata_dict = {
+        "id": "777",
+        "fileName": "Mixed_Case.epub",
+        "title": "Mixed Case Book",
+        "authors": "Author",
+    }
+    mock_db.get_all_grimmory_books.return_value = [mock_book]
+
+    with patch.dict(
+        os.environ,
+        {"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p", "DATA_DIR": "/tmp/data"},
+    ):
+        client = GrimmoryClient(database_service=mock_db)
+
+    assert "Mixed_Case.epub" in client._book_cache
+    assert "mixed_case.epub" not in client._book_cache
+    assert client.find_book_by_filename("Mixed_Case.epub", allow_refresh=False)["id"] == "777"
+    assert client.find_book_by_filename("mixed_case.epub", allow_refresh=False)["id"] == "777"
+
+    mock_db.replace_grimmory_book_filename.assert_not_called()
+    mock_db.delete_grimmory_book.assert_not_called()
+
+
+def test_load_cache_keeps_case_distinct_filenames(mock_db):
+    """Exact cache keys prevent Foo.epub and foo.epub from overwriting each other."""
+    mock_db.get_all_grimmory_books.return_value = [
+        _make_db_book("upper", "Foo.epub", "Upper Foo", "Author A"),
+        _make_db_book("lower", "foo.epub", "Lower Foo", "Author B"),
+    ]
+
+    with patch.dict(
+        os.environ,
+        {"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p", "DATA_DIR": "/tmp/data"},
+    ):
+        client = GrimmoryClient(database_service=mock_db)
+
+    assert set(client._book_cache) == {"Foo.epub", "foo.epub"}
+    assert client._book_cache["Foo.epub"]["id"] == "upper"
+    assert client._book_cache["foo.epub"]["id"] == "lower"
+    assert client.find_book_by_filename("Foo.epub", allow_refresh=False)["id"] == "upper"
+    assert client.find_book_by_filename("foo.epub", allow_refresh=False)["id"] == "lower"
+    assert client.find_book_by_filename("FOO.epub", allow_refresh=False) is None
+    mock_db.replace_grimmory_book_filename.assert_not_called()
+
+
+def test_load_cache_populates_case_insensitive_index_without_full_rebuild(mock_db):
+    mock_db.get_all_grimmory_books.return_value = [
+        _make_db_book("first", "One.epub", "One", "Author A"),
+        _make_db_book("second", "Two.epub", "Two", "Author B"),
+    ]
+
+    with patch.object(
+        GrimmoryClient,
+        "_rebuild_case_insensitive_cache",
+        side_effect=AssertionError("full rebuild should not run during per-book cache insert"),
+    ):
+        with patch.dict(
+            os.environ,
+            {
+                "GRIMMORY_SERVER": "http://mock",
+                "GRIMMORY_USER": "u",
+                "GRIMMORY_PASSWORD": "p",
+                "DATA_DIR": "/tmp/data",
+            },
+        ):
+            client = GrimmoryClient(database_service=mock_db)
+
+    assert client.find_book_by_filename("one.epub", allow_refresh=False)["id"] == "first"
+    assert client.find_book_by_filename("TWO.epub", allow_refresh=False)["id"] == "second"
+
+
+def test_cache_book_info_updates_same_exact_filename_without_marking_ambiguous(mock_db):
+    mock_db.get_all_grimmory_books.return_value = []
+
+    with patch.dict(
+        os.environ,
+        {"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p", "DATA_DIR": "/tmp/data"},
+    ):
+        client = GrimmoryClient(database_service=mock_db)
+
+    client._cache_book_info("Book.epub", {"id": "old", "fileName": "Book.epub", "title": "Old"})
+    client._cache_book_info("Book.epub", {"id": "new", "fileName": "Book.epub", "title": "New"})
+
+    assert client.find_book_by_filename("book.epub", allow_refresh=False)["id"] == "new"
+    assert client.find_book_by_filename("BOOK.epub", allow_refresh=False)["title"] == "New"
+
+
+def test_refresh_migrates_cached_book_id_to_live_filename_casing(mock_db):
+    mock_db.get_all_grimmory_books.return_value = [_make_db_book("777", "book.epub", "Book", "Author")]
+
+    with patch.dict(
+        os.environ,
+        {"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p", "DATA_DIR": "/tmp/data"},
+    ):
+        client = GrimmoryClient(database_service=mock_db)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.side_effect = [
+        [
+            {
+                "id": "777",
+                "title": "Book",
+                "primaryFile": {"id": 42, "fileName": "Book.epub", "bookType": "EPUB"},
+                "metadata": {"authors": ["Author"]},
+            }
+        ],
+        [],
+    ]
+    client._get_fresh_token = MagicMock(return_value="fake_token")
+    client._make_request = MagicMock(side_effect=[mock_response, mock_response])
+
+    with patch.dict(
+        os.environ,
+        {"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p", "DATA_DIR": "/tmp/data"},
+    ):
+        assert client._refresh_book_cache() is True
+
+    assert set(client._book_cache) == {"Book.epub"}
+    assert client.find_book_by_filename("book.epub", allow_refresh=False)["id"] == "777"
+    mock_db.delete_grimmory_book.assert_called_once_with("book.epub", server_id="default")
+    saved_book = mock_db.save_grimmory_book.call_args[0][0]
+    assert saved_book.filename == "Book.epub"
+
+
 def test_migration_from_legacy_json(mock_db):
     # Setup: DB is empty, Legacy JSON exists
     mock_db.get_all_grimmory_books.side_effect = [[], []]  # First call empty, second call empty
@@ -928,9 +1059,7 @@ def test_reload_from_env_loads_cache_when_started_unconfigured(mock_db):
         assert client._book_cache == {}
 
         # Settings save populates env + DB, then reloads the singleton.
-        os.environ.update(
-            {"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p"}
-        )
+        os.environ.update({"GRIMMORY_SERVER": "http://mock", "GRIMMORY_USER": "u", "GRIMMORY_PASSWORD": "p"})
         client.reload_from_env()
 
         assert client.is_configured()

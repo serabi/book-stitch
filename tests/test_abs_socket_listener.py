@@ -153,6 +153,72 @@ class TestABSSocketListenerDebounce(unittest.TestCase):
         self.assertEqual(len(self.listener._pending), 0)
         self.mock_db.get_book_by_abs_id.assert_not_called()
 
+    def _make_not_started_book(self, abs_id: str):
+        book = MagicMock()
+        book.id = 99
+        book.abs_id = abs_id
+        book.title = "Fresh Book"
+        book.status = "not_started"
+        book.activity_flag = False
+        book.started_at = None
+        book.ebook_filename = None
+        return book
+
+    def test_promotes_not_started_on_meaningful_progress(self):
+        """A not_started book with >1% reported progress is promoted to active."""
+        book = self._make_not_started_book("fresh-id")
+        self.mock_db.get_book_by_abs_id.return_value = book
+
+        self.listener._handle_progress_event({"id": "p", "data": {"libraryItemId": "fresh-id", "progress": 0.10}})
+
+        self.assertEqual(book.status, "active")
+        self.assertIn("fresh-id", self.listener._pending)
+
+    def test_promotion_forwards_container_to_transition(self):
+        """The listener must forward its DI container into the status transition so
+        completion_sync side effects (real started_at, Grimmory push) actually run."""
+        sentinel_container = object()
+        with patch("src.services.abs_socket_listener.socketio.Client"):
+            listener = ABSSocketListener(
+                abs_server_url="http://abs.local:13378",
+                abs_api_token="tok",
+                database_service=self.mock_db,
+                sync_manager=self.mock_sync,
+                container=sentinel_container,
+            )
+
+        book = self._make_not_started_book("container-id")
+        self.mock_db.get_book_by_abs_id.return_value = book
+
+        with patch.object(
+            listener._status_machine, "transition", return_value={"success": True}
+        ) as mock_transition:
+            listener._handle_progress_event({"id": "p", "data": {"libraryItemId": "container-id", "progress": 0.10}})
+
+        mock_transition.assert_called_once()
+        self.assertIs(mock_transition.call_args.kwargs.get("container"), sentinel_container)
+
+    def test_not_started_below_threshold_only_flags_activity(self):
+        """A not_started book below 1% is not promoted, just flagged."""
+        book = self._make_not_started_book("fresh-id-2")
+        self.mock_db.get_book_by_abs_id.return_value = book
+
+        self.listener._handle_progress_event({"id": "p", "data": {"libraryItemId": "fresh-id-2", "progress": 0.001}})
+
+        self.assertEqual(book.status, "not_started")
+        self.assertTrue(book.activity_flag)
+        self.assertNotIn("fresh-id-2", self.listener._pending)
+
+    def test_not_started_without_progress_only_flags_activity(self):
+        """A not_started book with no extractable progress is flagged, not promoted."""
+        book = self._make_not_started_book("fresh-id-3")
+        self.mock_db.get_book_by_abs_id.return_value = book
+
+        self.listener._handle_progress_event({"id": "p", "data": {"libraryItemId": "fresh-id-3"}})
+
+        self.assertEqual(book.status, "not_started")
+        self.assertTrue(book.activity_flag)
+
     def test_url_stripping(self):
         """Server URL should strip trailing /api for socket connection."""
         with patch("src.services.abs_socket_listener.socketio.Client"):

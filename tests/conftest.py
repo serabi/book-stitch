@@ -71,6 +71,7 @@ class MockContainer:
     def __init__(self):
         # ── Database ──
         self.mock_database_service = Mock()
+        self.mock_database_service.startup_ready.return_value = (True, "ok")
         self.mock_database_service.get_all_settings.return_value = {}
         self.mock_database_service.get_book_by_ref.return_value = None
         self.mock_database_service.get_all_books.return_value = []
