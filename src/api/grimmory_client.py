@@ -652,9 +652,14 @@ class GrimmoryClient:
         if book_id is None or file_id is None:
             return []
 
+        if book.get("isPrimary"):
+            stream_url = f"{self.base_url}/api/v1/books/{book_id}/download"
+        else:
+            stream_url = f"{self.base_url}/api/v1/books/{book_id}/files/{file_id}/download"
+
         return [
             {
-                "stream_url": f"{self.base_url}/api/v1/books/{book_id}/files/{file_id}/download",
+                "stream_url": stream_url,
                 "ext": Path(filename).suffix.lstrip(".") or "mp3",
                 "headers": {"Authorization": f"Bearer {token}"},
             }

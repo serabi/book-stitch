@@ -418,12 +418,21 @@ def test_downloads_exact_alternative_file_and_rejects_stale_identity(grimmory_cl
     assert requested_urls[1].endswith("/api/v1/books/10/file")
 
 
-def test_get_audio_files_returns_exact_authenticated_download(grimmory_client):
+@pytest.mark.parametrize("audio_is_primary", [False, True])
+def test_get_audio_files_returns_exact_authenticated_download(grimmory_client, audio_is_primary):
     grimmory_client._process_book_detail(
         {
             "id": 10,
-            "primaryFile": {"id": 41, "fileName": "book.epub", "bookType": "EPUB"},
-            "alternativeFormats": [{"id": 42, "fileName": "book.m4b", "bookType": "AUDIOBOOK"}],
+            "primaryFile": (
+                {"id": 42, "fileName": "book.m4b", "bookType": "AUDIOBOOK"}
+                if audio_is_primary
+                else {"id": 41, "fileName": "book.epub", "bookType": "EPUB"}
+            ),
+            "alternativeFormats": (
+                [{"id": 41, "fileName": "book.epub", "bookType": "EPUB"}]
+                if audio_is_primary
+                else [{"id": 42, "fileName": "book.m4b", "bookType": "AUDIOBOOK"}]
+            ),
         }
     )
     grimmory_client._token = "secret-token"
@@ -431,7 +440,11 @@ def test_get_audio_files_returns_exact_authenticated_download(grimmory_client):
 
     assert grimmory_client.get_audio_files("default:10:42") == [
         {
-            "stream_url": f"{grimmory_client.base_url}/api/v1/books/10/files/42/download",
+            "stream_url": (
+                f"{grimmory_client.base_url}/api/v1/books/10/download"
+                if audio_is_primary
+                else f"{grimmory_client.base_url}/api/v1/books/10/files/42/download"
+            ),
             "ext": "m4b",
             "headers": {"Authorization": "Bearer secret-token"},
         }
