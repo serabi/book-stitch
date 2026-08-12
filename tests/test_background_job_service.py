@@ -43,6 +43,7 @@ def _make_book(**kwargs):
     book.kosync_doc_id = kwargs.get("kosync_doc_id", None)
     book.original_ebook_filename = kwargs.get("original_ebook_filename", None)
     book.transcript_file = kwargs.get("transcript_file", None)
+    book.grimmory_audio_source_id = kwargs.get("grimmory_audio_source_id", None)
     return book
 
 
@@ -647,6 +648,35 @@ class TestPhaseAlignment:
 
 
 class TestPhaseTranscription:
+    def test_grimmory_only_book_uses_exact_authenticated_audio_source(self):
+        book = _make_book(abs_id=None, grimmory_audio_source_id="default:10:42")
+        abs_client = Mock()
+        grimmory_client = Mock()
+        audio_files = [{"stream_url": "https://grimmory/audio", "headers": {"Authorization": "Bearer token"}}]
+        grimmory_client.get_audio_files.return_value = audio_files
+        ebook_parser = Mock()
+        ebook_parser.extract_text_and_map.return_value = ("book text", {})
+        transcriber = Mock()
+        transcriber.transcribe_from_smil.return_value = None
+        transcriber.process_audio.return_value = "whisper transcript"
+        service = _make_service(
+            abs_client=abs_client,
+            grimmory_client=grimmory_client,
+            ebook_parser=ebook_parser,
+            transcriber=transcriber,
+        )
+
+        raw, source, _, _ = service._phase_transcription(
+            book, None, "Test", Path("/tmp/t.epub"), None, Mock()
+        )
+
+        assert (raw, source) == ("whisper transcript", "WHISPER")
+        grimmory_client.get_audio_files.assert_called_once_with("default:10:42")
+        abs_client.get_audio_files.assert_not_called()
+        transcriber.process_audio.assert_called_once_with(
+            "default:10:42", audio_files, full_book_text="book text", progress_callback=transcriber.process_audio.call_args.kwargs["progress_callback"]
+        )
+
     def test_smil_failure_falls_back_to_whisper(self):
         """SMIL extraction exception falls through to Whisper."""
         book = _make_book(storyteller_uuid=None)

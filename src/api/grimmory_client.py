@@ -639,6 +639,27 @@ class GrimmoryClient:
             return None
         return book
 
+    def get_audio_files(self, source_id):
+        """Return an authenticated download descriptor for one exact audiobook file."""
+        book = self.find_audiobook_by_source_id(source_id)
+        token = self._get_fresh_token()
+        if not book or not token:
+            return []
+
+        book_id = book.get("id")
+        file_id = book.get("bookFileId")
+        filename = book.get("fileName") or "audiobook.mp3"
+        if book_id is None or file_id is None:
+            return []
+
+        return [
+            {
+                "stream_url": f"{self.base_url}/api/v1/books/{book_id}/files/{file_id}/download",
+                "ext": Path(filename).suffix.lstrip(".") or "mp3",
+                "headers": {"Authorization": f"Bearer {token}"},
+            }
+        ]
+
     def get_book_file_progress(self, source_id):
         book = self.find_book_file_by_source_id(source_id)
         return self.extract_progress(book) if book else (None, None)
@@ -1050,6 +1071,12 @@ class GrimmoryClientGroup:
             if book:
                 return {**book, "_instance_id": client.instance_id}
         return None
+
+    def get_audio_files(self, source_id):
+        for client in self._active:
+            if str(source_id).startswith(f"{client.instance_id}:"):
+                return client.get_audio_files(source_id)
+        return []
 
     def get_book_file_progress(self, source_id):
         for client in self._active:

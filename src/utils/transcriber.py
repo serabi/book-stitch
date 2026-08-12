@@ -458,13 +458,14 @@ class AudioTranscriber:
                     logger.info(f"Phase 1: Downloading {len(audio_urls)} audio files...")
                     for idx, audio_data in enumerate(audio_urls):
                         stream_url = audio_data["stream_url"]
+                        request_headers = audio_data.get("headers")
                         extension = audio_data.get("ext", ".mp3")
                         if not extension.startswith("."):
                             extension = f".{extension}"
                         local_path = book_cache_dir / f"part_{idx:03d}{extension}"
 
                         logger.info(f"   Downloading Part {idx + 1}/{len(audio_urls)}...")
-                        with requests.get(stream_url, stream=True, timeout=300) as r:
+                        with requests.get(stream_url, headers=request_headers, stream=True, timeout=300) as r:
                             r.raise_for_status()
                             with open(local_path, "wb") as f:
                                 for chunk in r.iter_content(chunk_size=8192):

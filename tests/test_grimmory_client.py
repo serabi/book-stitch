@@ -418,6 +418,27 @@ def test_downloads_exact_alternative_file_and_rejects_stale_identity(grimmory_cl
     assert requested_urls[1].endswith("/api/v1/books/10/file")
 
 
+def test_get_audio_files_returns_exact_authenticated_download(grimmory_client):
+    grimmory_client._process_book_detail(
+        {
+            "id": 10,
+            "primaryFile": {"id": 41, "fileName": "book.epub", "bookType": "EPUB"},
+            "alternativeFormats": [{"id": 42, "fileName": "book.m4b", "bookType": "AUDIOBOOK"}],
+        }
+    )
+    grimmory_client._token = "secret-token"
+    grimmory_client._token_timestamp = 9999999999
+
+    assert grimmory_client.get_audio_files("default:10:42") == [
+        {
+            "stream_url": f"{grimmory_client.base_url}/api/v1/books/10/files/42/download",
+            "ext": "m4b",
+            "headers": {"Authorization": "Bearer secret-token"},
+        }
+    ]
+    assert grimmory_client.get_audio_files("default:10:41") == []
+
+
 def test_refresh_prunes_removed_alternative_without_removing_primary_ebook(grimmory_client, mock_db):
     detail = {
         "id": 10,
