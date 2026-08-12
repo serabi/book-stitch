@@ -159,6 +159,19 @@ def test_grimmory_instances_with_same_filename_keep_separate_identity_and_progre
     second.get_book_file_progress.assert_called_once_with("2:20:201")
 
 
+def test_grimmory_cover_uses_remote_book_id_not_qualified_file_identity():
+    metadata = {
+        "id": "default:5721:5734",
+        "remote_book_id": 5721,
+        "instance_id": "default",
+    }
+
+    assert (
+        SuggestionService._cover_url_for("grimmory", "book.epub", metadata)
+        == "/api/cover-proxy/grimmory/5721"
+    )
+
+
 def test_grimmory_audiobook_detection_uses_exact_book_and_file_identity():
     db = _db()
     grimmory = Mock()

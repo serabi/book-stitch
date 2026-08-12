@@ -770,6 +770,7 @@ class SuggestionService:
                         "author": bl_book.get("authors", ""),
                         "pct": pct,
                         "id": source_id,
+                        "remote_book_id": bl_book.get("id"),
                         "source_updated_at": bl_book.get("lastReadTime"),
                         "media_format": media_format,
                     }
@@ -1163,13 +1164,12 @@ class SuggestionService:
         if source == "storyteller":
             return (metadata or {}).get("cover_url", "")
         if source == "grimmory":
-            bl_id = (metadata or {}).get("id")
+            bl_id = (metadata or {}).get("remote_book_id")
             if not bl_id:
                 return ""
             instance_id = str((metadata or {}).get("instance_id") or "default")
-            raw_id = str(bl_id).split(":", 1)[-1]
             prefix = "grimmory2" if instance_id == "2" else "grimmory"
-            return f"/api/cover-proxy/{prefix}/{raw_id}"
+            return f"/api/cover-proxy/{prefix}/{bl_id}"
         return ""
 
     def _save_suggestion_with_merge(
