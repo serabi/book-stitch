@@ -9,6 +9,7 @@ def register_blueprints(app):
     from src.blueprints.books import books_bp
     from src.blueprints.covers import covers_bp
     from src.blueprints.dashboard import dashboard_bp
+    from src.blueprints.kobo_bp import kobo_bp
     from src.blueprints.logs import logs_bp
     from src.blueprints.matching_bp import matching_bp
     from src.blueprints.reading_bp import reading_bp
@@ -23,6 +24,7 @@ def register_blueprints(app):
     app.register_blueprint(api_bp)
     app.register_blueprint(abs_bp)
     app.register_blueprint(bookfusion_bp)
+    app.register_blueprint(kobo_bp)
     app.register_blueprint(logs_bp)
     app.register_blueprint(reading_bp)
     app.register_blueprint(tbr_bp)

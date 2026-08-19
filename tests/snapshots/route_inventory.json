@@ -184,6 +184,54 @@
     "kind": "api"
   },
   {
+    "rule": "/api/kobo/books",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kobo.list_device_books",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kobo/link",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kobo.link_device_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kobo/save-journal",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kobo.save_bookmarks_to_journal",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kobo/sync",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kobo.sync_now",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kobo/unlink",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kobo.unlink_device_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/kobo/upload",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kobo.upload_database",
+    "kind": "api"
+  },
+  {
     "rule": "/api/kosync-documents",
     "methods": [
       "GET"
