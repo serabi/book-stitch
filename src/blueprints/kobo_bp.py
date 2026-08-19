@@ -107,6 +107,20 @@ def unlink_device_book():
     return jsonify({"success": True})
 
 
+@kobo_bp.route("/api/kobo/save-journal", methods=["POST"])
+def save_bookmarks_to_journal():
+    """Import a matched Kobo book's highlights/notes as reading journal entries."""
+    data = request.get_json()
+    if not data or not data.get("book_id"):
+        return jsonify({"error": "book_id required"}), 400
+
+    kobo_service = _get_kobo_service()
+    result = kobo_service.save_bookmarks_to_journal(int(data["book_id"]))
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), 404
+    return jsonify(result)
+
+
 @kobo_bp.route("/api/kobo/sync", methods=["POST"])
 def sync_now():
     """Force a re-scan of database copies."""

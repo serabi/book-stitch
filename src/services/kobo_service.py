@@ -176,3 +176,55 @@ class KoboService:
         if best.read_status == 2:
             return 1.0
         return best.percent / 100.0
+
+    @staticmethod
+    def _journal_quote_key(text: str) -> str:
+        """Dedupe key: the normalized first line of a journal entry.
+
+        Works for Kobo entries (quote on line 1) and BookFusion entries
+        (quote before the chapter citation marker) alike, so the same passage
+        imported from both sources is imported once.
+        """
+        if not text:
+            return ""
+        first_line = text.split("\n", 1)[0].strip()
+        return " ".join(first_line.lower().split())
+
+    def save_bookmarks_to_journal(self, book_id: int) -> dict:
+        """Import a matched Kobo book's highlights/notes as journal entries.
+
+        Idempotent: passages already present as journal highlights (from Kobo
+        or BookFusion) are skipped by normalized quote.
+        """
+        book = self.database_service.get_book_by_id(book_id)
+        if not book:
+            return {"saved": 0, "skipped": 0, "error": "book not found"}
+
+        bookmarks = [
+            b for b in self.database_service.get_kobo_bookmarks_for_book_by_book_id(book.id) if b.text
+        ]
+        existing_entries = self.database_service.get_reading_journal_entries_for_book(book.id, "highlight")
+        existing_keys = {self._journal_quote_key(e.entry) for e in existing_entries if e.entry}
+
+        saved = 0
+        skipped = 0
+        for bm in bookmarks:
+            quote = (bm.text or "").strip()
+            if not quote:
+                continue
+            key = self._journal_quote_key(quote)
+            if key in existing_keys:
+                skipped += 1
+                continue
+            entry = quote
+            note = (bm.annotation or "").strip()
+            if note:
+                entry += f"\n> {note}"
+            self.database_service.add_reading_journal(
+                book.id, "highlight", entry=entry, created_at=bm.highlighted_at, abs_id=book.abs_id
+            )
+            existing_keys.add(key)
+            saved += 1
+        if saved:
+            logger.info("Kobo: imported %d journal highlights for book %d", saved, book.id)
+        return {"saved": saved, "skipped": skipped}
