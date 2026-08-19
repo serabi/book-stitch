@@ -764,6 +764,100 @@ class BookfusionBook(Base):
         return f"<BookfusionBook(id={self.id}, title='{self.title}')>"
 
 
+class KoboBook(Base):
+    """A book from a Kobo e-reader's KoboReader.sqlite content table."""
+
+    __tablename__ = "kobo_books"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    content_id = Column(String(255), unique=True, nullable=False)
+    title = Column(String(500))
+    author = Column(String(500))
+    isbn = Column(String(64), nullable=True)
+    percent = Column(Integer, nullable=False, default=0, server_default="0")
+    read_status = Column(Integer, nullable=False, default=0, server_default="0")  # 0 unread, 1 reading, 2 finished
+    date_last_read = Column(DateTime, nullable=True)
+    time_spent_seconds = Column(Integer, nullable=False, default=0, server_default="0")
+    matched_book_id = Column(Integer, ForeignKey("books.id", ondelete="SET NULL"), nullable=True, index=True)
+    hidden = Column(Boolean, default=False, nullable=False, server_default="0")
+    fetched_at = Column(DateTime, default=utc_now)
+    last_updated = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    matched_book = relationship("Book", foreign_keys=[matched_book_id])
+
+    def __init__(
+        self,
+        content_id: str,
+        title: str = None,
+        author: str = None,
+        isbn: str = None,
+        percent: int = 0,
+        read_status: int = 0,
+        date_last_read=None,
+        time_spent_seconds: int = 0,
+        matched_book_id: int = None,
+        hidden: bool = False,
+    ):
+        self.content_id = content_id
+        self.title = title
+        self.author = author
+        self.isbn = isbn
+        self.percent = percent
+        self.read_status = read_status
+        self.date_last_read = date_last_read
+        self.time_spent_seconds = time_spent_seconds
+        self.matched_book_id = matched_book_id
+        self.hidden = hidden
+        self.fetched_at = utc_now()
+        self.last_updated = utc_now()
+
+    def __repr__(self):
+        return f"<KoboBook(id={self.id}, title='{self.title}', percent={self.percent})>"
+
+
+class KoboBookmark(Base):
+    """A bookmark/highlight/note from a Kobo e-reader's Bookmark table."""
+
+    __tablename__ = "kobo_bookmarks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    bookmark_id = Column(String(255), unique=True, nullable=False)
+    content_id = Column(String(255), nullable=False, index=True)  # Kobo VolumeID -> kobo_books.content_id
+    kind = Column(String(20), nullable=False, server_default="highlight")  # bookmark|highlight|annotation
+    text = Column(Text, nullable=True)  # highlighted passage (NULL = plain bookmark)
+    annotation = Column(Text, nullable=True)  # user's note
+    chapter_progress = Column(Float, nullable=True)  # 0-1 within chapter
+    highlighted_at = Column(DateTime, nullable=True, index=True)
+    matched_book_id = Column(Integer, ForeignKey("books.id", ondelete="SET NULL"), nullable=True, index=True)
+    fetched_at = Column(DateTime, default=utc_now)
+
+    matched_book = relationship("Book", foreign_keys=[matched_book_id])
+
+    def __init__(
+        self,
+        bookmark_id: str,
+        content_id: str,
+        kind: str = "highlight",
+        text: str = None,
+        annotation: str = None,
+        chapter_progress: float = None,
+        highlighted_at=None,
+        matched_book_id: int = None,
+    ):
+        self.bookmark_id = bookmark_id
+        self.content_id = content_id
+        self.kind = kind
+        self.text = text
+        self.annotation = annotation
+        self.chapter_progress = chapter_progress
+        self.highlighted_at = highlighted_at
+        self.matched_book_id = matched_book_id
+        self.fetched_at = utc_now()
+
+    def __repr__(self):
+        return f"<KoboBookmark(id={self.id}, kind='{self.kind}')>"
+
+
 class TbrItem(Base):
     """A book on the user's To Be Read list. Separate from the Book table —
     a TBR item may not be owned yet."""

@@ -16,6 +16,7 @@ from .bookfusion_repository import BookFusionRepository
 from .detected_repository import DetectedRepository
 from .grimmory_repository import GrimmoryRepository
 from .hardcover_repository import HardcoverRepository
+from .kobo_repository import KoboRepository
 from .kosync_repository import KoSyncRepository
 from .models import (
     Base,
@@ -119,6 +120,7 @@ class DatabaseService:
         self._hardcover = HardcoverRepository(self.db_manager)
         self._storyteller = StorytellerRepository(self.db_manager)
         self._bookfusion = BookFusionRepository(self.db_manager)
+        self._kobo = KoboRepository(self.db_manager)
         self._grimmory = GrimmoryRepository(self.db_manager)
         self._tbr = TbrRepository(self.db_manager)
 
@@ -362,6 +364,7 @@ class DatabaseService:
         "_hardcover",
         "_storyteller",
         "_bookfusion",
+        "_kobo",
         "_grimmory",
         "_tbr",
     )
