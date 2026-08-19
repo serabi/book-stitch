@@ -507,6 +507,25 @@ class SuggestionService:
         logger.info(f"Socket.IO: Queuing detected-book discovery for '{abs_id[:12]}...'")
         self._create_suggestion(abs_id, progress_data)
 
+    def _abs_audiobooks_by_title(self) -> dict[str, list[dict]]:
+        """Fetch ABS audiobooks indexed by normalized title (empty on failure/unconfigured)."""
+        if not self.abs_client:
+            return {}
+        try:
+            all_audiobooks = self.abs_client.get_all_audiobooks() or []
+        except Exception as e:
+            logger.debug(f"ABS audiobook fetch failed: {e}")
+            return {}
+        abs_by_title: dict[str, list[dict]] = {}
+        for ab in all_audiobooks:
+            meta = ab.get("media", {}).get("metadata", {})
+            ab_title = meta.get("title", "")
+            if ab_title:
+                clean = self._normalize_title(ab_title)
+                if clean:
+                    abs_by_title.setdefault(clean, []).append(ab)
+        return abs_by_title
+
     def queue_kosync_suggestion(
         self,
         doc_hash: str,
@@ -530,27 +549,11 @@ class SuggestionService:
             return
 
         matches = []
-        if self.abs_client:
-            try:
-                all_audiobooks = self.abs_client.get_all_audiobooks() or []
-            except Exception as e:
-                logger.debug(f"KoSync suggestion: failed to fetch ABS audiobooks: {e}")
-                all_audiobooks = []
-
-            if all_audiobooks:
-                all_books = self.database_service.get_all_books()
-                mapped_abs_ids = {b.abs_id for b in all_books}
-                abs_by_title: dict[str, list[dict]] = {}
-                for ab in all_audiobooks:
-                    meta = ab.get("media", {}).get("metadata", {})
-                    ab_title = meta.get("title", "")
-                    if ab_title:
-                        clean = self._normalize_title(ab_title)
-                        if clean:
-                            abs_by_title.setdefault(clean, []).append(ab)
-
-                clean_title = self._normalize_title(title)
-                matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
+        abs_by_title = self._abs_audiobooks_by_title()
+        if abs_by_title:
+            mapped_abs_ids = {b.abs_id for b in self.database_service.get_all_books()}
+            clean_title = self._normalize_title(title)
+            matches = self._find_abs_audiobook_matches(clean_title, abs_by_title, mapped_abs_ids)
 
         # Fallback: Grimmory audiobook companions.
         if not matches:
@@ -589,6 +592,67 @@ class SuggestionService:
         )
         logger.info(
             f"KoSync detected: '{title}' (hash {doc_hash[:8]}...)"
+            + (f" with {len(matches)} match(es)" if matches else "")
+        )
+
+    def queue_kobo_suggestion(
+        self,
+        content_id: str,
+        title: str,
+        author: str = "",
+        progress_percentage: float = 0.0,
+        source_updated_at=None,
+    ) -> None:
+        """Create or refresh a detected entry for an unmatched Kobo device book."""
+        if not self._in_detection_window(progress_percentage):
+            return
+        if not title:
+            logger.debug(f"Kobo suggestion: no title for {content_id}, skipping")
+            return
+
+        matches = []
+        abs_by_title = self._abs_audiobooks_by_title()
+        if abs_by_title:
+            mapped_abs_ids = {b.abs_id for b in self.database_service.get_all_books()}
+            matches = self._find_abs_audiobook_matches(
+                self._normalize_title(title), abs_by_title, mapped_abs_ids
+            )
+
+        # Fallback: Grimmory audiobook companions.
+        if not matches:
+            ebook_candidates = self._build_ebook_source_candidates()
+            matches = self._rank_candidates_for_book(
+                title,
+                author,
+                ebook_candidates.get("grimmory", []),
+                source_media_format="ebook",
+            )
+
+        cover = None
+        if matches:
+            best = matches[0]
+            author = author or best.get("author") or best.get("authorName") or ""
+            if best.get("abs_id"):
+                cover = f"/api/cover-proxy/{best['abs_id']}"
+            else:
+                cover = best.get("cover_url") or self._cover_url_for(
+                    best.get("source_family", ""), best.get("abs_id", ""), best
+                )
+
+        self._upsert_detected_book(
+            source="kobo",
+            source_id=content_id,
+            title=title,
+            author=author,
+            cover_url=cover,
+            progress_percentage=progress_percentage,
+            matches=matches,
+            device="Kobo",
+            media_format="ebook",
+            source_updated_at=source_updated_at,
+        )
+        logger.info(
+            f"Kobo detected: '{title}'"
             + (f" with {len(matches)} match(es)" if matches else "")
         )
 

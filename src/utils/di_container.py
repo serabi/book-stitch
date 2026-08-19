@@ -132,8 +132,22 @@ class Container(containers.DeclarativeContainer):
     # Storyteller client with factory
     storyteller_client = providers.Singleton(StorytellerAPIClient)
 
+    # Suggestion Service (declared before KoboService, which consumes it)
+    suggestion_service = providers.Singleton(
+        SuggestionService,
+        database_service=database_service,
+        abs_client=abs_client,
+        grimmory_client=grimmory_client_group,
+        storyteller_client=storyteller_client,
+        library_service=library_service,
+        books_dir=books_dir,
+        ebook_parser=ebook_parser,
+    )
+
     # Kobo service (device database ingestion + matching)
-    kobo_service = providers.Singleton(KoboService, database_service=database_service, data_dir=data_dir)
+    kobo_service = providers.Singleton(
+        KoboService, database_service=database_service, data_dir=data_dir, suggestion_service=suggestion_service
+    )
 
     # Storyteller Submission Service
     storyteller_import_dir = providers.Callable(lambda: os.environ.get("STORYTELLER_IMPORT_DIR", "").strip() or None)
@@ -193,18 +207,6 @@ class Container(containers.DeclarativeContainer):
         abs_client,
         database_service,
         hardcover_service=hardcover_service,
-    )
-
-    # Suggestion Service
-    suggestion_service = providers.Singleton(
-        SuggestionService,
-        database_service=database_service,
-        abs_client=abs_client,
-        grimmory_client=grimmory_client_group,
-        storyteller_client=storyteller_client,
-        library_service=library_service,
-        books_dir=books_dir,
-        ebook_parser=ebook_parser,
     )
 
     # Background Job Service

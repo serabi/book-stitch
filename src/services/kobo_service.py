@@ -20,9 +20,10 @@ UPLOAD_DIR_NAME = "kobo"
 
 
 class KoboService:
-    def __init__(self, database_service, data_dir: Path | None = None):
+    def __init__(self, database_service, data_dir: Path | None = None, suggestion_service=None):
         self.database_service = database_service
         self.data_dir = data_dir
+        self.suggestion_service = suggestion_service
         self._last_signatures: dict[str, tuple[int, int]] = {}
 
     @property
@@ -77,6 +78,7 @@ class KoboService:
         self._ingest_bookmarks(files)
         self._ingest_open_events(files)
         self._auto_match_unmatched()
+        self._queue_suggestions_for_unmatched()
         return True
 
     def _ingest_books(self, db_file: Path) -> None:
@@ -145,6 +147,25 @@ class KoboService:
             if result["saved"]:
                 logger.info("Kobo: recorded first-open dates for %d device books", result["saved"])
 
+    def _queue_suggestions_for_unmatched(self) -> None:
+        """Surface unmatched in-progress device books in the Currently Reading inbox."""
+        if not self.suggestion_service:
+            return
+        try:
+            for kobo_book in self.database_service.get_kobo_books():
+                if kobo_book.matched_book_id or kobo_book.hidden:
+                    continue
+                pct = 1.0 if kobo_book.read_status == READ_STATUS_FINISHED else kobo_book.percent / 100.0
+                self.suggestion_service.queue_kobo_suggestion(
+                    kobo_book.content_id,
+                    title=kobo_book.title or "",
+                    author=kobo_book.author or "",
+                    progress_percentage=pct,
+                    source_updated_at=kobo_book.date_last_read,
+                )
+        except Exception as e:
+            logger.debug("Kobo: suggestion queueing failed: %s", e)
+
     def _auto_match_unmatched(self) -> None:
         """Link unmatched Kobo books to library books by normalized title."""
         unmatched = [b for b in self.database_service.get_kobo_books() if not b.matched_book_id]
@@ -166,6 +187,8 @@ class KoboService:
     def link_book(self, content_id: str, book_id: int) -> None:
         self.database_service.set_kobo_book_match(content_id, book_id)
         self.database_service.link_kobo_bookmarks_by_content_id(content_id, book_id)
+        # Matching (manual or auto) settles any detected-book inbox entry
+        self.database_service.resolve_detected_book(content_id, source="kobo")
 
     def unlink_book(self, content_id: str) -> None:
         self.database_service.unlink_kobo_book(content_id)
