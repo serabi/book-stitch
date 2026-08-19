@@ -11,7 +11,7 @@ import logging
 import os
 from pathlib import Path
 
-from src.utils.kobo_reader import iter_bookmarks, iter_books
+from src.utils.kobo_reader import READ_STATUS_FINISHED, iter_bookmarks, iter_books, iter_open_events
 from src.utils.title_utils import normalize_title
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,7 @@ class KoboService:
         logger.info("Kobo: %d database copy/copies changed, ingesting from %s", len(changed), newest.name)
         self._ingest_books(newest)
         self._ingest_bookmarks(files)
+        self._ingest_open_events(files)
         self._auto_match_unmatched()
         return True
 
@@ -128,6 +129,22 @@ class KoboService:
             if result["saved"]:
                 logger.info("Kobo: ingested %d new bookmarks/highlights", result["saved"])
 
+    def _ingest_open_events(self, db_files: list[Path]) -> None:
+        """Merge first-open events across copies; earliest timestamp wins."""
+        earliest = {}
+        for db_file in db_files:
+            try:
+                for event in iter_open_events(db_file):
+                    prev = earliest.get(event.content_id)
+                    if prev is None or event.occurred_at < prev:
+                        earliest[event.content_id] = event.occurred_at
+            except Exception as e:
+                logger.debug("Kobo: failed reading events from %s: %s", db_file.name, e)
+        if earliest:
+            result = self.database_service.save_kobo_open_events(earliest)
+            if result["saved"]:
+                logger.info("Kobo: recorded first-open dates for %d device books", result["saved"])
+
     def _auto_match_unmatched(self) -> None:
         """Link unmatched Kobo books to library books by normalized title."""
         unmatched = [b for b in self.database_service.get_kobo_books() if not b.matched_book_id]
@@ -176,6 +193,26 @@ class KoboService:
         if best.read_status == 2:
             return 1.0
         return best.percent / 100.0
+
+    def reading_dates_for(self, book_id: int) -> dict:
+        """Device-derived reading dates for a library book, YYYY-MM-DD strings.
+
+        started_at comes from Event-table first-opens; finished_at from
+        DateLastRead on devices that marked the book finished (kobuddy shows
+        type-5 finish events coincide with DateLastRead). Only keys with a
+        real device value are present.
+        """
+        dates = {}
+        for kobo_book in self.kobo_books_for(book_id):
+            if kobo_book.first_opened_at:
+                started = kobo_book.first_opened_at.date().isoformat()
+                if "started_at" not in dates or started < dates["started_at"]:
+                    dates["started_at"] = started
+            if kobo_book.read_status == READ_STATUS_FINISHED and kobo_book.date_last_read:
+                finished = kobo_book.date_last_read.date().isoformat()
+                if "finished_at" not in dates or finished > dates["finished_at"]:
+                    dates["finished_at"] = finished
+        return dates
 
     @staticmethod
     def _journal_quote_key(text: str) -> str:

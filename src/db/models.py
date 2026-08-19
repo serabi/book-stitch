@@ -778,6 +778,7 @@ class KoboBook(Base):
     read_status = Column(Integer, nullable=False, default=0, server_default="0")  # 0 unread, 1 reading, 2 finished
     date_last_read = Column(DateTime, nullable=True)
     time_spent_seconds = Column(Integer, nullable=False, default=0, server_default="0")
+    first_opened_at = Column(DateTime, nullable=True)  # earliest Event-table open, merges across db copies
     matched_book_id = Column(Integer, ForeignKey("books.id", ondelete="SET NULL"), nullable=True, index=True)
     hidden = Column(Boolean, default=False, nullable=False, server_default="0")
     fetched_at = Column(DateTime, default=utc_now)
@@ -795,6 +796,7 @@ class KoboBook(Base):
         read_status: int = 0,
         date_last_read=None,
         time_spent_seconds: int = 0,
+        first_opened_at=None,
         matched_book_id: int = None,
         hidden: bool = False,
     ):
@@ -806,6 +808,7 @@ class KoboBook(Base):
         self.read_status = read_status
         self.date_last_read = date_last_read
         self.time_spent_seconds = time_spent_seconds
+        self.first_opened_at = first_opened_at
         self.matched_book_id = matched_book_id
         self.hidden = hidden
         self.fetched_at = utc_now()

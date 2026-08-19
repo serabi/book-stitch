@@ -182,7 +182,9 @@ class Container(containers.DeclarativeContainer):
 
     hardcover_service = providers.Singleton(HardcoverService, hardcover_client, database_service, abs_client)
 
-    reading_date_service = providers.Singleton(ReadingDateService, database_service, hardcover_client, abs_client)
+    reading_date_service = providers.Singleton(
+        ReadingDateService, database_service, hardcover_client, abs_client, kobo_service
+    )
 
     hardcover_sync_client = providers.Singleton(
         HardcoverSyncClient,

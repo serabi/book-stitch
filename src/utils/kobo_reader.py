@@ -11,13 +11,16 @@ kobuddy for the full reverse-engineered event tables.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
+import struct
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,22 @@ class KoboBookSnapshot:
     read_status: int  # 0 unread, 1 reading, 2 finished
     date_last_read: datetime | None
     time_spent_seconds: int
+
+
+@dataclass(frozen=True)
+class KoboOpenEvent:
+    """The device opened a book at this moment — the best "started reading"
+    signal stock firmware records (kobuddy uses the same two sources)."""
+
+    content_id: str
+    occurred_at: datetime
+
+
+# Event table rows with EventType 3 accumulate one timestamp per reading
+# occurrence in their ExtraData blob; the earliest is the book's first open.
+_EVENT_TYPE_OPEN = 3
+# AnalyticsEvents rows are plain JSON; StartReadingBook fires on book open.
+_ANALYTICS_TYPE_START = "StartReadingBook"
 
 
 @dataclass(frozen=True)
@@ -134,6 +153,156 @@ def iter_books(db_path: Path) -> Iterator[KoboBookSnapshot]:
                 date_last_read=_parse_kobo_datetime(row["DateLastRead"]),
                 time_spent_seconds=int(row["TimeSpentReading"] or 0) if has_time_spent else 0,
             )
+
+
+# ── Qt QVariantMap parsing (Event table ExtraData blobs) ──
+# Ported from karlicoss/kobuddy (https://github.com/karlicoss/kobuddy), MIT
+# licensed. Kobo serializes event metadata as a Qt QDataStream QVariantMap:
+# big-endian, UTF-16-BE string keys, type-tagged values.
+
+_QT_INVALID = 0
+_QT_BOOL = 1
+_QT_INT = 2
+_QT_UINT = 3
+_QT_VARIANT_MAP = 8
+_QT_VARIANT_LIST = 9
+_QT_STRING = 10
+_QT_BYTE_ARRAY = 12
+
+
+class _QVariantReader:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.pos = 0
+
+    def _read(self, fmt: str) -> Any:
+        fmt = ">" + fmt
+        [value] = struct.unpack_from(fmt, self.data, self.pos)
+        self.pos += struct.calcsize(fmt)
+        return value
+
+    def _read_byte_array(self) -> bytes | None:
+        size = self._read("I")
+        if size == 0xFFFFFFFF:
+            return None
+        end = self.pos + size
+        value = self.data[self.pos:end]
+        if len(value) != size:
+            raise ValueError(f"truncated byte array at {self.pos}: want {size}, got {len(value)}")
+        self.pos = end
+        return value
+
+    def _read_string(self) -> str | None:
+        value = self._read_byte_array()
+        if value is None:
+            return None
+        return value.decode("utf-16-be")
+
+    def _read_variant(self) -> Any:
+        type_id = self._read("I")
+        is_null = self._read("B") != 0
+
+        if type_id == _QT_INVALID:
+            if not is_null:
+                raise ValueError(f"invalid QVariant with is_null=0 at {self.pos}")
+            # Pre-Qt-5 streams store an empty QString after an invalid QVariant.
+            if self._read_byte_array() is not None:
+                raise ValueError(f"invalid QVariant followed by data at {self.pos}")
+            return None
+        if is_null:
+            return None
+        if type_id == _QT_BOOL:
+            return self._read("B") != 0
+        if type_id == _QT_INT:
+            return self._read("i")
+        if type_id == _QT_UINT:
+            return self._read("I")
+        if type_id == _QT_VARIANT_MAP:
+            return self._read_variant_map()
+        if type_id == _QT_VARIANT_LIST:
+            return [self._read_variant() for _ in range(self._read("I"))]
+        if type_id == _QT_STRING:
+            return self._read_string()
+        if type_id == _QT_BYTE_ARRAY:
+            return self._read_byte_array()
+        raise ValueError(f"unknown QVariant type {type_id} at {self.pos}")
+
+    def _read_variant_map(self) -> dict:
+        result = {}
+        for _ in range(self._read("I")):
+            key = self._read_string()
+            if key is None:
+                raise ValueError(f"null map key at {self.pos}")
+            result[key] = self._read_variant()
+        return result
+
+
+def parse_qvariant_map(data: bytes) -> dict:
+    """Parse one Qt QDataStream-serialized QVariantMap (big-endian)."""
+    reader = _QVariantReader(data)
+    result = reader._read_variant_map()
+    if reader.pos != len(data):
+        raise ValueError(f"trailing bytes after QVariantMap: {len(data) - reader.pos}")
+    return result
+
+
+def _open_events_from_event_table(conn: sqlite3.Connection, db_path: Path) -> Iterator[KoboOpenEvent]:
+    cols = _table_columns(conn, "Event")
+    if "EventType" not in cols or "ExtraData" not in cols:
+        return
+    rows = conn.execute(
+        "SELECT ContentID, CAST(ExtraData AS BLOB) AS ExtraData FROM Event WHERE EventType = ?",
+        (_EVENT_TYPE_OPEN,),
+    )
+    for row in rows:
+        content_id = row["ContentID"]
+        blob = row["ExtraData"]
+        if not content_id or not blob:
+            continue
+        try:
+            parsed = parse_qvariant_map(blob)
+        except (ValueError, struct.error, UnicodeDecodeError) as e:
+            logger.debug("%s: skipping unparseable event blob: %s", db_path, e)
+            continue
+        timestamps = parsed.get("eventTimestamps", [])
+        if not isinstance(timestamps, list):
+            continue
+        for ts in timestamps:
+            if isinstance(ts, int) and ts > 0:
+                yield KoboOpenEvent(content_id=content_id, occurred_at=datetime.fromtimestamp(ts, tz=UTC))
+
+
+def _open_events_from_analytics(conn: sqlite3.Connection, db_path: Path) -> Iterator[KoboOpenEvent]:
+    cols = _table_columns(conn, "AnalyticsEvents")
+    if "Timestamp" not in cols or "Attributes" not in cols:
+        return
+    rows = conn.execute(
+        "SELECT Timestamp, Attributes FROM AnalyticsEvents WHERE Type = ?",
+        (_ANALYTICS_TYPE_START,),
+    )
+    for row in rows:
+        occurred_at = _parse_kobo_datetime(row["Timestamp"])
+        if not occurred_at:
+            continue
+        try:
+            attrs = json.loads(row["Attributes"] or "{}")
+        except ValueError:
+            continue
+        content_id = attrs.get("volumeid")
+        if content_id:
+            yield KoboOpenEvent(content_id=content_id, occurred_at=occurred_at)
+
+
+def iter_open_events(db_path: Path) -> Iterator[KoboOpenEvent]:
+    """Yield first-open event candidates from one KoboReader.sqlite.
+
+    Sources (kobuddy): type-3 rows of the Event table (one timestamp per
+    reading occurrence) and StartReadingBook rows of AnalyticsEvents. Missing
+    tables or malformed blobs are skipped — both tables vary by firmware.
+    """
+    with _connect_immutable(db_path) as conn:
+        yield from _open_events_from_event_table(conn, db_path)
+        yield from _open_events_from_analytics(conn, db_path)
 
 
 def iter_bookmarks(db_path: Path) -> Iterator[KoboBookmarkSnapshot]:

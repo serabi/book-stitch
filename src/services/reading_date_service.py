@@ -28,16 +28,18 @@ class ReadingDateService:
     Orchestration methods (auto_complete, sync) receive container for sync client access.
     """
 
-    def __init__(self, database_service, hardcover_client, abs_client):
+    def __init__(self, database_service, hardcover_client, abs_client, kobo_service=None):
         self.database_service = database_service
         self.hardcover_client = hardcover_client
         self.abs_client = abs_client
+        self.kobo_service = kobo_service
 
     def pull_reading_dates(self, book_id):
-        """Pull started_at and finished_at from ABS for a book.
+        """Pull started_at and finished_at for a book: ABS first, Kobo as fallback.
 
         Hardcover dates are only pulled once at match time (via HardcoverService._pull_dates_at_match),
-        not during the sync cycle. This method only queries ABS.
+        not during the sync cycle. Kobo device dates (Event-table first-opens,
+        DateLastRead on finished books) only fill keys ABS didn't provide.
 
         Returns dict with 'started_at' and/or 'finished_at' keys (YYYY-MM-DD strings).
         Only includes keys where a date was found.
@@ -64,6 +66,14 @@ class ReadingDateService:
                         logger.debug(f"Pulled dates from ABS for '{book.abs_id}': {dates}")
         except Exception as e:
             logger.debug(f"Could not pull dates from ABS for book_id={book_id}: {e}")
+
+        if self.kobo_service:
+            try:
+                for key, value in self.kobo_service.reading_dates_for(book_id).items():
+                    if value and key not in dates:
+                        dates[key] = value
+            except Exception as e:
+                logger.debug(f"Could not pull dates from Kobo for book_id={book_id}: {e}")
 
         return dates
 
@@ -257,8 +267,11 @@ class ReadingDateService:
             try:
                 if self._is_finished_by_state(book.id):
                     dates = self.pull_reading_dates(book.id)
-                    machine.transition(book, "completed", "auto_complete", container=container, dates=dates)
+                    result = machine.transition(book, "completed", "auto_complete", container=container, dates=dates)
                     self._push_completion_to_clients(book, container)
+                    if result.get("success"):
+                        # Land the real finish date on Hardcover (fills gaps only)
+                        self.push_dates_to_hardcover(book.id)
                     stats["completed"] += 1
                     logger.info(f"Marked '{book.title}' as completed (client progress >= 99%)")
             except Exception as e:

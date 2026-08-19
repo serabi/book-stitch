@@ -111,6 +111,44 @@ class TestPullReadingDates:
         assert "started_at" not in dates
         assert "finished_at" in dates
 
+    def test_kobo_fills_dates_abs_did_not_provide(self, mock_db, mock_hc_client, mock_abs_client):
+        """Kobo device dates act as fallback when ABS has nothing."""
+        mock_kobo = MagicMock()
+        mock_kobo.reading_dates_for.return_value = {"started_at": "2025-07-20", "finished_at": "2025-07-27"}
+        svc = ReadingDateService(mock_db, mock_hc_client, mock_abs_client, kobo_service=mock_kobo)
+
+        mock_db.get_book_by_id.return_value = _make_book()
+        mock_abs_client.is_configured.return_value = False
+
+        dates = svc.pull_reading_dates(1)
+        assert dates == {"started_at": "2025-07-20", "finished_at": "2025-07-27"}
+        mock_kobo.reading_dates_for.assert_called_once_with(1)
+
+    def test_abs_dates_win_over_kobo(self, mock_db, mock_hc_client, mock_abs_client):
+        """ABS stays authoritative; Kobo only fills keys ABS didn't provide."""
+        mock_kobo = MagicMock()
+        mock_kobo.reading_dates_for.return_value = {"started_at": "2025-07-20", "finished_at": "2025-07-27"}
+        svc = ReadingDateService(mock_db, mock_hc_client, mock_abs_client, kobo_service=mock_kobo)
+
+        mock_db.get_book_by_id.return_value = _make_book()
+        mock_abs_client.is_configured.return_value = True
+        mock_abs_client.get_progress.return_value = {"startedAt": 1750032000000}  # 2025-06-16
+
+        dates = svc.pull_reading_dates(1)
+        assert dates["started_at"] == "2025-06-16"
+        assert dates["finished_at"] == "2025-07-27"
+
+    def test_kobo_failure_is_swallowed(self, mock_db, mock_hc_client, mock_abs_client):
+        """A Kobo lookup error degrades to ABS-only dates, never an exception."""
+        mock_kobo = MagicMock()
+        mock_kobo.reading_dates_for.side_effect = RuntimeError("kobo gone")
+        svc = ReadingDateService(mock_db, mock_hc_client, mock_abs_client, kobo_service=mock_kobo)
+
+        mock_db.get_book_by_id.return_value = _make_book()
+        mock_abs_client.is_configured.return_value = False
+
+        assert svc.pull_reading_dates(1) == {}
+
 
 # ===========================================================================
 # push_dates_to_hardcover
@@ -394,7 +432,7 @@ class TestAutoCompleteFinishedBooks:
 
         machine_inst = MockMachine.return_value
         # First book's transition raises, second succeeds
-        machine_inst.transition.side_effect = [RuntimeError("oops"), None]
+        machine_inst.transition.side_effect = [RuntimeError("oops"), {"success": True}]
 
         container = MagicMock()
         container.sync_clients.return_value = {}
@@ -415,6 +453,49 @@ class TestAutoCompleteFinishedBooks:
         container = MagicMock()
         stats = service.auto_complete_finished_books(container)
         assert stats["completed"] == 0
+
+
+    @patch("src.services.status_machine.StatusMachine")
+    def test_pushes_dates_to_hardcover_after_completion(self, MockMachine, service, mock_db, mock_abs_client):
+        """A successful auto-complete lands the finish date on Hardcover."""
+        book = _make_book(id=1, status="active")
+        mock_db.get_all_books.return_value = [book]
+
+        state = MagicMock()
+        state.percentage = 1.0
+        mock_db.get_states_for_book.return_value = [state]
+        mock_abs_client.is_configured.return_value = False
+
+        MockMachine.return_value.transition.return_value = {"success": True}
+
+        container = MagicMock()
+        container.sync_clients.return_value = {}
+
+        with patch.object(service, "push_dates_to_hardcover") as mock_push:
+            stats = service.auto_complete_finished_books(container)
+
+        assert stats["completed"] == 1
+        mock_push.assert_called_once_with(book.id)
+
+    @patch("src.services.status_machine.StatusMachine")
+    def test_no_hardcover_push_when_transition_fails(self, MockMachine, service, mock_db, mock_abs_client):
+        book = _make_book(id=1, status="active")
+        mock_db.get_all_books.return_value = [book]
+
+        state = MagicMock()
+        state.percentage = 1.0
+        mock_db.get_states_for_book.return_value = [state]
+        mock_abs_client.is_configured.return_value = False
+
+        MockMachine.return_value.transition.return_value = {"success": False, "error": "nope"}
+
+        container = MagicMock()
+        container.sync_clients.return_value = {}
+
+        with patch.object(service, "push_dates_to_hardcover") as mock_push:
+            service.auto_complete_finished_books(container)
+
+        mock_push.assert_not_called()
 
 
 # ===========================================================================

@@ -96,6 +96,28 @@ class KoboRepository(BaseRepository):
                 .all()
             }
 
+    @staticmethod
+    def _naive(dt):
+        """SQLAlchemy's SQLite DateTime round-trips drop tzinfo; compare naive."""
+        return dt.replace(tzinfo=None) if dt else None
+
+    def save_kobo_open_events(self, first_open_by_content_id):
+        """Store earliest first-open timestamps (dict content_id -> datetime).
+
+        Earliest wins across all ingested copies and across re-ingests, so a
+        book's true start survives copies made after long reading sessions.
+        """
+        saved = 0
+        with self.get_session() as session:
+            for content_id, occurred_at in first_open_by_content_id.items():
+                book = session.query(KoboBook).filter(KoboBook.content_id == content_id).first()
+                if not book or not occurred_at:
+                    continue
+                if book.first_opened_at is None or self._naive(occurred_at) < self._naive(book.first_opened_at):
+                    book.first_opened_at = occurred_at
+                    saved += 1
+        return {"saved": saved}
+
     # ── Kobo Bookmarks (highlights/notes) ──
 
     def save_kobo_bookmarks(self, bookmarks):
