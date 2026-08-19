@@ -340,6 +340,11 @@ input[aria-invalid="true"] {
   color: var(--color-hardcover);
 }
 
+.accent-dot-kobo {
+  background: var(--color-kobo);
+  color: var(--color-kobo);
+}
+
 .accent-dot-telegram {
   background: var(--color-telegram);
   color: var(--color-telegram);

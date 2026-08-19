@@ -192,6 +192,14 @@
     "kind": "api"
   },
   {
+    "rule": "/api/kobo/hide",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "kobo.hide_device_book",
+    "kind": "api"
+  },
+  {
     "rule": "/api/kobo/link",
     "methods": [
       "POST"
@@ -768,6 +776,14 @@
     ],
     "endpoint": "kosync.kosync_healthcheck",
     "kind": "protocol"
+  },
+  {
+    "rule": "/kobo-books",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "kobo.kobo_books_page",
+    "kind": "page"
   },
   {
     "rule": "/koreader/healthcheck",

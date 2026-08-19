@@ -108,6 +108,11 @@
                     BookFusion
                         </button>
 
+                        <button type="button" class="sidebar-tab" role="tab" id="tab-kobo" aria-selected="false" aria-controls="panel-kobo" onclick="switchTab('kobo')" data-tab="kobo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>
+                    Kobo
+                        </button>
+
                         <button type="button" class="sidebar-tab" role="tab" id="tab-hardcover" aria-selected="false" aria-controls="panel-hardcover" onclick="switchTab('hardcover')" data-tab="hardcover">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M6 4.5A2.5 2.5 0 0 1 8.5 2H20v18H8.5A2.5 2.5 0 0 0 6 22z"/>
@@ -634,6 +639,92 @@
                                 <label>Maintenance</label>
                                 <p class="help-text full-width settings-help-block settings-help-block-topless">Re-sync all BookFusion highlights from the server. This refreshes cached highlight data and does not re-import journal entries.</p>
                                 <button type="button" class="btn btn-secondary" id="bf-resync-all-btn">Re-sync All Highlights</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Kobo ─── -->
+                {% set kobo_db_files = kobo_status.db_files if kobo_status else 0 %}
+                {% set kobo_enabled = get_bool('KOBO_ENABLED') or (kobo_db_files > 0 and get_val('KOBO_ENABLED') == '') %}
+                <div class="tab-panel" id="panel-kobo" role="tabpanel" aria-labelledby="tab-kobo" aria-hidden="true" hidden>
+                    <div class="panel-header">
+                        <h2>Kobo</h2>
+                        <p>Import reading progress and highlights from a stock-firmware Kobo e-reader.</p>
+                    </div>
+
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot accent-dot-kobo"></span> Kobo</h3>
+                            <div class="toggle-switch-wrapper">
+                                <span class="toggle-label">Enable</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle_kobo" name="KOBO_ENABLED"
+                                        onchange="toggleSection('kobo_body', this.checked)" {% if kobo_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="kobo_body" class="sub-section-body {% if not kobo_enabled %}collapsed{% endif %}">
+                            <div class="form-group full-width">
+                                <label>Watched Directory</label>
+                                <input type="text" value="{{ get_val('KOBO_DB_DIR') or 'Not set' }}" readonly
+                                    class="readonly-input readonly-input-sm">
+                                <div class="help-text">Set via the <code>KOBO_DB_DIR</code> environment variable in docker-compose.yml. PageKeeper scans it for <code>*.sqlite</code> copies of <code>KoboReader.sqlite</code>; the newest copy wins for progress, and highlights merge across all copies.</div>
+                            </div>
+
+                            <div class="info-box full-width">
+                                <strong>Status</strong>
+                                <p class="info-box-copy">
+                                    {% if kobo_status and kobo_db_files > 0 %}
+                                    {{ kobo_db_files }} database {{ 'copy' if kobo_db_files == 1 else 'copies' }} found
+                                    &middot; {{ kobo_status.device_books }} device {{ 'book' if kobo_status.device_books == 1 else 'books' }}
+                                    &middot; {{ kobo_status.matched }} matched to your library.
+                                    {% else %}
+                                    No database copies found yet. Dock your Kobo and copy <code>KoboReader.sqlite</code> into the watched directory, or upload a copy below.
+                                    {% endif %}
+                                </p>
+                            </div>
+
+                            <div class="help-text full-width settings-help-inline">
+                                Progress syncs one way: the Kobo reports its position and PageKeeper pushes it to your other services &mdash; stock firmware can't receive progress from a server.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot accent-dot-kobo"></span> Database</h3>
+                        </div>
+                        <div class="sub-section-body">
+                            <div class="form-group full-width">
+                                <label>Upload Database Copy</label>
+                                <div class="input-row">
+                                    <input type="file" id="kobo_db_upload" accept=".sqlite" class="input-flex">
+                                    <button type="button" class="btn" onclick="uploadKoboDatabase(this)">Upload</button>
+                                </div>
+                                <div class="help-text">Upload your device's <code>.kobo/KoboReader.sqlite</code>. Ingested immediately on upload.</div>
+                                <span id="kobo_upload_result"></span>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Re-scan</label>
+                                <div>
+                                    <button type="button" class="btn btn-secondary" onclick="syncKoboNow(this)">Sync Now</button>
+                                    <span id="kobo_sync_result"></span>
+                                </div>
+                                <div class="help-text">Force a re-scan of database copies. Normally automatic whenever a copy changes.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sub-section">
+                        <div class="sub-section-header">
+                            <h3><span class="accent-dot accent-dot-kobo"></span> Book Management</h3>
+                        </div>
+                        <div class="sub-section-body">
+                            <p class="help-text full-width settings-help-block settings-help-block-topless">Match device books to your library, link or unlink books, hide books you don't track, and import highlights into your reading journal.</p>
+                            <div class="full-width">
+                                <a href="/kobo-books" class="btn btn-secondary">Manage Kobo Books</a>
                             </div>
                         </div>
                     </div>

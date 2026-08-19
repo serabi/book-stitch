@@ -35,9 +35,9 @@ class KoboService:
         enabled_val = os.environ.get("KOBO_ENABLED", "").lower()
         if enabled_val == "false":
             return False
-        return bool(self._db_files())
+        return bool(self.database_copies())
 
-    def _db_files(self) -> list[Path]:
+    def database_copies(self) -> list[Path]:
         """All Kobo sqlite copies we know about (watched dir + uploads)."""
         files: list[Path] = []
         watched = os.environ.get("KOBO_DB_DIR", "").strip()
@@ -54,7 +54,7 @@ class KoboService:
 
     def refresh_if_changed(self) -> bool:
         """Re-parse database copies whose file signatures changed."""
-        files = self._db_files()
+        files = self.database_copies()
         changed = []
         current: dict[str, tuple[int, int]] = {}
         for f in files:

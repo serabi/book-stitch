@@ -75,6 +75,8 @@ ALL_SETTINGS = [
     "CWA_HEADER_URL_MODE",
     "CWA_USERNAME",
     "CWA_PASSWORD",
+    # Kobo
+    "KOBO_ENABLED",
     # Hardcover
     "HARDCOVER_ENABLED",
     "HARDCOVER_TOKEN",
@@ -173,6 +175,7 @@ DEFAULT_CONFIG = {
     "CWA_HEADER_URL_MODE": "external",
     "CWA_USERNAME": "",
     "CWA_PASSWORD": "",
+    "KOBO_ENABLED": "false",
     "HARDCOVER_ENABLED": "false",
     "HARDCOVER_WEB_URL": "",
     "HARDCOVER_WEB_URL_EXTERNAL": "",

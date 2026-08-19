@@ -3,6 +3,7 @@
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from .base_repository import BaseRepository
@@ -142,6 +143,16 @@ class KoboRepository(BaseRepository):
                     nested.rollback()
                     logger.warning("Duplicate Kobo bookmark %s, skipping", bookmark_id)
         return {"saved": saved, "new_ids": new_ids}
+
+    def get_kobo_bookmark_counts_by_content_id(self):
+        """Return bookmark counts keyed by content_id (avoids per-book queries)."""
+        with self.get_session() as session:
+            rows = (
+                session.query(KoboBookmark.content_id, func.count(KoboBookmark.id))
+                .group_by(KoboBookmark.content_id)
+                .all()
+            )
+            return {content_id: count for content_id, count in rows}
 
     def get_kobo_bookmarks(self):
         with self.get_session() as session:

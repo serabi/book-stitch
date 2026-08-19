@@ -164,9 +164,25 @@ def _reload_integration_clients():
     _reload_client_config(lambda: current_app.config["kosync_service"], "KoSync service")
 
 
+def _kobo_status() -> dict | None:
+    """Snapshot of Kobo ingestion state for the settings tab (None if unavailable)."""
+    try:
+        kobo_service = get_container().kobo_service()
+        books = get_database_service().get_kobo_books(include_hidden=True)
+        return {
+            "db_files": len(kobo_service.database_copies()),
+            "device_books": len(books),
+            "matched": sum(1 for b in books if b.matched_book_id),
+            "configured": kobo_service.is_configured(),
+        }
+    except Exception:
+        logger.debug("Could not build Kobo status for settings page", exc_info=True)
+        return None
+
+
 def _render_settings(*, message=None, is_error=False, form_values=None, timezone_error=None, status=200):
     latest_version, update_available = get_update_status()
-    template_values = {}
+    template_values = {"kobo_status": _kobo_status()}
     if form_values is not None:
         from src.app_template_context import _get_bool, _get_val
 

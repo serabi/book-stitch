@@ -27,7 +27,7 @@ class KoboSyncClient(SyncClient):
         return self.kobo_service.is_configured()
 
     def check_connection(self):
-        if not self.kobo_service._db_files():
+        if not self.kobo_service.database_copies():
             raise RuntimeError("No Kobo database copies found (KOBO_DB_DIR and upload dir both empty)")
 
     def get_supported_sync_types(self) -> set:

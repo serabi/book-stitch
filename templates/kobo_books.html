@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title_prefix }}Kobo Books - PageKeeper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/kobo.css">
+</head>
+
+<body>
+    {% include 'partials/navbar.html' %}
+
+    <div class="container kobo-shell" id="main" role="main">
+        <div class="kobo-page-header">
+            <div>
+                <p class="kobo-page-kicker">Kobo</p>
+                <h2 class="kobo-page-title">Device Books</h2>
+                <p class="kobo-page-description">Match books from your Kobo to your library and import highlights</p>
+            </div>
+            <div class="kobo-page-actions">
+                <input type="file" id="kobo-upload-input" accept=".sqlite" hidden>
+                <button class="btn btn-secondary" id="kobo-upload-btn" type="button">Upload Database</button>
+                <button class="btn btn-secondary" id="kobo-sync-btn" type="button">Sync Now</button>
+                <a href="/settings?tab=kobo" class="btn btn-secondary">Back to Settings</a>
+            </div>
+        </div>
+
+        {% if db_file_count == 0 %}
+        <div class="kobo-notice">
+            No database copies found. Copy <code>KoboReader.sqlite</code> from your device into the watched
+            directory (<code>KOBO_DB_DIR</code>), or upload it here.
+        </div>
+        {% endif %}
+
+        <div class="kobo-stats" id="kobo-stats"></div>
+
+        <section class="kobo-section" id="matching-section">
+            <div class="kobo-section-header">
+                <h3 class="kobo-section-title">Needs Matching</h3>
+            </div>
+            <p class="kobo-section-help">Books found on your Kobo that aren't linked to your library yet. Link a book to include its progress in sync and import its highlights.</p>
+            <div id="matching-list"></div>
+        </section>
+
+        <section class="kobo-section" id="matched-section">
+            <div class="kobo-section-header">
+                <h3 class="kobo-section-title">Matched</h3>
+                <button class="kobo-section-toggle" id="toggle-matched" type="button">hide</button>
+            </div>
+            <div id="matched-list"></div>
+        </section>
+
+        <section class="kobo-section" id="hidden-section">
+            <div class="kobo-section-header">
+                <h3 class="kobo-section-title">Hidden</h3>
+                <button class="kobo-section-toggle" id="toggle-hidden" type="button">show</button>
+            </div>
+            <div id="hidden-list" style="display: none;"></div>
+        </section>
+    </div>
+
+    {% include 'partials/confirm_modal.html' %}
+
+    <script>
+        window.PK_PAGE_DATA = {
+            books: {{ books|tojson }},
+            configured: {{ configured|tojson }}
+        };
+    </script>
+    <script src="/static/js/confirm-modal.js"></script>
+    <script src="/static/js/kobo-books.js"></script>
+</body>
+
+</html>

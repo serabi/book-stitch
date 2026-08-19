@@ -35,6 +35,7 @@ TEMPLATE_DEFAULTS = {
     "TELEGRAM_ENABLED": "false",
     "SUGGESTIONS_ENABLED": "false",
     "BOOKFUSION_ENABLED": "false",
+    "KOBO_ENABLED": "false",
     "REPROCESS_ON_CLEAR_IF_NO_ALIGNMENT": "true",
 }
 

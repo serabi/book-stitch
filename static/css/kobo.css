@@ -1,0 +1,302 @@
+/* Kobo Device Book Management page styles */
+
+.kobo-shell {
+    max-width: 900px;
+    padding-bottom: 60px;
+}
+
+/* ── Page header ── */
+.kobo-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.kobo-page-kicker {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-faint);
+    margin: 0 0 4px;
+}
+
+.kobo-page-title {
+    font-family: Outfit, sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    color: var(--color-text);
+}
+
+.kobo-page-description {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin: 0;
+    line-height: 1.5;
+}
+
+.kobo-page-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    justify-content: flex-end;
+}
+
+.kobo-page-actions .btn {
+    font-size: 12px;
+}
+
+/* ── No-database notice ── */
+.kobo-notice {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    background: var(--color-surface-2);
+    border-left: 3px solid var(--color-kobo);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    line-height: 1.6;
+}
+
+/* ── Stats strip ── */
+.kobo-stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+}
+
+.kobo-stat {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    background: var(--color-surface-2);
+    padding: 4px 12px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.kobo-stat strong {
+    color: var(--color-text);
+    font-weight: 600;
+}
+
+.kobo-stat--alert strong {
+    color: #ef4444;
+}
+
+/* ── Sections ── */
+.kobo-section {
+    margin-bottom: 32px;
+}
+
+.kobo-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.kobo-section-title {
+    font-family: Outfit, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0;
+}
+
+.kobo-section-toggle {
+    font-size: 12px;
+    color: var(--color-text-faint);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.kobo-section-toggle:hover {
+    background: var(--color-surface-2);
+    color: var(--color-text-muted);
+}
+
+.kobo-section-help {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin: 0 0 12px;
+    line-height: 1.5;
+}
+
+/* ── Cards ── */
+.kobo-card {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    background: var(--color-surface-2);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    transition: background 0.15s;
+}
+
+.kobo-card:hover {
+    background: var(--color-surface-3);
+}
+
+.kobo-card--attention {
+    border-left: 3px solid rgba(239, 68, 68, 0.5);
+}
+
+.kobo-card--hidden {
+    opacity: 0.7;
+}
+
+.kobo-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.kobo-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.kobo-card-link {
+    font-size: 12px;
+    color: var(--color-kobo);
+    margin: 0 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.kobo-card-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--color-text-faint);
+}
+
+.kobo-meta--highlight {
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.kobo-card-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    align-items: flex-start;
+}
+
+.kobo-card-actions .btn {
+    font-size: 11px;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+
+/* ── Tags ── */
+.kobo-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+
+.kobo-tag--unmatched {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+
+/* ── Inline search panel ── */
+.kobo-search-panel {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: var(--color-surface-1);
+    border-radius: 8px;
+}
+
+.kobo-search-panel .search-box {
+    width: 100%;
+    margin-bottom: 8px;
+    box-sizing: border-box;
+}
+
+.kobo-search-result {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.kobo-search-result:last-child {
+    border-bottom: none;
+}
+
+.kobo-search-result-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.kobo-search-result-title {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.kobo-search-result-status {
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+/* ── Empty state ── */
+.kobo-empty {
+    text-align: center;
+    padding: 24px;
+    color: var(--color-text-faint);
+    font-size: 13px;
+}
+
+/* ── Mobile responsive ── */
+@media (max-width: 600px) {
+    .kobo-card {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .kobo-card-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .kobo-card-actions .btn {
+        flex: 1;
+        text-align: center;
+    }
+
+    .kobo-page-header {
+        flex-direction: column;
+    }
+
+    .kobo-page-actions {
+        justify-content: flex-start;
+    }
+}

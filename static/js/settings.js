@@ -294,6 +294,66 @@ function syncReadingDates(btn) {
         });
 }
 
+/* ─── Kobo: database upload / re-scan ─── */
+function uploadKoboDatabase(btn) {
+    var input = document.getElementById('kobo_db_upload');
+    var result = document.getElementById('kobo_upload_result');
+    if (!input.files || !input.files.length) {
+        result.textContent = 'Choose a KoboReader.sqlite file first.';
+        result.className = 'test-result error';
+        return;
+    }
+    var formData = new FormData();
+    formData.append('file', input.files[0]);
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+    fetch('/api/kobo/upload', { method: 'POST', body: formData })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                result.textContent = '✗ ' + data.error;
+                result.className = 'test-result error';
+            } else {
+                result.textContent = '✓ Ingested — ' + data.device_books + ' device books (' + data.matched_books + ' matched)';
+                result.className = 'test-result success';
+                input.value = '';
+            }
+        })
+        .catch(function() {
+            result.textContent = '✗ Upload failed';
+            result.className = 'test-result error';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Upload';
+        });
+}
+
+function syncKoboNow(btn) {
+    var result = document.getElementById('kobo_sync_result');
+    btn.disabled = true;
+    btn.textContent = 'Syncing...';
+    fetch('/api/kobo/sync', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                result.textContent = '✗ ' + data.error;
+                result.className = 'test-result error';
+            } else {
+                result.textContent = data.changed ? '✓ New data ingested' : '✓ Already up to date';
+                result.className = 'test-result success';
+            }
+        })
+        .catch(function() {
+            result.textContent = '✗ Sync failed';
+            result.className = 'test-result error';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Sync Now';
+        });
+}
+
 /* ─── ABS Library Picker ─── */
 async function fetchAbsLibraries() {
     var listEl = document.getElementById('abs_library_list');

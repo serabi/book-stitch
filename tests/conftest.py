@@ -81,6 +81,8 @@ class MockContainer:
         self.mock_database_service.get_bookfusion_books.return_value = []
         self.mock_database_service.get_bookfusion_linked_book_ids.return_value = set()
         self.mock_database_service.get_bookfusion_highlight_counts_by_book_id.return_value = {}
+        self.mock_database_service.get_kobo_books.return_value = []
+        self.mock_database_service.get_kobo_bookmark_counts_by_content_id.return_value = {}
 
         # ── API Clients ──
         self.mock_abs_client = Mock()
@@ -103,6 +105,12 @@ class MockContainer:
         self.mock_reading_date_service = Mock()
         self.mock_reading_date_service.pull_reading_dates.return_value = {}
         self.mock_reading_date_service.push_dates_to_hardcover.return_value = (True, "Dates synced")
+        self.mock_kobo_service = Mock()
+        self.mock_kobo_service.is_configured.return_value = False
+        self.mock_kobo_service.database_copies.return_value = []
+        self.mock_kobo_service.refresh_if_changed.return_value = False
+        self.mock_kobo_service.upload_dir = None
+        self.mock_kobo_service.database_service = self.mock_database_service
 
         # ── Sync Clients ──
         self.mock_hardcover_sync_client = Mock()
@@ -161,6 +169,9 @@ class MockContainer:
 
     def reading_date_service(self):
         return self.mock_reading_date_service
+
+    def kobo_service(self):
+        return self.mock_kobo_service
 
     def ebook_parser(self):
         return self.mock_ebook_parser
