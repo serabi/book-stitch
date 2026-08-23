@@ -36,6 +36,10 @@
   gap: 10px;
 }
 
+.pairing-actions form {
+  margin: 0;
+}
+
 .pairings-status {
   min-height: 24px;
   margin: 0 0 18px;
@@ -265,7 +269,8 @@
   min-width: 145px;
 }
 
-.pairing-actions .btn {
+.pairing-actions .btn,
+.pairing-actions form {
   width: 100%;
 }
 

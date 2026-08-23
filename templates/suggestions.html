@@ -40,6 +40,16 @@
         {% else %}
         <a class="btn btn-primary" href="{{ pairing.find_companion_url }}" aria-label="Find companion for {{ pairing.title }} from {{ pairing.source_summary }}">Find companion</a>
         {% endif %}
+        {% if not (pairing.source == 'grimmory' and pairing.media_format == 'audiobook') %}
+        <form method="POST" action="/match" class="pairing-solo-form">
+            <input type="hidden" name="action" value="track_solo">
+            <input type="hidden" name="detected_id" value="{{ pairing.id }}">
+            <input type="hidden" name="detected_source" value="{{ pairing.source }}">
+            <input type="hidden" name="detected_source_id" value="{{ pairing.source_id }}">
+            <button class="btn btn-secondary" type="submit"
+                aria-label="Track {{ pairing.title }} as {{ pairing.format|lower }} only, without a companion">Track as {{ pairing.format|lower }}</button>
+        </form>
+        {% endif %}
         <button class="btn btn-secondary pairing-dismiss" type="button" aria-label="Dismiss {{ pairing.title }} from {{ pairing.source_summary }}">Dismiss</button>
     </div>
 </article>
@@ -49,7 +59,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>{{ title_prefix }}{{ 'Library Suggestions' if library_view else 'Currently Reading' }} - PageKeeper</title>
+    <title>{{ title_prefix }}{{ 'Library Suggestions' if library_view else 'Reading Activity' }} - PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" href="/static/icon.png">
     <link rel="apple-touch-icon" href="/static/icon.png">
@@ -69,8 +79,8 @@
         <header class="pairings-header">
             <div>
                 <p class="sg-page-kicker">Reading activity</p>
-                <h1 class="sg-page-title">Currently Reading</h1>
-                <p class="sg-page-description">Link books already in progress with their audiobook or ebook companion.</p>
+                <h1 class="sg-page-title">Reading Activity</h1>
+                <p class="sg-page-description">Books detected in progress across your sources. Link a companion, or track one on its own.</p>
             </div>
             <div class="pairings-header-actions">
                 <button type="button" class="btn btn-secondary" id="rescan-btn">Rescan sources</button>
@@ -86,14 +96,14 @@
         <p class="pairings-status" id="rescan-status" role="status" aria-live="polite"></p>
 
         {% if pairing_count %}
-            <section aria-label="Currently Reading books">
+            <section aria-label="Books detected in progress">
                 <div class="pairing-list">{% for pairing in pairings %}{{ pairing_card(pairing) }}{% endfor %}</div>
             </section>
         {% else %}
         <section class="pairings-empty" aria-labelledby="empty-heading">
             {% if has_detected_history %}
             <h2 id="empty-heading">All caught up</h2>
-            <p>Every detected Currently Reading book has been resolved or dismissed.</p>
+            <p>Everything detected in your reading sources has been resolved or dismissed.</p>
             {% elif not progress_sources_configured %}
             <h2 id="empty-heading">Connect a reading source</h2>
             <p>No progress-capable sources are configured. Connect Audiobookshelf, KoSync, Storyteller, or Grimmory in <a href="/settings">Settings</a>.</p>

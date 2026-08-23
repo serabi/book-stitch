@@ -103,11 +103,11 @@ class BookIntakeService:
         ebook_display_name="",
         storyteller_uuid=None,
         storyteller_title="",
+        kosync_doc_id=None,
     ) -> IntakeResult:
-        if not ebook_filename and not storyteller_uuid:
+        if not ebook_filename and not storyteller_uuid and not kosync_doc_id:
             return IntakeResult(error="An ebook or Storyteller selection is required", status_code=400)
 
-        kosync_doc_id = None
         if ebook_filename:
             bl_book, bl_client = self._find_grimmory_book(ebook_filename, ebook_source_id)
             if ebook_source_id and not bl_book:
@@ -116,9 +116,11 @@ class BookIntakeService:
             if not kosync_doc_id:
                 return IntakeResult(error="Could not compute KOSync ID for ebook", status_code=404)
             title = ebook_display_name or (bl_book.get("title") if bl_book else None) or Path(ebook_filename).stem
-        else:
+        elif storyteller_uuid:
             title = storyteller_title or ebook_display_name or "Storyteller Book"
             ebook_filename = None
+        else:
+            title = ebook_display_name or "Ebook"
 
         book = Book(
             abs_id=None,
@@ -129,8 +131,13 @@ class BookIntakeService:
             sync_mode="ebook_only",
             storyteller_uuid=storyteller_uuid,
         )
-        self.database_service.save_book(book, is_new=True)
-        ensure_kosync_document(book, self.database_service)
+        if kosync_doc_id:
+            try:
+                book = self.database_service.save_book_with_kosync_ownership(book)
+            except (IntegrityError, KoSyncOwnershipConflict):
+                return IntakeResult(error="That ebook was linked by another request", status_code=409)
+        else:
+            self.database_service.save_book(book, is_new=True)
         self._record_grimmory_source(kosync_doc_id, ebook_source_id)
         if kosync_doc_id:
             self.database_service.resolve_suggestion(kosync_doc_id, source="kosync")

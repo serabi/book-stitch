@@ -652,9 +652,9 @@ class CleanFlaskIntegrationTest(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 302)
-            self.mock_database_service.save_book.assert_called_once()
+            self.mock_database_service.save_book_with_kosync_ownership.assert_called_once()
 
-            saved_book = self.mock_database_service.save_book.call_args[0][0]
+            saved_book = self.mock_database_service.save_book_with_kosync_ownership.call_args[0][0]
             self.assertIsNone(saved_book.abs_id)
             self.assertEqual(saved_book.title, "Test Ebook Title")
             self.assertEqual(saved_book.ebook_filename, "test-ebook.epub")
@@ -788,9 +788,9 @@ class CleanFlaskIntegrationTest(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 302)
-            self.mock_database_service.save_book.assert_called_once()
+            self.mock_database_service.save_book_with_kosync_ownership.assert_called_once()
 
-            saved_book = self.mock_database_service.save_book.call_args[0][0]
+            saved_book = self.mock_database_service.save_book_with_kosync_ownership.call_args[0][0]
             self.assertIsNone(saved_book.abs_id)
             self.assertEqual(saved_book.title, "Combo Book")
             self.assertEqual(saved_book.ebook_filename, "combo-ebook.epub")

@@ -38,12 +38,12 @@
         {% endwith %}
 
         {% if detected_books %}
-        <aside class="currently-reading-preview" aria-label="Unresolved Currently Reading books">
+        <aside class="currently-reading-preview" aria-label="Untracked books in progress">
             <div>
-                <strong>Currently Reading books need companions</strong>
-                <p>{% for d in detected_books[:3] %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}{% if detected_books|length > 3 %} and {{ detected_books|length - 3 }} more{% endif %}</p>
+                <strong>Untracked books in progress</strong>
+                <p>{% for d in detected_books[:3] %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}{% if detected_books|length > 3 %} and {{ suggestion_count - 3 }} more{% endif %}</p>
             </div>
-            <a href="/suggestions" class="btn btn-secondary">Open Currently Reading</a>
+            <a href="/suggestions" class="btn btn-secondary">Open Reading Activity</a>
         </aside>
         {% endif %}
 

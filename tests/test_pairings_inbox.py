@@ -79,7 +79,7 @@ def test_currently_reading_is_default_and_carries_pairing_identifiers(client, mo
 
     assert response.status_code == 200
     assert page.count("<h1") == 1
-    assert "Currently Reading" in page
+    assert "Reading Activity" in page
     assert "Library suggestions" in page and "Batch matching" in page
     assert "Ready to pair" not in page
     assert "Needs a companion" not in page

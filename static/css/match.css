@@ -57,6 +57,17 @@
   margin-top: 4px;
 }
 
+.match-companion-solo {
+  align-items: center;
+  border-top: 1px dashed var(--color-border);
+  color: var(--color-text-muted, var(--color-muted, inherit));
+  display: flex;
+  font-size: 0.9rem;
+  gap: 12px;
+  justify-content: space-between;
+  padding-top: 12px;
+}
+
 /* Override container width for match pages */
 .container {
   max-width: 1600px;
