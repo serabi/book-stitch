@@ -17,8 +17,8 @@ def test_navigation_shell_exposes_primary_and_utility_destinations(flask_app):
     assert '<nav class="mobile-bottom-nav"' in html
     for destination in ("/", "/reading", "/suggestions", "/settings", "/match", "/logs"):
         assert f'href="{destination}"' in html
-    assert '<span class="sidebar-label">Currently Reading</span>' in html
-    assert '<span>Currently Reading</span>' in html
+    assert '<span class="sidebar-label">Reading Activity</span>' in html
+    assert '<span>Reading Activity</span>' in html
     assert '<span class="sidebar-label">Logs</span>' in html
     assert html.index('href="/match"') < html.index('href="/suggestions"')
     assert '/static/icon.png' in html
@@ -62,7 +62,7 @@ def test_pairings_badge_counts_only_unresolved_detected_books(flask_app, mock_co
     html = render_navigation(flask_app, "/suggestions")
 
     assert html.count('class="nav-badge" aria-hidden="true"') == 2
-    assert html.count('aria-label="Currently Reading, 3 source activities"') == 2
+    assert html.count('aria-label="Reading Activity, 3 source activities"') == 2
     mock_container.mock_database_service.get_pending_suggestion_count.assert_not_called()
 
 

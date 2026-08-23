@@ -28,7 +28,7 @@
             <p class="subtitle">Choose an audiobook from your audiobook library to link to <strong>{{ link_title }}</strong>.</p>
             {% elif pairing_review %}
             <h1>Review match</h1>
-            <p class="subtitle">Confirm the started edition and its exact opposite-format companion.</p>
+            <p class="subtitle">Confirm the editions to link, or track this book without a companion.</p>
             {% else %}
             <h1>Add Book</h1>
             {% endif %}
@@ -154,8 +154,15 @@
                             </a>
                             {% endfor %}
                         {% else %}
-                            <p>No opposite-format companions were found. Rescan Currently Reading after your libraries sync.</p>
+                            <p>No opposite-format companions were found. Rescan Reading Activity after your libraries sync.</p>
                         {% endif %}
+                        <div class="match-companion-solo">
+                            <span>Only reading this one format?</span>
+                            <button type="submit" class="btn btn-md btn-secondary"
+                                onclick="document.getElementById('input_action').value='track_solo';">
+                                Track as {{ review_started.format|lower }} only
+                            </button>
+                        </div>
                     </div>
                 {% endif %}
             </section>

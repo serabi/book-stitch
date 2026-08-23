@@ -83,7 +83,7 @@
             empty.className = 'pairings-empty';
             empty.setAttribute('aria-labelledby', 'empty-heading');
             empty.innerHTML = '<h2 id="empty-heading" tabindex="-1">All caught up</h2>' +
-                '<p>Every detected Currently Reading book has been resolved or dismissed.</p>';
+                '<p>Everything detected in your reading sources has been resolved or dismissed.</p>';
             inbox.appendChild(empty);
             var heading = empty.querySelector('h2');
             heading.focus();
@@ -193,7 +193,7 @@
                 var title = card.querySelector('h2').textContent;
                 PKModal.confirm({
                     title: 'Dismiss Book?',
-                    message: '"' + title + '" will be removed from Currently Reading until new reading activity is detected.',
+                    message: '"' + title + '" will be removed from Reading Activity until new reading activity is detected.',
                     confirmLabel: 'Dismiss',
                     confirmClass: 'btn',
                     onConfirm: function () {

@@ -945,6 +945,64 @@ def _post_pairing_review(container, manager, database_service, review):
     return redirect(url_for("matching.suggestions"))
 
 
+def _post_track_solo(container, manager, database_service):
+    values = request.form
+    source = (values.get("detected_source") or "").strip()
+    source_id = (values.get("detected_source_id") or "").strip()
+    try:
+        detected_id = int(values.get("detected_id") or "")
+    except ValueError:
+        return _plain_error_response("This tracking link is incomplete.", 400)
+
+    detected = database_service.get_detected_book(source_id, source=source) if source and source_id else None
+    if not detected or getattr(detected, "id", None) != detected_id:
+        return _plain_error_response("This detected book is no longer available.", 409)
+    if getattr(detected, "status", "detected") not in {"detected", "processing"}:
+        return _plain_error_response("This match is not active.", 409)
+
+    intake_service = _get_book_intake_service(container)
+
+    if detected.source == "abs" and _declared_media_format(detected) == "audiobook":
+        abs_service = get_abs_service()
+        if not abs_service.is_available():
+            return _plain_error_response("ABS is not configured", 400)
+        selected_ab = next((ab for ab in abs_service.get_audiobooks() if ab["id"] == detected.source_id), None)
+        if not selected_ab:
+            return _plain_error_response("Audiobook not found", 404)
+        intake_service.import_audio_only(
+            abs_id=detected.source_id,
+            title=manager.get_audiobook_title(selected_ab),
+            duration=manager.get_duration(selected_ab),
+            author=get_audiobook_author(selected_ab),
+            subtitle=selected_ab.get("media", {}).get("metadata", {}).get("subtitle") or None,
+        )
+    elif detected.source in {"storyteller", "kosync"} or (detected.source == "grimmory" and detected.ebook_filename):
+        if detected.source == "storyteller":
+            kwargs = {
+                "storyteller_uuid": detected.source_id,
+                "storyteller_title": detected.title or "",
+            }
+        elif detected.source == "kosync":
+            kwargs = {
+                "kosync_doc_id": detected.source_id,
+                "ebook_display_name": detected.title or "",
+            }
+        else:
+            kwargs = {
+                "ebook_filename": sanitize_filename(detected.ebook_filename),
+                "ebook_source_id": detected.source_id,
+                "ebook_display_name": detected.title or "",
+            }
+        result = intake_service.import_ebook_only(**kwargs)
+        if result.error:
+            return _plain_error_response(result.error, result.status_code)
+    else:
+        return _plain_error_response("This edition can't be tracked on its own yet.", 409)
+
+    database_service.resolve_detected_book(detected.source_id, source=detected.source)
+    return redirect(url_for("dashboard.index"))
+
+
 @matching_bp.route("/suggestions")
 def suggestions():
     """Currently Reading pairing inbox, with the legacy catalog behind Advanced."""
@@ -996,6 +1054,12 @@ def match():
     container = get_container()
     manager = get_manager()
     database_service = get_database_service()
+
+    # Track-solo bypasses pairing-review validation: it exists precisely for
+    # detections the pairing path rejects or that have no opposite format.
+    if request.method == "POST" and request.form.get("action") == "track_solo":
+        return _post_track_solo(container, manager, database_service)
+
     values = request.form if request.method == "POST" else request.args
     review_values = _pairing_review_values(values)
     pairing_review, review_error, review_status, terminal_error = _load_pairing_review(

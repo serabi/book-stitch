@@ -603,3 +603,122 @@ def test_match_accessibility_and_mobile_guards_are_scoped_to_touched_flow():
     assert "radio.addEventListener('change'" in javascript
     assert "Linking selected formats…" in javascript
     assert 'onclick="selectItem' not in template
+
+
+# ── Track-solo (no companion) intake ──────────────────────────────
+
+
+def _track_solo_data(detected):
+    return {
+        "action": "track_solo",
+        "detected_id": str(detected.id),
+        "detected_source": detected.source,
+        "detected_source_id": detected.source_id,
+    }
+
+
+def test_track_solo_kosync_imports_ebook_only_by_hash(client, mock_container, review_setup):
+    detected = _detected(source="kosync", source_id="hash-exact")
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+    intake.import_ebook_only.return_value = IntakeResult(book=SimpleNamespace(id=1))
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=_track_solo_data(detected))
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/")
+    intake.import_ebook_only.assert_called_once_with(
+        kosync_doc_id="hash-exact",
+        ebook_display_name="Exact Book",
+    )
+    review_setup.resolve_detected_book.assert_called_once_with("hash-exact", source="kosync")
+
+
+def test_track_solo_abs_imports_audio_only_with_live_metadata(client, mock_container, review_setup):
+    detected = _detected(source="abs", source_id="abs-1", media_format="audiobook")
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+    intake.import_audio_only.return_value = SimpleNamespace(id=1)
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=_track_solo_data(detected))
+
+    assert response.status_code == 302
+    kwargs = intake.import_audio_only.call_args.kwargs
+    assert kwargs["abs_id"] == "abs-1"
+    assert kwargs["duration"] == 3600
+
+
+def test_track_solo_grimmory_ebook_passes_filename_and_source_id(client, mock_container, review_setup):
+    detected = _detected(
+        source="grimmory",
+        source_id="default:44:441",
+        ebook_filename="exact.epub",
+        media_format="ebook",
+    )
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+    intake.import_ebook_only.return_value = IntakeResult(book=SimpleNamespace(id=1))
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=_track_solo_data(detected))
+
+    assert response.status_code == 302
+    kwargs = intake.import_ebook_only.call_args.kwargs
+    assert kwargs["ebook_filename"] == "exact.epub"
+    assert kwargs["ebook_source_id"] == "default:44:441"
+
+
+def test_track_solo_storyteller_uses_uuid_identity(client, mock_container, review_setup):
+    detected = _detected(source="storyteller", source_id="story-1", media_format="audiobook")
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+    intake.import_ebook_only.return_value = IntakeResult(book=SimpleNamespace(id=1))
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=_track_solo_data(detected))
+
+    assert response.status_code == 302
+    intake.import_ebook_only.assert_called_once_with(storyteller_uuid="story-1", storyteller_title="Exact Book")
+
+
+def test_track_solo_rejects_resolved_detection(client, mock_container, review_setup):
+    detected = _detected(source="kosync", source_id="hash-exact")
+    detected.status = "resolved"
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=_track_solo_data(detected))
+
+    assert response.status_code == 409
+    intake.import_ebook_only.assert_not_called()
+
+
+def test_track_solo_rejects_grimmory_audiobook_without_filename(client, mock_container, review_setup):
+    detected = _detected(source="grimmory", source_id="default:10:99", media_format="audiobook")
+    review_setup.get_detected_book.return_value = detected
+    intake = Mock()
+
+    with patch("src.blueprints.matching_bp._get_book_intake_service", return_value=intake):
+        response = client.post("/match", data=_track_solo_data(detected))
+
+    assert response.status_code == 409
+    intake.import_ebook_only.assert_not_called()
+
+
+def test_track_solo_missing_detection_is_terminal(client, mock_container, review_setup):
+    review_setup.get_detected_book.return_value = None
+
+    response = client.post(
+        "/match",
+        data={
+            "action": "track_solo",
+            "detected_id": "7",
+            "detected_source": "kosync",
+            "detected_source_id": "hash-exact",
+        },
+    )
+
+    assert response.status_code == 409
