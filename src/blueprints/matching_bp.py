@@ -163,17 +163,19 @@ def _source_label(source, source_id=None):
     return _SOURCE_LABELS.get(source, (source or "Unknown source").replace("_", " ").title())
 
 
-def _media_format(item):
-    media_format = getattr(item, "media_format", None) if not isinstance(item, dict) else item.get("media_format")
-    if media_format in {"audiobook", "ebook"}:
-        return media_format
-    source = getattr(item, "source", None) if not isinstance(item, dict) else _match_source(item)
-    return "audiobook" if source in {"abs", "abs_audiobook"} else "ebook"
-
-
-def _explicit_media_format(item):
+def _declared_media_format(item):
+    """Format the item declares, or None if it doesn't declare one."""
     media_format = getattr(item, "media_format", None) if not isinstance(item, dict) else item.get("media_format")
     return media_format if media_format in {"audiobook", "ebook"} else None
+
+
+def _effective_media_format(item):
+    """Declared format, falling back to a source-derived guess."""
+    declared = _declared_media_format(item)
+    if declared:
+        return declared
+    source = getattr(item, "source", None) if not isinstance(item, dict) else _match_source(item)
+    return "audiobook" if source in {"abs", "abs_audiobook"} else "ebook"
 
 
 def _source_format(source, media_format=None):
@@ -221,9 +223,9 @@ def _supported_review_matches(detected):
 
 
 def _is_supported_review_match(detected, match):
-    source_format = _explicit_media_format(detected)
+    source_format = _declared_media_format(detected)
     match_source = _match_source(match)
-    match_format = _explicit_media_format(match)
+    match_format = _declared_media_format(match)
     return (
         detected.source in _AUDIOBOOK_REVIEW_SOURCES
         and source_format == "audiobook"
@@ -245,7 +247,7 @@ def _manual_companion_matches(container, detected):
         matches = provider().find_companion_candidates(
             detected.title or "",
             detected.author or "",
-            _explicit_media_format(detected),
+            _declared_media_format(detected),
         )
     except Exception as exc:
         logger.warning("Manual companion search failed: %s", exc)
@@ -269,8 +271,8 @@ def _pairing_review_url(detected, match=None):
         params["candidate_source"] = candidate_source
     if candidate_id:
         params["candidate_source_id"] = candidate_id
-    detected_format = _explicit_media_format(detected)
-    match_format = _explicit_media_format(match)
+    detected_format = _declared_media_format(detected)
+    match_format = _declared_media_format(match)
     if detected_format == "audiobook":
         params["audio_source"] = detected.source
         params["audio_source_id"] = detected.source_id
@@ -297,7 +299,7 @@ def _serialize_detected_activity(detected):
         display_timezone = ZoneInfo(os.environ.get("TZ", "UTC"))
     except ZoneInfoNotFoundError:
         display_timezone = UTC
-    media_format = _media_format(detected)
+    media_format = _effective_media_format(detected)
     return {
         "source": detected.source,
         "source_id": detected.source_id,
@@ -333,8 +335,8 @@ def _serialize_detected_pairing(detected, members=None):
             (
                 member
                 for member in members
-                if _explicit_media_format(member) == "audiobook" and member.source in _AUDIOBOOK_REVIEW_SOURCES
-                or (_explicit_media_format(member) == "ebook" and member.source in _EBOOK_REVIEW_SOURCES)
+                if _declared_media_format(member) == "audiobook" and member.source in _AUDIOBOOK_REVIEW_SOURCES
+                or (_declared_media_format(member) == "ebook" and member.source in _EBOOK_REVIEW_SOURCES)
             ),
             detected,
         )
@@ -343,10 +345,10 @@ def _serialize_detected_pairing(detected, members=None):
     review_supported = bool(_supported_review_matches(review_detected))
     companion_matches = {}
     for member in members:
-        member_format = _explicit_media_format(member)
+        member_format = _declared_media_format(member)
         for match in member.matches or []:
             identity = _match_identity(match)
-            match_format = _explicit_media_format(match)
+            match_format = _declared_media_format(match)
             if identity and member_format and match_format and match_format != member_format:
                 companion_matches.setdefault(identity, _serialize_detected_match(match))
 
@@ -382,7 +384,7 @@ def _serialize_detected_pairing(detected, members=None):
 def _serialize_detected_match(match):
     source = _match_source(match) or "unknown"
     identity = _match_identity(match)
-    media_format = _media_format(match)
+    media_format = _effective_media_format(match)
     return {
         "title": match.get("title") or match.get("filename") or "Untitled candidate",
         "author": match.get("author") or "Unknown author",
@@ -414,15 +416,15 @@ def _group_detected_pairings(detected_books):
             parents[right_root] = left_root
 
     for index, book in enumerate(books):
-        book_format = _explicit_media_format(book)
+        book_format = _declared_media_format(book)
         if not book_format:
             continue
         for match in book.matches or []:
-            match_format = _explicit_media_format(match)
+            match_format = _declared_media_format(match)
             if match.get("confidence") != "high" or not match_format or match_format == book_format:
                 continue
             target_index = by_identity.get(_match_identity(match))
-            if target_index is None or _explicit_media_format(books[target_index]) != match_format:
+            if target_index is None or _declared_media_format(books[target_index]) != match_format:
                 continue
             union(index, target_index)
 
@@ -469,7 +471,7 @@ def _load_pairing_review(container, database_service, values, method="GET"):
     )
     if not detected or getattr(detected, "id", None) != detected_id:
         return None, "This detected book is no longer available.", 409, True
-    detected_format = _explicit_media_format(detected)
+    detected_format = _declared_media_format(detected)
     supported_detected = (detected_format == "audiobook" and detected.source in _AUDIOBOOK_REVIEW_SOURCES) or (
         detected_format == "ebook" and detected.source in _EBOOK_REVIEW_SOURCES
     )
@@ -517,7 +519,7 @@ def _load_pairing_review(container, database_service, values, method="GET"):
     audio_identity = None
     if detected_format == "audiobook":
         audio_identity = _detected_identity(detected)
-    elif candidate and _explicit_media_format(candidate) == "audiobook":
+    elif candidate and _declared_media_format(candidate) == "audiobook":
         audio_identity = _match_identity(candidate)
     values = {
         **values,
@@ -536,15 +538,15 @@ def _review_defaults(review):
     candidate = review["candidate"] or {}
     defaults = {"audiobook_id": "", "ebook_filename": "", "ebook_source_id": ""}
 
-    if _explicit_media_format(detected) == "audiobook" and detected.source == "abs":
+    if _declared_media_format(detected) == "audiobook" and detected.source == "abs":
         defaults["audiobook_id"] = detected.source_id
-    elif _explicit_media_format(detected) == "ebook":
+    elif _declared_media_format(detected) == "ebook":
         defaults["ebook_filename"] = detected.ebook_filename or ""
 
     candidate_source = _match_source(candidate)
-    if _explicit_media_format(candidate) == "audiobook" and candidate_source in {"abs", "abs_audiobook"}:
+    if _declared_media_format(candidate) == "audiobook" and candidate_source in {"abs", "abs_audiobook"}:
         defaults["audiobook_id"] = candidate.get("abs_id") or ""
-    elif _explicit_media_format(candidate) == "ebook":
+    elif _declared_media_format(candidate) == "ebook":
         defaults["ebook_filename"] = candidate.get("filename") or defaults["ebook_filename"]
         if candidate_source == "grimmory":
             defaults["ebook_source_id"] = candidate.get("id") or ""
@@ -597,8 +599,8 @@ def _exact_review_editions(container, review):
     if not candidate:
         return None, "Choose a different companion to continue."
 
-    detected_format = _explicit_media_format(detected)
-    candidate_format = _explicit_media_format(candidate)
+    detected_format = _declared_media_format(detected)
+    candidate_format = _declared_media_format(candidate)
     if not detected_format or not candidate_format or detected_format == candidate_format:
         return None, "The recommended companion no longer has a valid format identity."
 
@@ -724,7 +726,7 @@ def _render_match_page(
     if review:
         review_started = {
             "title": review["detected"].title or "Untitled book",
-            "format": _source_format(review["detected"].source, _explicit_media_format(review["detected"])),
+            "format": _source_format(review["detected"].source, _declared_media_format(review["detected"])),
             "source_label": _source_label(review["detected"].source, review["detected"].source_id),
         }
         review_editions, edition_error = _exact_review_editions(container, review)
@@ -831,10 +833,10 @@ def _render_match_page(
         )
         review_editions["ebook_title"] = review_editions["ebook"].title or detected.title
         review_editions["ebook_source_label"] = _source_label(
-            detected.source if _explicit_media_format(detected) == "ebook" else _match_source(candidate),
-            detected.source_id if _explicit_media_format(detected) == "ebook" else _candidate_source_id(candidate),
+            detected.source if _declared_media_format(detected) == "ebook" else _match_source(candidate),
+            detected.source_id if _declared_media_format(detected) == "ebook" else _candidate_source_id(candidate),
         )
-        review_editions["started_format"] = _explicit_media_format(detected)
+        review_editions["started_format"] = _declared_media_format(detected)
 
     capabilities = _match_page_capabilities(container, abs_service)
 

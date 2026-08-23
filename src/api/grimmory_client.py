@@ -19,6 +19,10 @@ GRIMMORY_AUDIO_BOOK_TYPES = {"AUDIOBOOK"}
 GRIMMORY_MAX_PAGES = 1000
 
 
+def _is_audio_book(book_info: dict) -> bool:
+    return (book_info.get("bookType") or "").upper() in GRIMMORY_AUDIO_BOOK_TYPES
+
+
 class GrimmoryClient:
     def __init__(self, database_service=None, env_prefix="GRIMMORY", instance_id="default"):
         self.db = database_service
@@ -592,7 +596,7 @@ class GrimmoryClient:
 
     def extract_progress(self, book_info: dict) -> tuple[float | None, str | None]:
         """Extract (percentage_as_fraction, cfi) from any book type's progress."""
-        if (book_info.get("bookType") or "").upper() in GRIMMORY_AUDIO_BOOK_TYPES:
+        if _is_audio_book(book_info):
             progress = book_info.get("audiobookProgress")
             if progress is not None and progress.get("percentage") is not None:
                 return progress["percentage"] / 100.0, None
@@ -605,7 +609,7 @@ class GrimmoryClient:
 
     def audio_source_id(self, book_info: dict) -> str | None:
         """Return the exact instance/book/file identity for a Grimmory audiobook."""
-        if (book_info.get("bookType") or "").upper() not in GRIMMORY_AUDIO_BOOK_TYPES:
+        if not _is_audio_book(book_info):
             return None
         return self.book_file_source_id(book_info)
 
@@ -635,7 +639,7 @@ class GrimmoryClient:
     def find_audiobook_by_source_id(self, source_id, allow_refresh=True):
         """Resolve an exact qualified audiobook identity without filename matching."""
         book = self.find_book_file_by_source_id(source_id, allow_refresh=allow_refresh)
-        if not book or (book.get("bookType") or "").upper() not in GRIMMORY_AUDIO_BOOK_TYPES:
+        if not book or not _is_audio_book(book):
             return None
         return book
 
