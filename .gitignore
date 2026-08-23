@@ -76,3 +76,6 @@ CLAUDE.md
 .opencode/
 .worktrees/
 .playwright-mcp/
+
+# Local test/browser artifacts
+test_data/
