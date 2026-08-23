@@ -50,6 +50,8 @@ class ABSSyncClient(SyncClient):
         self, book: Book, prev_state: State | None, title_snip: str = "", bulk_context: dict = None
     ) -> ServiceState | None:
         abs_id = book.abs_id
+        if not abs_id:
+            return None
 
         # Use bulk context if available, otherwise fetch individually
         if bulk_context and abs_id in bulk_context:

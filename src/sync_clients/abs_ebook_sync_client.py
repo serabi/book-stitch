@@ -36,6 +36,8 @@ class ABSEbookSyncClient(SyncClient):
     ) -> ServiceState | None:
         # [FIX] Prefer specific ebook item ID if it exists (Tri-Link), otherwise fallback to primary ID (Standard)
         target_id = book.ebook_item_id or book.abs_ebook_item_id or book.abs_id
+        if not target_id:
+            return None
         response = self.abs_client.get_progress(target_id)
         if response is None:
             return None
