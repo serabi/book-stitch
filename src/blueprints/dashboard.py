@@ -392,10 +392,10 @@ def index():
         except Exception:
             pass
 
-    # Active detected books — for dashboard detected section
+    # Compact preview only; the Pairings page owns the resolution workflow.
     detected_books = []
     try:
-        active_detected = database_service.get_active_detected_books(limit=10)
+        active_detected = database_service.get_active_detected_books(limit=3)
         for d in active_detected:
             detected_books.append(
                 {

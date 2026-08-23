@@ -93,3 +93,62 @@ class GrimmorySyncClient(SyncClient):
                 pass
         updated_state = {"pct": pct}
         return SyncResult(pct, success, updated_state)
+
+
+class GrimmoryAudioSyncClient(GrimmorySyncClient):
+    """Sync one Grimmory instance's audiobook side by exact source identity."""
+
+    def fetch_bulk_state(self) -> dict | None:
+        if not self.is_configured():
+            return None
+        books = self.grimmory_client.get_all_books()
+        states = {
+            source_id: book
+            for book in books or []
+            if (source_id := self.grimmory_client.audio_source_id(book))
+        }
+        return states or None
+
+    def get_supported_sync_types(self) -> set:
+        return {"audiobook"}
+
+    def get_service_state(
+        self, book: Book, prev_state: State | None, title_snip: str = "", bulk_context: dict = None
+    ) -> ServiceState | None:
+        source_id = book.grimmory_audio_source_id
+        if not source_id:
+            return None
+
+        if bulk_context is not None:
+            book_info = bulk_context.get(source_id)
+            pct, _ = self.grimmory_client.extract_progress(book_info) if book_info else (None, None)
+        else:
+            pct, _ = self.grimmory_client.get_audiobook_progress(source_id)
+        if pct is None:
+            return None
+
+        # ponytail: Grimmory exposes audio percentage but no transcript timing;
+        # keep percentage sync until a reliable audio-to-text position exists.
+        previous = prev_state.percentage if prev_state and prev_state.percentage is not None else 0
+        return ServiceState(
+            current={"pct": pct},
+            previous_pct=previous,
+            delta=abs(pct - previous),
+            threshold=self.delta_kosync_thresh,
+            is_configured=self.is_configured(),
+            display=(self.client_name, "{prev:.4%} -> {curr:.4%}"),
+            value_formatter=lambda value: f"{value * 100:.4f}%",
+        )
+
+    def update_progress(self, book: Book, request: UpdateProgressRequest) -> SyncResult:
+        source_id = book.grimmory_audio_source_id
+        pct = request.locator_result.percentage
+        success = bool(source_id and self.grimmory_client.update_audiobook_progress(source_id, pct))
+        if success:
+            try:
+                from src.services.write_tracker import record_write
+
+                record_write(self.client_name, book.id)
+            except ImportError:
+                pass
+        return SyncResult(pct, success, {"pct": pct})

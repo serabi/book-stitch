@@ -11,6 +11,13 @@ from unittest.mock import Mock
 
 import pytest
 
+# Default to the repo templates/static dirs so template-rendering tests pass
+# outside the Docker image (create_app falls back to /app otherwise, and some
+# tests call create_app directly without a fixture).
+_project_root = Path(__file__).resolve().parent.parent
+os.environ.setdefault("TEMPLATE_DIR", str(_project_root / "templates"))
+os.environ.setdefault("STATIC_DIR", str(_project_root / "static"))
+
 # Stub native modules only available inside Docker so that test files
 # can import production code without raising ImportError.
 for _mod_name in ("epubcfi",):

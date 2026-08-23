@@ -1,6 +1,13 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from src.db.book_repository import BookRepository
+from src.db.models import Base, DatabaseManager
 from src.services.book_intake_service import BookIntakeService
 from src.services.storyteller_submission_service import SubmissionResult
 
@@ -21,6 +28,7 @@ def _book_ref(**overrides):
         "rating": None,
         "read_count": 1,
         "status": "not_started",
+        "transcript_file": None,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -48,6 +56,7 @@ def _make_service(*, db=None, abs_service=None, bl_match=None, bl_client=None, k
         return book
 
     db.save_book.side_effect = save_book
+    db.save_book_with_kosync_ownership.side_effect = save_book
 
     abs_service = abs_service or Mock()
     bl_client = bl_client or Mock()
@@ -80,7 +89,7 @@ def _run_storyteller_submission_synchronously(service, *, abs_id="abs-story", ti
         service._submit_to_storyteller_async(abs_id, title, ebook)
 
 
-def test_map_audiobook_ebook_preserves_existing_kosync_hash():
+def test_map_audiobook_ebook_uses_selected_edition_hash_over_existing_abs_hash():
     db = Mock()
     db.get_book_by_ref.return_value = _book_ref(abs_id="abs-1", kosync_doc_id="hash-existing")
     service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="hash-new")
@@ -93,8 +102,268 @@ def test_map_audiobook_ebook_preserves_existing_kosync_hash():
     )
 
     assert result.error is None
-    assert result.book.kosync_doc_id == "hash-existing"
-    db.resolve_suggestion.assert_any_call("hash-existing")
+    assert result.book.kosync_doc_id == "hash-new"
+    db.resolve_suggestion.assert_any_call("hash-new")
+
+
+def test_link_grimmory_audiobook_creates_book_without_abs_side_effects():
+    service, db, abs_service, _bl, hc = _make_service(kosync_id="ebook-hash")
+    audio_group = service.container.grimmory_client_group.return_value
+    audio_group.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 42,
+        "title": "Audio Book",
+        "authors": "Author",
+    }
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.error is None
+    assert result.book.abs_id is None
+    assert result.book.kosync_doc_id == "ebook-hash"
+    assert result.book.grimmory_audio_source_id == "default:10:42"
+    assert result.book.sync_mode == "audiobook"
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+    db.complete_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
+    db.resolve_detected_book.assert_any_call("default:10:42", source="grimmory")
+    db.resolve_detected_book.assert_any_call("ebook-hash", source="kosync")
+    method_names = [call[0] for call in db.method_calls]
+    assert method_names.index("save_book_with_kosync_ownership") < method_names.index("complete_detected_book")
+
+
+def test_link_grimmory_audiobook_hashes_selected_alternative_epub_file():
+    alternative_epub = {
+        "id": 10,
+        "bookFileId": 42,
+        "fileName": "book.epub",
+        "bookType": "EPUB",
+        "isPrimary": False,
+    }
+    service, db, _abs, bl_client, _hc = _make_service(
+        bl_match=alternative_epub,
+        kosync_id="alternative-hash",
+    )
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 41,
+        "fileName": "book.m4b",
+        "bookType": "AUDIOBOOK",
+        "isPrimary": True,
+    }
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:41",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:41",
+    )
+
+    assert result.error is None
+    service.get_kosync_id_for_ebook.assert_has_calls(
+        [
+            call(
+                "book.epub",
+                10,
+                bl_client=bl_client,
+                grimmory_file_id=42,
+            ),
+            call(
+                "book.epub",
+                10,
+                bl_client=bl_client,
+                grimmory_file_id=42,
+            ),
+        ]
+    )
+
+
+def test_link_grimmory_audiobook_updates_ebook_book_and_preserves_abs():
+    ebook_book = _book_ref(
+        id=22,
+        abs_id="abs-existing",
+        kosync_doc_id="ebook-hash",
+        grimmory_audio_source_id=None,
+        sync_mode="ebook_only",
+    )
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = ebook_book
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+    service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="ebook-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {
+        "id": 10,
+        "bookFileId": 42,
+    }
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="kosync",
+        detected_source_id="ebook-hash",
+    )
+
+    assert result.book.id == 22
+    assert result.book.abs_id == "abs-existing"
+    assert result.book.grimmory_audio_source_id == "default:10:42"
+    assert result.book.sync_mode == "audiobook"
+    abs_service.add_to_collection.assert_not_called()
+
+
+def test_link_grimmory_audiobook_rejects_books_already_split_across_rows():
+    audio_book = _book_ref(id=11, grimmory_audio_source_id="default:10:42", kosync_doc_id=None)
+    ebook_book = _book_ref(id=22, grimmory_audio_source_id=None, kosync_doc_id="ebook-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = ebook_book
+    db.get_book_by_grimmory_audio_source_id.return_value = audio_book
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="ebook-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {"id": 10}
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    assert "different books" in result.error
+    db.claim_detected_book.assert_not_called()
+    db.save_book.assert_not_called()
+
+
+def test_link_grimmory_audiobook_restores_claim_when_exact_audio_changes():
+    service, db, _abs, _bl, _hc = _make_service(kosync_id="ebook-hash")
+    audio_group = service.container.grimmory_client_group.return_value
+    audio_group.find_audiobook_by_source_id.side_effect = [{"id": 10}, None]
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    db.restore_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
+    db.save_book.assert_not_called()
+
+
+def test_link_grimmory_audiobook_restores_claim_when_ebook_identity_changes():
+    service, db, _abs, _bl, _hc = _make_service(kosync_id="first-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {"id": 10}
+    service.get_kosync_id_for_ebook.side_effect = ["first-hash", "second-hash"]
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    assert "no longer matches" in result.error
+    db.restore_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
+    db.save_book.assert_not_called()
+
+
+def test_link_grimmory_audiobook_returns_conflict_on_concurrent_unique_claim():
+    service, db, _abs, _bl, _hc = _make_service(kosync_id="ebook-hash")
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.return_value = {"id": 10}
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    db.renew_detected_book_claim.return_value = True
+    db.save_book_with_kosync_ownership.side_effect = IntegrityError("unique", {}, None)
+
+    result = service.link_grimmory_audiobook_ebook(
+        audio_source_id="default:10:42",
+        ebook_filename="book.epub",
+        detected_source="grimmory",
+        detected_source_id="default:10:42",
+    )
+
+    assert result.status_code == 409
+    db.restore_detected_book.assert_called_once_with(
+        "default:10:42", "owner-token", source="grimmory"
+    )
+
+
+def test_concurrent_grimmory_links_cannot_create_two_books_for_one_kosync_hash(tmp_path):
+    manager = DatabaseManager(str(tmp_path / "concurrent-intake.db"))
+    Base.metadata.create_all(manager.engine)
+    repository = BookRepository(manager)
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_grimmory_audio_source_id.return_value = None
+    db.get_kosync_doc_by_filename.return_value = None
+    db.get_kosync_document.return_value = None
+    db.claim_detected_book.side_effect = lambda source_id, source: f"claim-{source_id}"
+    db.renew_detected_book_claim.return_value = True
+    db.complete_detected_book.return_value = True
+    prepare_barrier = threading.Barrier(2)
+
+    def lookup_kosync(kosync_id):
+        prepare_barrier.wait(timeout=5)
+        return repository.get_book_by_kosync_id(kosync_id)
+
+    db.get_book_by_kosync_id.side_effect = lookup_kosync
+    service, _, _, _, _ = _make_service(db=db, kosync_id="shared-hash")
+    db.save_book_with_kosync_ownership.side_effect = repository.save_book_with_kosync_ownership
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.side_effect = (
+        lambda source_id: {"id": source_id.split(":")[1], "title": "Book"}
+    )
+
+    def link(audio_source_id):
+        return service.link_grimmory_audiobook_ebook(
+            audio_source_id=audio_source_id,
+            ebook_filename="shared.epub",
+            detected_source="grimmory",
+            detected_source_id=audio_source_id,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(link, ["default:10:41", "default:20:42"]))
+
+        assert sorted(result.status_code for result in results) == [400, 409]
+        books = repository.get_all_books()
+        assert len(books) == 1
+        assert books[0].kosync_doc_id == "shared-hash"
+        db.restore_detected_book.assert_called_once()
+    finally:
+        manager.close()
 
 
 def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
@@ -112,6 +381,9 @@ def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
     db = Mock()
     db.get_book_by_ref.return_value = None
     db.get_book_by_kosync_id.return_value = existing
+    db.migrate_book_data_by_id.side_effect = lambda _book_id, target_abs, **kwargs: SimpleNamespace(
+        id=22, abs_id=target_abs, **kwargs["overrides"]
+    )
     service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-dup")
 
     result = service.map_audiobook_ebook(
@@ -119,6 +391,8 @@ def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
         title="Merged Book",
         ebook_filename="new.epub",
         duration=456,
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
     )
 
     assert result.error is None
@@ -126,9 +400,40 @@ def test_map_audiobook_ebook_merges_duplicate_book_data_and_metadata():
     assert result.book.ebook_item_id == "ebook-item"
     assert result.book.custom_cover_url == "https://cover"
     assert result.book.read_count == 3
-    db.migrate_book_data.assert_called_once_with("ebook-source", "abs-new")
+    assert db.migrate_book_data_by_id.call_args.args == (22, "abs-new")
+    assert db.migrate_book_data_by_id.call_args.kwargs["expected_kosync_doc_id"] == "hash-dup"
     db.delete_book.assert_not_called()
     abs_service.add_to_collection.assert_called_once_with("abs-new", "Synced")
+
+
+@pytest.mark.parametrize("transcript_file", ["DB_MANAGED", "/data/transcripts/legacy.json"])
+def test_map_audiobook_ebook_preserves_existing_transcript_marker(transcript_file):
+    existing = _book_ref(
+        id=22,
+        abs_id=None,
+        kosync_doc_id="hash-dup",
+        transcript_file=transcript_file,
+    )
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = existing
+    db.migrate_book_data_by_id.side_effect = lambda _book_id, target_abs, **kwargs: SimpleNamespace(
+        id=22, abs_id=target_abs, **kwargs["overrides"]
+    )
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="hash-dup")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-new",
+        title="Merged Book",
+        ebook_filename="new.epub",
+        duration=456,
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
+    )
+
+    assert result.error is None
+    assert result.book.transcript_file == transcript_file
+    assert db.migrate_book_data_by_id.call_args.kwargs["overrides"]["transcript_file"] == transcript_file
 
 
 def test_map_audiobook_ebook_merges_ebook_only_book_by_integer_id():
@@ -141,6 +446,9 @@ def test_map_audiobook_ebook_merges_ebook_only_book_by_integer_id():
     db = Mock()
     db.get_book_by_ref.return_value = None
     db.get_book_by_kosync_id.return_value = existing
+    db.migrate_book_data_by_id.side_effect = lambda _book_id, target_abs, **kwargs: SimpleNamespace(
+        id=22, abs_id=target_abs, **kwargs["overrides"]
+    )
     service, db, _abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-dup")
 
     result = service.map_audiobook_ebook(
@@ -148,10 +456,12 @@ def test_map_audiobook_ebook_merges_ebook_only_book_by_integer_id():
         title="Merged Book",
         ebook_filename="new.epub",
         duration=456,
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
     )
 
     assert result.error is None
-    db.migrate_book_data.assert_called_once_with(22, "abs-new")
+    assert db.migrate_book_data_by_id.call_args.args == (22, "abs-new")
 
 
 def test_storyteller_reservation_happens_before_async_submission_thread():
@@ -247,3 +557,364 @@ def test_map_audiobook_ebook_updates_abs_collection_and_grimmory_shelf():
     assert result.error is None
     abs_service.add_to_collection.assert_called_once_with("abs-side-effects", "Synced")
     bl_client.add_to_shelf.assert_called_once_with("side.epub")
+
+
+def test_map_audiobook_ebook_persists_and_resolves_qualified_grimmory_identity():
+    doc = SimpleNamespace(
+        document_hash="hash-server-2",
+        linked_book_id=100,
+        filename="same.epub",
+        source=None,
+        grimmory_id=None,
+    )
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.get_kosync_doc_by_filename.return_value = None
+    db.get_kosync_document.return_value = doc
+    service, db, _abs, bl_client, _hc = _make_service(
+        db=db,
+        bl_match={"id": "22", "fileName": "same.epub"},
+        kosync_id="hash-server-2",
+    )
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-server-2",
+        title="Server Two",
+        ebook_filename="same.epub",
+        ebook_source_id="2:22",
+        duration=100,
+    )
+
+    assert result.error is None
+    service.find_in_grimmory.assert_called_once_with("same.epub", "2:22")
+    service.get_kosync_id_for_ebook.assert_called_once_with("same.epub", "22", bl_client=bl_client)
+    assert (doc.source, doc.grimmory_id) == ("grimmory", "2:22")
+    db.resolve_detected_book.assert_any_call("2:same.epub", source="grimmory")
+    assert not any(
+        call.args == ("default:same.epub",) and call.kwargs == {"source": "grimmory"}
+        for call in db.resolve_detected_book.call_args_list
+    )
+
+
+def test_pairing_review_rejects_changed_kosync_edition_before_write():
+    service, db, abs_service, _bl, _hc = _make_service(kosync_id="different-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="kosync",
+        detected_source_id="expected-hash",
+        expected_ebook_kosync_id="expected-hash",
+    )
+
+    assert result.status_code == 409
+    assert "no longer matches" in result.error
+    db.save_book.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()
+
+
+def test_pairing_review_completes_detection_before_integrations():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_kosync_document.return_value = None
+    db.claim_detected_book.return_value = "owner-token"
+    service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="hash-exact")
+    events = []
+    save_book = db.save_book.side_effect
+
+    def save_and_record(*args, **kwargs):
+        book = save_book(*args, **kwargs)
+        events.append("mapping_committed")
+        return book
+
+    db.save_book.side_effect = save_and_record
+    db.complete_detected_book.side_effect = lambda *args, **kwargs: events.append("detection_completed") or True
+    abs_service.add_to_collection.side_effect = lambda *args, **kwargs: events.append("abs_collection") or True
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.error is None
+    db.save_book.assert_called_once()
+    abs_service.add_to_collection.assert_called_once_with("abs-1", "Synced")
+    hc.assert_called_once()
+    db.claim_detected_book.assert_called_once_with("abs-1", source="abs")
+    assert db.renew_detected_book_claim.call_count == 2
+    assert all(
+        call.args == ("abs-1", "owner-token") and call.kwargs == {"source": "abs"}
+        for call in db.renew_detected_book_claim.call_args_list
+    )
+    db.complete_detected_book.assert_called_once_with("abs-1", "owner-token", source="abs")
+    assert events == ["mapping_committed", "detection_completed", "abs_collection"]
+
+
+def test_combine_conflict_claims_then_restores_before_any_write_or_side_effect():
+    current = _book_ref(id=10, abs_id="abs-1", kosync_doc_id="old-hash")
+    merge_source = _book_ref(id=22, abs_id=None, kosync_doc_id="selected-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = current
+    db.get_book_by_kosync_id.return_value = merge_source
+    db.claim_detected_book.return_value = True
+    service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="selected-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="selected.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.conflict_code == "combine_required"
+    assert result.conflict_book_id == 22
+    db.restore_detected_book.assert_called_once_with("abs-1", True, source="abs")
+    db.save_book.assert_not_called()
+    db.migrate_book_data_by_id.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+
+
+def test_confirmed_combine_migrates_captured_exact_book_id_with_null_target_hash():
+    current = _book_ref(id=10, abs_id="abs-1", kosync_doc_id=None)
+    merge_source = _book_ref(id=22, abs_id=None, kosync_doc_id="selected-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = current
+    db.get_book_by_kosync_id.return_value = merge_source
+    db.claim_detected_book.return_value = True
+    db.complete_detected_book.return_value = True
+    db.migrate_book_data_by_id.side_effect = lambda _book_id, target_abs, **kwargs: SimpleNamespace(
+        id=22, abs_id=target_abs, **kwargs["overrides"]
+    )
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="selected-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="selected.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
+    )
+
+    assert result.error is None
+    assert db.migrate_book_data_by_id.call_args.args == (22, "abs-1")
+    assert db.migrate_book_data_by_id.call_args.kwargs["expected_abs_id"] is None
+    assert db.migrate_book_data_by_id.call_args.kwargs["overrides"]["kosync_doc_id"] == "selected-hash"
+    db.save_book.assert_not_called()
+
+
+def test_changed_merge_row_requires_new_confirmation():
+    merge_source = _book_ref(id=23, abs_id=None, kosync_doc_id="selected-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = merge_source
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="selected-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="selected.epub",
+        duration=100,
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
+    )
+
+    assert result.conflict_book_id == 23
+    db.migrate_book_data_by_id.assert_not_called()
+
+
+def test_collection_exception_after_commit_still_completes_detection():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = True
+    db.complete_detected_book.return_value = True
+    abs_service = Mock()
+    abs_service.add_to_collection.side_effect = RuntimeError("ABS unavailable")
+    service, db, _abs, _bl, _hc = _make_service(
+        db=db, abs_service=abs_service, kosync_id="hash-exact"
+    )
+    kwargs = {
+        "abs_id": "abs-1",
+        "title": "Exact Book",
+        "ebook_filename": "exact.epub",
+        "duration": 100,
+        "detected_source": "abs",
+        "detected_source_id": "abs-1",
+    }
+
+    result = service.map_audiobook_ebook(**kwargs)
+
+    assert result.error is None
+    assert result.book.kosync_doc_id == "hash-exact"
+    assert db.save_book.call_count == 1
+    assert abs_service.add_to_collection.call_count == 1
+    db.restore_detected_book.assert_not_called()
+    db.complete_detected_book.assert_called_once_with("abs-1", True, source="abs")
+
+
+def test_false_collection_result_after_commit_still_completes_detection():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = "owner-token"
+    db.complete_detected_book.return_value = True
+    abs_service = Mock()
+    abs_service.add_to_collection.return_value = False
+    service, db, _abs, _bl, _hc = _make_service(db=db, abs_service=abs_service, kosync_id="hash-exact")
+    kwargs = {
+        "abs_id": "abs-1",
+        "title": "Exact Book",
+        "ebook_filename": "exact.epub",
+        "duration": 100,
+        "detected_source": "abs",
+        "detected_source_id": "abs-1",
+    }
+
+    result = service.map_audiobook_ebook(**kwargs)
+
+    assert result.error is None
+    assert result.book.kosync_doc_id == "hash-exact"
+    assert abs_service.add_to_collection.call_count == 1
+    db.restore_detected_book.assert_not_called()
+    db.complete_detected_book.assert_called_once_with("abs-1", "owner-token", source="abs")
+
+
+def test_completion_lease_loss_after_commit_does_not_restore_detection():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = "owner-token"
+    db.complete_detected_book.return_value = False
+    service, db, _abs, _bl, _hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.error is None
+    assert result.book.kosync_doc_id == "hash-exact"
+    assert db.renew_detected_book_claim.call_count == 2
+    db.restore_detected_book.assert_not_called()
+    _abs.add_to_collection.assert_not_called()
+    _hc.assert_not_called()
+
+
+def test_confirmed_merge_identity_change_returns_typed_failure_without_side_effects():
+    merge_source = _book_ref(id=22, abs_id="ebook-source", kosync_doc_id="selected-hash")
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = merge_source
+    db.claim_detected_book.return_value = "owner-token"
+    db.migrate_book_data_by_id.return_value = None
+    service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="selected-hash")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="selected.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+        confirm_combine=True,
+        confirmed_merge_book_id=22,
+    )
+
+    assert result.conflict_code == "combine_changed"
+    assert result.status_code == 409
+    db.restore_detected_book.assert_called_once_with("abs-1", "owner-token", source="abs")
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+
+
+def test_lost_claim_stops_later_side_effects_and_cannot_restore_new_owner():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = "original-token"
+    db.renew_detected_book_claim.side_effect = [True, False]
+    service, db, abs_service, _bl, hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.conflict_code == "claim_lost"
+    db.save_book.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()
+    hc.assert_not_called()
+    db.restore_detected_book.assert_called_once_with("abs-1", "original-token", source="abs")
+    db.complete_detected_book.assert_not_called()
+
+
+def test_resolved_retry_requires_exact_existing_mapping():
+    existing = _book_ref(abs_id="abs-1", ebook_filename="exact.epub", kosync_doc_id="hash-exact")
+    db = Mock()
+    db.get_book_by_ref.return_value = existing
+    db.get_book_by_kosync_id.return_value = existing
+    db.claim_detected_book.return_value = False
+    db.get_detected_book.return_value = SimpleNamespace(status="resolved")
+    service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.book is existing
+    db.save_book.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()
+
+
+def test_concurrent_processing_claim_loser_returns_conflict_without_write():
+    db = Mock()
+    db.get_book_by_ref.return_value = None
+    db.get_book_by_kosync_id.return_value = None
+    db.claim_detected_book.return_value = False
+    db.get_detected_book.return_value = SimpleNamespace(status="processing")
+    service, db, abs_service, _bl, _hc = _make_service(db=db, kosync_id="hash-exact")
+
+    result = service.map_audiobook_ebook(
+        abs_id="abs-1",
+        title="Exact Book",
+        ebook_filename="exact.epub",
+        duration=100,
+        detected_source="abs",
+        detected_source_id="abs-1",
+    )
+
+    assert result.status_code == 409
+    assert "already being processed" in result.error
+    db.save_book.assert_not_called()
+    abs_service.add_to_collection.assert_not_called()

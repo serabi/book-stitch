@@ -5,9 +5,10 @@ from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from src.db.models import Base, Book, BookAlignment, GrimmoryBook, PendingSuggestion
+from src.db.models import Base, Book, BookAlignment, DetectedBook, GrimmoryBook, PendingSuggestion
 
 
 @pytest.fixture
@@ -41,6 +42,27 @@ def test_grimmory_book_model(session):
     retrieved = session.query(GrimmoryBook).filter_by(filename="test.epub").first()
     assert retrieved.title == "Test Title"
     assert retrieved.last_updated is not None
+
+
+def test_grimmory_audio_identity_is_unique_and_detection_format_is_explicit(session):
+    session.add(Book(title="Audio", grimmory_audio_source_id="default:10:42"))
+    session.add(
+        DetectedBook(
+            source="grimmory",
+            source_id="default:10:42",
+            title="Audio",
+            progress_percentage=0.25,
+            media_format="audiobook",
+        )
+    )
+    session.commit()
+
+    assert session.query(Book).one().grimmory_audio_source_id == "default:10:42"
+    assert session.query(DetectedBook).one().media_format == "audiobook"
+
+    session.add(Book(title="Duplicate", grimmory_audio_source_id="default:10:42"))
+    with pytest.raises(IntegrityError):
+        session.commit()
 
 
 def test_pending_suggestion_matches_corrupt_json(session):

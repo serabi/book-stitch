@@ -1,5 +1,6 @@
 """Tests for error paths in matching blueprint (src/blueprints/matching_bp.py)."""
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 
@@ -127,6 +128,31 @@ def test_create_book_mapping_grimmory_add_to_shelf_fails(flask_app, mock_contain
 
 
 # ── Batch match: individual book failure continues ────────────────
+
+
+def test_batch_match_keeps_same_filename_from_two_grimmory_servers(flask_app, mock_container):
+    _setup_matching_db_defaults(mock_container.mock_database_service)
+
+    with flask_app.test_client() as test_client:
+        for source_id in ("default:11", "2:22"):
+            response = test_client.post(
+                "/batch-match",
+                data={
+                    "action": "add_to_queue",
+                    "ebook_filename": "same.epub",
+                    "ebook_source_id": source_id,
+                    "ebook_display_name": source_id,
+                },
+            )
+            assert response.status_code == 302
+
+        with test_client.session_transaction() as sess:
+            queue = sess["queue"]
+
+    assert [(item["queue_key"], item["ebook_source_id"]) for item in queue] == [
+        ("default:11", "default:11"),
+        ("2:22", "2:22"),
+    ]
 
 
 def test_batch_match_process_continues_on_individual_failure(flask_app, mock_container, client):
@@ -286,8 +312,9 @@ def test_suggestions_page_filters_no_matches(flask_app, mock_container):
     # Need ABS available for suggestions route
     flask_app.config["abs_service"] = Mock()
     flask_app.config["abs_service"].is_available.return_value = True
+    flask_app.template_folder = str(Path(__file__).parent.parent / "templates")
 
     with flask_app.test_client() as test_client:
-        response = test_client.get("/suggestions")
+        response = test_client.get("/suggestions?view=library")
 
     assert response.status_code == 200

@@ -8,8 +8,8 @@
 
     <title>{{ title_prefix }}PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" href="/static/grimmory-app.png">
-    <link rel="apple-touch-icon" href="/static/grimmory-app.png">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -23,7 +23,8 @@
 <body>
     {% include 'partials/navbar.html' %}
 
-    <div class="container">
+    <div class="container" id="main" role="main">
+        <h1 class="visually-hidden">Dashboard</h1>
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         <div class="flash-messages mb-16">
@@ -35,6 +36,17 @@
         </div>
         {% endif %}
         {% endwith %}
+
+        {% if detected_books %}
+        <aside class="currently-reading-preview" aria-label="Unresolved Currently Reading books">
+            <div>
+                <strong>Currently Reading books need companions</strong>
+                <p>{% for d in detected_books[:3] %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}{% if detected_books|length > 3 %} and {{ detected_books|length - 3 }} more{% endif %}</p>
+            </div>
+            <a href="/suggestions" class="btn btn-secondary">Open Currently Reading</a>
+        </aside>
+        {% endif %}
+
         {% if mappings %}
         <div class="controls-bar">
             <div class="control-group">
@@ -95,49 +107,6 @@
                         {% if doc.device %}<span class="pending-id-device">{{ doc.device }}</span>{% endif %}
                     </div>
                     <a href="/kosync-documents" class="btn btn-secondary pending-id-btn">Manage</a>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        {% if detected_books %}
-        <div class="book-section detected-section" id="detected-section">
-            <div class="section-header">
-                <h2>Detected</h2>
-            </div>
-            <p class="detected-help">Books PageKeeper has detected you started. Add them to your library.</p>
-            <div class="detected-grid">
-                {% for d in detected_books %}
-                <div class="detected-card" data-source="{{ d.source }}" data-source-id="{{ d.source_id }}">
-                    {% if d.cover_url %}
-                    <img src="{{ d.cover_url }}" class="detected-cover" alt="" loading="lazy" onerror="this.style.display='none'">
-                    {% endif %}
-                    <div class="detected-info">
-                        <div class="detected-title">{{ d.title }}</div>
-                        {% if d.author %}<div class="detected-author">{{ d.author }}</div>{% endif %}
-                        {% if d.progress_percentage > 0 %}
-                        <div class="detected-progress">{{ '%.0f'|format(d.progress_percentage * 100) }}%</div>
-                        {% endif %}
-                        <div class="detected-meta">
-                            <span class="chip chip--source-{{ d.source }}">{{ 'ABS' if d.source == 'abs' else 'KoSync' if d.source == 'kosync' else d.source|capitalize }}</span>
-                            {% if d.device %}<span class="detected-device">{{ d.device }}</span>{% endif %}
-                        </div>
-                        <div class="detected-actions">
-                            {% if d.source == 'abs' %}
-                            <a href="/match?abs_id={{ d.source_id }}&search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Add to Library</a>
-                            {% elif d.source == 'kosync' %}
-                            <a href="/match?search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Match</a>
-                            <a href="/match?ebook_filename={{ d.ebook_filename|urlencode if d.ebook_filename }}&action=ebook_only" class="btn btn-sm btn-secondary">Add as Ebook</a>
-                            {% elif d.source == 'grimmory' %}
-                            <a href="/match?search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Match</a>
-                            <a href="/match?ebook_filename={{ d.ebook_filename|urlencode if d.ebook_filename }}&action=ebook_only" class="btn btn-sm btn-secondary">Add as Ebook</a>
-                            {% else %}
-                            <a href="/match?search={{ d.title|urlencode }}" class="btn btn-sm btn-primary">Add to Library</a>
-                            {% endif %}
-                            <button type="button" class="btn btn-sm btn-ghost" onclick="dismissDetected('{{ d.source_id }}', '{{ d.source }}', this)">Dismiss</button>
-                        </div>
-                    </div>
                 </div>
                 {% endfor %}
             </div>

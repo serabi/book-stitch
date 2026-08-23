@@ -96,6 +96,14 @@
     "kind": "api"
   },
   {
+    "rule": "/api/detected/<source>/<source_id>/dismiss",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.dismiss_detected_book",
+    "kind": "api"
+  },
+  {
     "rule": "/api/detected/<source_id>/dismiss",
     "methods": [
       "POST"
@@ -109,6 +117,14 @@
       "POST"
     ],
     "endpoint": "api.resolve_detected_book",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/detected/dismiss-group",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.dismiss_detected_group",
     "kind": "api"
   },
   {

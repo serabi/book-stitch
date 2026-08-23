@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <title>{{ title_prefix }}Settings - PageKeeper</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" href="/static/grimmory-app.png">
-    <link rel="apple-touch-icon" href="/static/grimmory-app.png">
+    <link rel="icon" type="image/png" href="/static/icon.png">
+    <link rel="apple-touch-icon" href="/static/icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/variables.css">
     <link rel="stylesheet" href="/static/css/base.css">
@@ -19,9 +19,9 @@
     {% include 'partials/navbar.html' %}
     {% from 'partials/settings_macros.html' import service_urls, service_header, secret_field with context %}
 
-    <div class="container settings-page">
+    <div class="container settings-page" id="main" role="main">
         {% if message %}
-        <div class="flash-bar {% if is_error %}flash-error{% else %}flash-success{% endif %}">
+        <div class="flash-bar {% if is_error %}flash-error{% else %}flash-success{% endif %}"{% if is_error %} role="alert"{% endif %}>
             {{ message }}
         </div>
         {% endif %}
@@ -146,9 +146,12 @@
 
                     <div class="field-grid">
                         <div class="form-group">
-                            <label>Timezone</label>
-                            <input type="text" value="{{ get_val('TZ') }}" readonly class="readonly-input">
-                            <div class="help-text">Set via <code>TZ</code> environment variable in docker-compose.yml.</div>
+                            <label for="timezone">Timezone</label>
+                            <input type="text" id="timezone" name="TZ" value="{{ get_val('TZ') }}"
+                                aria-describedby="timezone-help{% if timezone_error %} timezone-error{% endif %}"
+                                {% if timezone_error %}aria-invalid="true" autofocus{% endif %}>
+                            <div class="help-text" id="timezone-help">IANA timezone, for example <code>America/New_York</code>.</div>
+                            {% if timezone_error %}<div class="help-text field-error" id="timezone-error">{{ timezone_error }}</div>{% endif %}
                         </div>
                         <div class="form-group">
                             <label>Log Level</label>

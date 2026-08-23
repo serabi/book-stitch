@@ -10,7 +10,16 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from src.db.database_service import DatabaseService
-from src.db.models import Book, Job, KosyncDocument, ReadingJournal, State, StorytellerSubmission
+from src.db.models import (
+    Book,
+    BookAlignment,
+    HardcoverDetails,
+    Job,
+    KosyncDocument,
+    ReadingJournal,
+    State,
+    StorytellerSubmission,
+)
 
 sys.modules.setdefault("nh3", SimpleNamespace(clean=lambda value, tags=None, attributes=None: value))
 
@@ -118,6 +127,7 @@ class TestBookIdentityMerge(unittest.TestCase):
                 status="active",
                 sync_mode="ebook_only",
                 read_count=2,
+                grimmory_audio_source_id="default:10:42",
             )
         )
         self.db.save_state(
@@ -177,6 +187,9 @@ class TestBookIdentityMerge(unittest.TestCase):
         )
 
         self.db.migrate_book_data(source.abs_id, target.abs_id)
+
+        merged = self.db.get_book_by_abs_id(target.abs_id)
+        self.assertEqual(merged.grimmory_audio_source_id, "default:10:42")
 
         with self.db.get_session() as session:
             books = session.query(Book).all()
@@ -257,6 +270,61 @@ class TestBookIdentityMerge(unittest.TestCase):
             self.assertEqual(survivor.duration, 3600)
             self.assertEqual(survivor.sync_mode, "audiobook")
 
+    def test_primary_key_merge_ignores_numeric_abs_id_collision(self):
+        collision = self.db.save_book(
+            Book(abs_id="22", title="Numeric ABS", ebook_filename="collision.epub", kosync_doc_id="a" * 32)
+        )
+        with self.db.get_session() as session:
+            source = Book(
+                abs_id="ebook-source-22",
+                title="Exact source",
+                ebook_filename="exact.epub",
+                kosync_doc_id="b" * 32,
+            )
+            source.id = 22
+            session.add(source)
+
+        migrated = self.db.migrate_book_data_by_id(
+            22,
+            "abs-target-22",
+            expected_kosync_doc_id="b" * 32,
+            expected_abs_id="ebook-source-22",
+        )
+
+        self.assertEqual(migrated.id, 22)
+        self.assertEqual(migrated.abs_id, "abs-target-22")
+        self.assertEqual(self.db.get_book_by_id(collision.id).abs_id, "22")
+
+    def test_primary_key_merge_rejects_changed_identity_before_mutation(self):
+        source = self.db.save_book(
+            Book(
+                abs_id="ebook-source-race",
+                title="Source",
+                ebook_filename="source.epub",
+                kosync_doc_id="c" * 32,
+            )
+        )
+        target = self.db.save_book(Book(abs_id="abs-target-race", title="Target"))
+        self.db.save_state(
+            State(abs_id=source.abs_id, book_id=source.id, client_name="KOReader", percentage=0.25)
+        )
+        with self.db.get_session() as session:
+            changed = session.query(Book).filter(Book.id == source.id).one()
+            changed.kosync_doc_id = "d" * 32
+
+        migrated = self.db.migrate_book_data_by_id(
+            source.id,
+            target.abs_id,
+            expected_kosync_doc_id="c" * 32,
+            expected_abs_id=source.abs_id,
+        )
+
+        self.assertIsNone(migrated)
+        with self.db.get_session() as session:
+            books = session.query(Book).order_by(Book.id).all()
+            self.assertEqual(len(books), 2)
+            self.assertEqual(session.query(State).one().book_id, source.id)
+
     def test_attach_audiobook_route_merges_when_link_book_id_is_numeric(self):
         import src.db.migration_utils
 
@@ -305,6 +373,130 @@ class TestBookIdentityMerge(unittest.TestCase):
                 self.assertEqual(state.abs_id, "abs-route-audiobook")
         finally:
             src.db.migration_utils.initialize_database = original_initialize_database
+
+    def test_merge_backfills_unique_children_when_both_books_have_rows(self):
+        source = self.db.save_book(
+            Book(
+                abs_id="ebook-both-children",
+                title="Both Children EPUB",
+                ebook_filename="both.epub",
+                kosync_doc_id="d" * 32,
+                status="active",
+                sync_mode="ebook_only",
+            )
+        )
+        target = self.db.save_book(
+            Book(
+                abs_id="abs-both-children",
+                title="Both Children Audiobook",
+                author="Both Author",
+                ebook_filename=source.ebook_filename,
+                kosync_doc_id=source.kosync_doc_id,
+                status="active",
+                duration=3600,
+                sync_mode="audiobook",
+            )
+        )
+
+        # Canonical Hardcover row: identity set, isbn left NULL.
+        self.db.save_hardcover_details(
+            HardcoverDetails(
+                book_id=source.id,
+                abs_id=source.abs_id,
+                hardcover_book_id="canonical-hc",
+                isbn=None,
+            )
+        )
+        # Target Hardcover row: conflicting identity (must lose) + isbn to backfill.
+        self.db.save_hardcover_details(
+            HardcoverDetails(
+                book_id=target.id,
+                abs_id=target.abs_id,
+                hardcover_book_id="target-hc",
+                isbn="9781234567890",
+            )
+        )
+
+        # Canonical alignment: map present, source NULL. Target: different map + source.
+        with self.db.get_session() as session:
+            session.add(
+                BookAlignment(
+                    book_id=source.id,
+                    abs_id=source.abs_id,
+                    alignment_map_json='{"canonical": true}',
+                    source=None,
+                )
+            )
+            session.add(
+                BookAlignment(
+                    book_id=target.id,
+                    abs_id=target.abs_id,
+                    alignment_map_json='{"target": true}',
+                    source="storyteller",
+                )
+            )
+
+        with self.db.get_session() as session:
+            original_alignment_ts = (
+                session.query(BookAlignment).filter(BookAlignment.book_id == source.id).one().last_updated
+            )
+
+        self.db.migrate_book_data(source.abs_id, target.abs_id)
+
+        with self.db.get_session() as session:
+            self.assertEqual(len(session.query(Book).all()), 1)
+
+            hc_rows = session.query(HardcoverDetails).all()
+            self.assertEqual(len(hc_rows), 1)
+            hc = hc_rows[0]
+            self.assertEqual(hc.book_id, source.id)
+            self.assertEqual(hc.abs_id, target.abs_id)
+            # Canonical identity wins on conflict; null isbn backfilled from target.
+            self.assertEqual(hc.hardcover_book_id, "canonical-hc")
+            self.assertEqual(hc.isbn, "9781234567890")
+            self.assertEqual(
+                session.query(HardcoverDetails).filter(HardcoverDetails.book_id == target.id).count(), 0
+            )
+
+            align_rows = session.query(BookAlignment).all()
+            self.assertEqual(len(align_rows), 1)
+            align = align_rows[0]
+            self.assertEqual(align.book_id, source.id)
+            self.assertEqual(align.abs_id, target.abs_id)
+            # NOT-NULL canonical map wins; nullable source backfilled from target.
+            self.assertEqual(align.alignment_map_json, '{"canonical": true}')
+            self.assertEqual(align.source, "storyteller")
+            # last_updated is an onupdate column: the merge touches the row, so it
+            # advances to merge time rather than being copied from the target.
+            self.assertGreaterEqual(align.last_updated, original_alignment_ts)
+            self.assertEqual(
+                session.query(BookAlignment).filter(BookAlignment.book_id == target.id).count(), 0
+            )
+
+    def test_backfill_null_fields_skips_foreign_keys(self):
+        canonical = SimpleNamespace(book_id=None, linked_book_id=None, note=None)
+        target = SimpleNamespace(book_id=7, linked_book_id=9, note="backfilled")
+        foreign_key = SimpleNamespace(
+            name="linked_book_id",
+            primary_key=False,
+            foreign_keys={object()},
+            onupdate=None,
+        )
+        ordinary = SimpleNamespace(
+            name="note",
+            primary_key=False,
+            foreign_keys=set(),
+            onupdate=None,
+        )
+        model = SimpleNamespace(
+            __name__="FutureUniqueChild",
+            __table__=SimpleNamespace(columns=[foreign_key, ordinary]),
+        )
+
+        self.db._books._backfill_null_fields(model, canonical, target)
+
+        self.assertIsNone(canonical.linked_book_id)
+        self.assertEqual(canonical.note, "backfilled")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,9 @@ def get_detected_books():
                     "progress_percentage": d.progress_percentage,
                     "first_detected_at": d.first_detected_at.isoformat() if d.first_detected_at else None,
                     "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
+                    "source_updated_at": (
+                        d.source_updated_at.isoformat() if getattr(d, "source_updated_at", None) else None
+                    ),
                     "device": d.device,
                     "ebook_filename": d.ebook_filename,
                     "status": d.status,
@@ -59,16 +62,45 @@ def get_detected_books():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@api_bp.route("/api/detected/<source>/<source_id>/dismiss", methods=["POST"])
 @api_bp.route("/api/detected/<source_id>/dismiss", methods=["POST"])
-def dismiss_detected_book(source_id):
+def dismiss_detected_book(source_id, source=None):
     """Dismiss a detected book."""
     database_service = get_database_service()
-    source = request.args.get("source", "abs")
+    source = source or request.args.get("source", "abs")
     if source not in _VALID_SUGGESTION_SOURCES:
         return jsonify({"success": False, "error": "Invalid source"}), 400
     if database_service.dismiss_detected_book(source_id, source=source):
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "Not found"}), 404
+
+
+@api_bp.route("/api/detected/dismiss-group", methods=["POST"])
+def dismiss_detected_group():
+    """Atomically dismiss the exact source identities displayed in one card."""
+    payload = request.get_json(silent=True) or {}
+    raw_identities = payload.get("identities")
+    if not isinstance(raw_identities, list) or not 1 <= len(raw_identities) <= 50:
+        return jsonify({"success": False, "error": "identities must contain 1 to 50 items"}), 400
+
+    identities = []
+    for item in raw_identities:
+        if not isinstance(item, dict):
+            return jsonify({"success": False, "error": "Invalid identity"}), 400
+        source = item.get("source")
+        source_id = item.get("source_id")
+        if (
+            source not in _VALID_SUGGESTION_SOURCES
+            or not isinstance(source_id, str)
+            or not source_id
+            or len(source_id) > 500
+        ):
+            return jsonify({"success": False, "error": "Invalid identity"}), 400
+        identities.append((source, source_id))
+
+    if get_database_service().dismiss_detected_books(identities):
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "A book is currently being linked"}), 409
 
 
 @api_bp.route("/api/detected/<source_id>/resolve", methods=["POST"])
@@ -202,7 +234,8 @@ def rescan_suggestions():
     container = get_container()
     data = request.get_json(silent=True) or {}
     force = bool(data.get("force"))
-    stats = container.suggestion_service().request_rescan_library_suggestions(force=force)
+    catalog = bool(data.get("catalog"))
+    stats = container.suggestion_service().request_rescan_library_suggestions(force=force, catalog=catalog)
     return jsonify({"success": True, **stats})
 
 
@@ -472,7 +505,13 @@ def api_grimmory_link(book_ref):
     bl_book, bl_client = find_in_grimmory(filename)
     if bl_book:
         grimmory_id = bl_book.get("id")
-    kosync_doc_id = get_kosync_id_for_ebook(filename, grimmory_id, bl_client=bl_client)
+    grimmory_file_id = bl_book.get("bookFileId") if bl_book and bl_book.get("isPrimary") is False else None
+    kosync_doc_id = get_kosync_id_for_ebook(
+        filename,
+        grimmory_id,
+        bl_client=bl_client,
+        grimmory_file_id=grimmory_file_id,
+    )
     if kosync_doc_id:
         book.kosync_doc_id = kosync_doc_id
     book.original_ebook_filename = book.original_ebook_filename or filename

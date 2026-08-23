@@ -559,7 +559,7 @@ class ABSClient:
         self._update_session_headers()
         try:
             collections_url = f"{self.base_url}/api/collections"
-            r = self.session.get(collections_url)
+            r = self.session.get(collections_url, timeout=self.timeout)
             if r.status_code != 200:
                 return False
 
@@ -568,12 +568,14 @@ class ABSClient:
 
             if not target_collection:
                 lib_url = f"{self.base_url}/api/libraries"
-                r_lib = self.session.get(lib_url)
+                r_lib = self.session.get(lib_url, timeout=self.timeout)
                 if r_lib.status_code == 200:
                     libraries = r_lib.json().get("libraries", [])
                     if libraries:
                         r_create = self.session.post(
-                            collections_url, json={"libraryId": libraries[0]["id"], "name": collection_name}
+                            collections_url,
+                            json={"libraryId": libraries[0]["id"], "name": collection_name},
+                            timeout=self.timeout,
                         )
                         if r_create.status_code in [200, 201]:
                             target_collection = r_create.json()
@@ -582,7 +584,7 @@ class ABSClient:
                 return False
 
             add_url = f"{self.base_url}/api/collections/{target_collection['id']}/book"
-            r_add = self.session.post(add_url, json={"id": item_id})
+            r_add = self.session.post(add_url, json={"id": item_id}, timeout=self.timeout)
             if r_add.status_code in [200, 201, 204]:
                 try:
                     details = self.get_item_details(item_id)

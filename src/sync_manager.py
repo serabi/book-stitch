@@ -233,9 +233,9 @@ class SyncManager:
 
     # ── Suggestion delegation (implementation in SuggestionService) ──
 
-    def queue_suggestion(self, abs_id: str) -> None:
+    def queue_suggestion(self, abs_id: str, progress_data: dict | None = None) -> None:
         """Queue suggestion discovery for an unmapped book (called from socket listener)."""
-        self.suggestion_service.queue_suggestion(abs_id)
+        self.suggestion_service.queue_suggestion(abs_id, progress_data)
 
     def check_for_suggestions(self, abs_progress_map, active_books):
         """Check for unmapped books with progress and create suggestions."""
@@ -492,8 +492,7 @@ class SyncManager:
                     logger.warning(f"Failed to pre-fetch bulk state for {client_name}: {sanitize_exception(e)}")
 
             # Check for suggestions (runs even with no active books)
-            if "ABS" in bulk_states_per_client:
-                self.check_for_suggestions(bulk_states_per_client["ABS"], active_books)
+            self.check_for_suggestions(bulk_states_per_client.get("ABS", {}), active_books)
 
         return active_books, bulk_states_per_client
 
@@ -526,6 +525,11 @@ class SyncManager:
         }
         if is_audio_only:
             audio_only_clients = {"ABS", "Hardcover"}
+            source_id = getattr(book, "grimmory_audio_source_id", None)
+            source_parts = str(source_id).split(":") if source_id else []
+            if len(source_parts) == 3:
+                instance_id = source_parts[0]
+                audio_only_clients.add("GrimmoryAudio" if instance_id == "default" else f"Grimmory{instance_id}Audio")
             active_clients = {name: client for name, client in active_clients.items() if name in audio_only_clients}
             logger.debug(f"'{abs_id}' '{title_snip}' Audio-only mode - using clients: {list(active_clients.keys())}")
         elif sync_type == "ebook":
@@ -546,10 +550,10 @@ class SyncManager:
         if not (hasattr(book, "sync_mode") and book.sync_mode == "ebook_only"):
             abs_state = config.get("ABS")
             if abs_state is None:
-                ebook_clients_active = [k for k in config.keys() if k != "ABS"]
-                if ebook_clients_active:
+                fallback_clients = [k for k in config.keys() if k != "ABS"]
+                if fallback_clients:
                     logger.info(
-                        f"'{abs_id}' '{title_snip}' ABS audiobook not found/offline, falling back to ebook-only sync between {ebook_clients_active}"
+                        f"'{abs_id}' '{title_snip}' ABS audiobook not found/offline; continuing sync between {fallback_clients}"
                     )
                 else:
                     logger.debug(f"'{abs_id}' '{title_snip}' ABS audiobook offline and no other clients, skipping")
@@ -740,7 +744,7 @@ class SyncManager:
         leader_state_data = leader_state.current
 
         leader_state_model = State(
-            abs_id=book.abs_id,
+            abs_id=abs_id,
             book_id=book.id,
             client_name=leader.lower(),
             last_updated=current_time,
@@ -762,7 +766,7 @@ class SyncManager:
                 except ImportError:
                     pass
                 client_state_model = State(
-                    abs_id=book.abs_id,
+                    abs_id=abs_id,
                     book_id=book.id,
                     client_name=client_name.lower(),
                     last_updated=current_time,

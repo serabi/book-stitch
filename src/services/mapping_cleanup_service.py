@@ -22,6 +22,16 @@ def cleanup_mapping_resources(
     if not book:
         return
 
+    grimmory_instance_id = None
+    if book.kosync_doc_id:
+        try:
+            doc = database_service.get_kosync_document(book.kosync_doc_id)
+            grimmory_id = getattr(doc, "grimmory_id", None) if doc else None
+            if getattr(doc, "source", None) == "grimmory" and isinstance(grimmory_id, str) and ":" in grimmory_id:
+                grimmory_instance_id = grimmory_id.split(":", 1)[0]
+        except Exception as e:
+            logger.debug(f"Failed to resolve Grimmory instance for cleanup: {e}")
+
     if book.transcript_file and book.transcript_file != TRANSCRIPT_DB_MANAGED:
         data_dir = container.data_dir()
         transcript_dir = data_dir / "transcripts"
@@ -77,6 +87,9 @@ def cleanup_mapping_resources(
     if book.ebook_filename and grimmory_client.is_configured():
         shelf_filename = book.original_ebook_filename or book.ebook_filename
         try:
-            grimmory_client.remove_from_shelf(shelf_filename)
+            if grimmory_instance_id:
+                grimmory_client.remove_from_shelf(shelf_filename, instance_id=grimmory_instance_id)
+            else:
+                grimmory_client.remove_from_shelf(shelf_filename)
         except Exception as e:
             logger.warning(f"Failed to remove from Grimmory shelf: {e}")

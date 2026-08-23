@@ -22,6 +22,9 @@
     var isAttachFlow = isAttachEbook || isAttachAudiobook;
     var hasStorytellerSection = !!document.getElementById('storytellerSection');
     var storytellerForceMode = PK_PAGE_DATA.storytellerForceMode;
+    var isPairingReview = PK_PAGE_DATA.isPairingReview;
+    var pairingReady = PK_PAGE_DATA.pairingReady;
+    var hasExistingEntryCollision = PK_PAGE_DATA.hasExistingEntryCollision;
 
     var absConfigured = PK_PAGE_DATA.absConfigured;
     var hasEbookSources = PK_PAGE_DATA.hasEbookSources;
@@ -110,6 +113,10 @@
                 if (r) r.checked = false;
             });
         }
+        if (groupName === 'ebook_filename') {
+            var sourceInput = document.getElementById('input_ebook_source_id');
+            if (sourceInput) sourceInput.value = '';
+        }
     }
 
     function updateLayout() {
@@ -117,6 +124,14 @@
         var ebookSection = document.getElementById('ebookSection');
         var stSection = document.getElementById('storytellerSection');
         var chip = document.getElementById('selectedChip');
+
+        if (isPairingReview) {
+            if (audioSection) audioSection.style.display = '';
+            if (ebookSection) ebookSection.style.display = '';
+            if (stSection) stSection.style.display = '';
+            if (chip) chip.style.display = 'none';
+            return;
+        }
 
         if (isAttachFlow) {
             // Attach flows: show only the relevant section, no chip
@@ -185,6 +200,17 @@
         var stVal = st ? st.value : '';
         var hasText = ebVal !== '' || stVal !== '';
 
+        if (isPairingReview) {
+            btn.type = 'submit';
+            btn.disabled = !pairingReady;
+            btn.textContent = hasExistingEntryCollision
+                ? 'Combine existing entries and link'
+                : 'Link formats';
+            status.textContent = pairingReady ? 'Exact editions verified.' : 'Choose another companion to continue.';
+            status.dataset.state = pairingReady ? 'ready' : 'warning';
+            return;
+        }
+
         // Summary chips
         var chips = document.getElementById('summaryChips');
         if (chips) {
@@ -222,6 +248,7 @@
 
         if (isAttachEbook) {
             var ready = ebVal !== '';
+            btn.type = 'submit';
             btn.disabled = !ready;
             btn.textContent = 'Attach Ebook';
             status.textContent = ready ? 'eBook selected. Ready to attach.' : 'Select an ebook to attach.';
@@ -230,6 +257,7 @@
         }
 
         if (isAttachAudiobook) {
+            btn.type = 'submit';
             btn.disabled = !hasAudio;
             btn.textContent = 'Attach Audiobook';
             status.textContent = hasAudio ? 'Audiobook selected. Ready to attach.' : 'Select an audiobook to link.';
@@ -240,15 +268,19 @@
         // Normal modes
         if (currentMode === 'match') {
             if (currentPhase === 'select-audio') {
-                btn.disabled = true;
-                btn.textContent = 'Create Mapping';
-                status.textContent = hasAudio ? 'Audiobook selected.' : 'Select an audiobook to continue.';
+                btn.type = 'button';
+                btn.disabled = !hasAudio;
+                btn.textContent = 'Continue';
+                status.textContent = hasAudio ? 'Audiobook selected. Continue to ebooks.' : 'Select an audiobook to continue.';
                 status.dataset.state = 'warning';
             } else {
                 // select-ebook phase
                 var ready = hasText;
+                btn.type = 'submit';
                 btn.disabled = !ready;
-                btn.textContent = 'Create Mapping';
+                btn.textContent = hasExistingEntryCollision
+                    ? 'Combine existing entries and pair'
+                    : 'Create Mapping';
                 document.getElementById('input_action').value = '';
                 status.textContent = ready
                     ? 'Ready to create mapping.'
@@ -256,12 +288,14 @@
                 status.dataset.state = ready ? 'ready' : 'warning';
             }
         } else if (currentMode === 'audio') {
+            btn.type = 'submit';
             btn.disabled = !hasAudio;
             btn.textContent = 'Add Audio Only';
             document.getElementById('input_action').value = 'audio_only';
             status.textContent = hasAudio ? 'Ready to add audiobook.' : 'Select an audiobook.';
             status.dataset.state = hasAudio ? 'ready' : 'warning';
         } else if (currentMode === 'ebook') {
+            btn.type = 'submit';
             btn.disabled = !hasText;
             btn.textContent = 'Add eBook';
             document.getElementById('input_action').value = 'ebook_only';
@@ -293,11 +327,17 @@
                 stInput.value = (radio && radio.value) ? (titleEl ? titleEl.textContent.trim() : '') : '';
             }
         }
-
-        // In Match mode, selecting an audiobook advances to ebook phase
-        if (groupName === 'audiobook_id' && currentMode === 'match' && currentPhase === 'select-audio') {
-            setPhase('select-ebook');
-            return;
+        if (groupName === 'ebook_filename') {
+            var sourceInput = document.getElementById('input_ebook_source_id');
+            if (sourceInput) sourceInput.value = element.dataset.grimmoryId || '';
+            var searchEbook = document.getElementById('search_ebook_filename');
+            var searchEbookSource = document.getElementById('search_ebook_source_id');
+            if (searchEbook) searchEbook.value = radio ? radio.value : '';
+            if (searchEbookSource) searchEbookSource.value = element.dataset.grimmoryId || '';
+        }
+        if (groupName === 'audiobook_id') {
+            var searchAudiobook = document.getElementById('search_audiobook_id');
+            if (searchAudiobook) searchAudiobook.value = radio ? radio.value : '';
         }
 
         updateFooter();
@@ -306,13 +346,29 @@
     /* ── DOMContentLoaded ── */
 
     document.addEventListener('DOMContentLoaded', function () {
+        var storytellerSection = document.getElementById('storytellerSection');
+        var ebookSection = document.getElementById('ebookSection');
+        if (storytellerSection && ebookSection) {
+            ebookSection.insertAdjacentElement('afterend', storytellerSection);
+        }
+
+        document.querySelectorAll('.ab-option input[type="radio"], .eb-option input[type="radio"], .st-option input[type="radio"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                if (radio.checked) selectItem(radio.closest('label'), radio.name);
+            });
+        });
+
         // ── Attach flow: simple init ──
         if (isAttachFlow) {
             updateLayout();
             var initialEb = document.querySelector('input[name="ebook_filename"]:checked');
             if (initialEb) {
                 var label = initialEb.closest('.eb-option');
-                if (label) label.classList.add('selected');
+                if (label) {
+                    label.classList.add('selected');
+                    var sourceInput = document.getElementById('input_ebook_source_id');
+                    if (sourceInput) sourceInput.value = label.dataset.grimmoryId || '';
+                }
             }
             var initialAb = document.querySelector('input[name="audiobook_id"]:checked');
             if (initialAb) {
@@ -354,38 +410,52 @@
             });
         }
 
-        // ── Storyteller disclosure toggle ──
-        var stToggle = document.getElementById('storytellerToggle');
-        var stBody = document.getElementById('storytellerBody');
-        var stArrow = document.getElementById('storytellerArrow');
-        if (stToggle && stBody) {
-            // Determine initial state
-            var shouldExpand = true;
-            if (shouldExpand) {
-                stBody.classList.add('expanded');
-                if (stArrow) stArrow.classList.add('expanded');
-            }
-
-            stToggle.addEventListener('click', function () {
-                stBody.classList.toggle('expanded');
-                if (stArrow) stArrow.classList.toggle('expanded');
-            });
-        }
-
         // ── Handle preselected audiobook or single match ──
         var preselectedAb = document.querySelector('.ab-option.selected');
         if (preselectedAb) {
-            if (currentMode === 'match') {
+            if (currentMode === 'match' && !isPairingReview) {
                 setPhase('select-ebook');
             }
+        }
+        var preselectedEb = document.querySelector('.eb-option.selected');
+        if (preselectedEb) {
+            var sourceInput = document.getElementById('input_ebook_source_id');
+            if (sourceInput) sourceInput.value = preselectedEb.dataset.grimmoryId || '';
         }
 
         updateLayout();
         updateFooter();
+
+        var actionBtn = document.getElementById('actionBtn');
+        if (actionBtn) {
+            actionBtn.addEventListener('click', function (event) {
+                if (!isPairingReview && currentMode === 'match' && currentPhase === 'select-audio') {
+                    event.preventDefault();
+                    setPhase('select-ebook');
+                    var firstEbook = document.querySelector('#ebookSection input[type="radio"]');
+                    if (firstEbook) firstEbook.focus();
+                }
+            });
+        }
+
+        var mappingForm = document.getElementById('mappingForm');
+        if (mappingForm) {
+            mappingForm.addEventListener('submit', function () {
+                if (actionBtn) {
+                    actionBtn.disabled = true;
+                    actionBtn.setAttribute('aria-disabled', 'true');
+                    actionBtn.textContent = isPairingReview ? 'Linking…' : 'Saving…';
+                }
+                var actionStatus = document.getElementById('actionStatus');
+                if (actionStatus) {
+                    actionStatus.textContent = isPairingReview ? 'Linking selected formats…' : 'Saving selection…';
+                    actionStatus.dataset.state = 'ready';
+                }
+            });
+        }
     });
 
-    /* ── Expose functions needed by inline onclick handlers ── */
-    window.selectItem = selectItem;
+    /* ── Expose remove action used by the library badge ── */
     window.showRemoveModal = showRemoveModal;
 
 })();

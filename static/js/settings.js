@@ -450,9 +450,23 @@ function setupDirtyCheck() {
         }
     });
 
+    var timezone = document.getElementById('timezone');
+    if (timezone) {
+        timezone.addEventListener('input', function () { timezone.setCustomValidity(''); });
+    }
+
     var form = document.querySelector('form');
     if (form) {
-        form.addEventListener('submit', function () {
+        form.addEventListener('submit', function (event) {
+            if (timezone && !timezone.value.trim()) {
+                event.preventDefault();
+                switchTab('general');
+                timezone.setCustomValidity('Enter an IANA timezone such as America/New_York.');
+                timezone.focus();
+                timezone.reportValidity();
+                return;
+            }
+            if (timezone) timezone.setCustomValidity('');
             isFormDirty = false;
         });
     }
@@ -465,6 +479,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (savedTab && document.getElementById('panel-' + savedTab)) {
         switchTab(savedTab);
     }
+    var focusTarget = document.getElementById(params.get('focus'));
+    if (focusTarget) focusTarget.focus();
 
     var configuredPort = SETTINGS_CONFIG.kosyncPort;
     var lanAddress = window.location.protocol + '//' + window.location.hostname + ':' + configuredPort;
