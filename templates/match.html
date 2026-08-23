@@ -156,6 +156,7 @@
                         {% else %}
                             <p>No opposite-format companions were found. Rescan Reading Activity after your libraries sync.</p>
                         {% endif %}
+                        {% if solo_track_supported %}
                         <div class="match-companion-solo">
                             <span>Only reading this one format?</span>
                             <button type="submit" class="btn btn-md btn-secondary"
@@ -163,6 +164,7 @@
                                 Track as {{ review_started.format|lower }} only
                             </button>
                         </div>
+                        {% endif %}
                     </div>
                 {% endif %}
             </section>

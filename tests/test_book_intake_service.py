@@ -918,3 +918,56 @@ def test_concurrent_processing_claim_loser_returns_conflict_without_write():
     assert "already being processed" in result.error
     db.save_book.assert_not_called()
     abs_service.add_to_collection.assert_not_called()
+
+
+# ── import_ebook_only KoSync ownership ────────────────────────────
+
+
+def test_import_ebook_only_hash_path_claims_kosync_ownership_atomically():
+    db = Mock()
+    service, db, _abs, _bl, _hc = _make_service(db=db)
+
+    result = service.import_ebook_only(kosync_doc_id="hash-solo", ebook_display_name="Solo Book")
+
+    assert result.error is None
+    db.save_book_with_kosync_ownership.assert_called_once()
+    assert db.save_book_with_kosync_ownership.call_args.args[0].kosync_doc_id == "hash-solo"
+    db.save_book.assert_not_called()
+    db.resolve_detected_book.assert_called_once_with("hash-solo", source="kosync")
+
+
+def test_import_ebook_only_filename_path_also_claims_kosync_ownership():
+    bl_match = {"title": "Grimmory Book"}
+    service, db, _abs, _bl, _hc = _make_service(bl_match=bl_match, kosync_id="hash-computed")
+
+    result = service.import_ebook_only(ebook_filename="book.epub")
+
+    assert result.error is None
+    db.save_book_with_kosync_ownership.assert_called_once()
+    db.save_book.assert_not_called()
+
+
+def test_import_ebook_only_ownership_conflict_returns_conflict_without_resolution():
+    from src.db.book_repository import KoSyncOwnershipConflict
+
+    db = Mock()
+    service, db, _abs, _bl, _hc = _make_service(db=db)
+    db.save_book_with_kosync_ownership.side_effect = KoSyncOwnershipConflict("owned")
+
+    result = service.import_ebook_only(kosync_doc_id="hash-solo", ebook_display_name="Solo Book")
+
+    assert result.status_code == 409
+    assert "linked by another request" in result.error
+    db.resolve_detected_book.assert_not_called()
+    db.resolve_suggestion.assert_not_called()
+
+
+def test_import_ebook_only_storyteller_path_keeps_plain_save():
+    service, db, _abs, _bl, _hc = _make_service()
+
+    result = service.import_ebook_only(storyteller_uuid="st-1", storyteller_title="Story Book")
+
+    assert result.error is None
+    db.save_book.assert_called_once()
+    assert db.save_book.call_args.args[0].storyteller_uuid == "st-1"
+    db.save_book_with_kosync_ownership.assert_not_called()

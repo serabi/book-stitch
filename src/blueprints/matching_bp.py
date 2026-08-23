@@ -723,11 +723,14 @@ def _render_match_page(
     review_editions = None
     manual_companions = []
     review_started = None
+    solo_track_supported = False
     if review:
+        detected = review["detected"]
+        solo_track_supported = not (detected.source == "grimmory" and _declared_media_format(detected) == "audiobook")
         review_started = {
-            "title": review["detected"].title or "Untitled book",
-            "format": _source_format(review["detected"].source, _declared_media_format(review["detected"])),
-            "source_label": _source_label(review["detected"].source, review["detected"].source_id),
+            "title": detected.title or "Untitled book",
+            "format": _source_format(detected.source, _declared_media_format(detected)),
+            "source_label": _source_label(detected.source, detected.source_id),
         }
         review_editions, edition_error = _exact_review_editions(container, review)
         if edition_error and not error:
@@ -884,6 +887,7 @@ def _render_match_page(
         review_editions=review_editions,
         manual_companions=manual_companions,
         review_started=review_started,
+        solo_track_supported=solo_track_supported,
         combine_conflict=combine_conflict,
     )
     return (page, status_code) if status_code != 200 else page

@@ -131,8 +131,13 @@ class BookIntakeService:
             sync_mode="ebook_only",
             storyteller_uuid=storyteller_uuid,
         )
-        self.database_service.save_book(book, is_new=True)
-        ensure_kosync_document(book, self.database_service)
+        if kosync_doc_id:
+            try:
+                book = self.database_service.save_book_with_kosync_ownership(book)
+            except (IntegrityError, KoSyncOwnershipConflict):
+                return IntakeResult(error="That ebook was linked by another request", status_code=409)
+        else:
+            self.database_service.save_book(book, is_new=True)
         self._record_grimmory_source(kosync_doc_id, ebook_source_id)
         if kosync_doc_id:
             self.database_service.resolve_suggestion(kosync_doc_id, source="kosync")

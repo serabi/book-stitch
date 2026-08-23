@@ -722,3 +722,27 @@ def test_track_solo_missing_detection_is_terminal(client, mock_container, review
     )
 
     assert response.status_code == 409
+
+
+def test_grimmory_audiobook_review_hides_unsupported_solo_option(client, mock_container, review_setup):
+    detected = _detected(source="grimmory", source_id="2:10:99", media_format="audiobook")
+    review_setup.get_detected_book.return_value = detected
+    ebook = EbookResult("exact.epub", title="Exact Book Ebook", source="Filesystem")
+
+    with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]):
+        response = client.get(f"/match?{_review_query(detected)}")
+
+    assert response.status_code == 200
+    assert "track_solo" not in response.get_data(as_text=True)
+
+
+def test_abs_review_offers_supported_solo_option(client, mock_container, review_setup):
+    detected = _detected(source="abs", source_id="abs-1", media_format="audiobook")
+    review_setup.get_detected_book.return_value = detected
+    ebook = EbookResult("exact.epub", title="Exact Book Ebook", source="Filesystem")
+
+    with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]):
+        response = client.get(f"/match?{_review_query(detected)}")
+
+    assert response.status_code == 200
+    assert "track_solo" in response.get_data(as_text=True)
