@@ -321,7 +321,7 @@ class ABSClient:
         return None
 
     def get_progress(self, item_id):
-        if not self.is_configured():
+        if not item_id or not self.is_configured():
             return None
         self._update_session_headers()
         url = f"{self.base_url}/api/me/progress/{item_id}"
