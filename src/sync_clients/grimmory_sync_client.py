@@ -115,7 +115,7 @@ class GrimmoryAudioSyncClient(GrimmorySyncClient):
     def get_service_state(
         self, book: Book, prev_state: State | None, title_snip: str = "", bulk_context: dict = None
     ) -> ServiceState | None:
-        source_id = getattr(book, "grimmory_audio_source_id", None)
+        source_id = book.grimmory_audio_source_id
         if not source_id:
             return None
 
@@ -135,13 +135,13 @@ class GrimmoryAudioSyncClient(GrimmorySyncClient):
             previous_pct=previous,
             delta=abs(pct - previous),
             threshold=self.delta_kosync_thresh,
-            is_configured=True,
+            is_configured=self.is_configured(),
             display=(self.client_name, "{prev:.4%} -> {curr:.4%}"),
             value_formatter=lambda value: f"{value * 100:.4f}%",
         )
 
     def update_progress(self, book: Book, request: UpdateProgressRequest) -> SyncResult:
-        source_id = getattr(book, "grimmory_audio_source_id", None)
+        source_id = book.grimmory_audio_source_id
         pct = request.locator_result.percentage
         success = bool(source_id and self.grimmory_client.update_audiobook_progress(source_id, pct))
         if success:
