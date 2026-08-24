@@ -295,14 +295,15 @@ def get_secret(key):
 
 @settings_bp.route("/api/libby/connect", methods=["POST"])
 def libby_connect():
-    """Pair with Libby using the user's 8-digit setup code; stores the identity chip."""
+    """Pair PageKeeper using an identity token copied from the user's
+    libbyapp.com browser session."""
     payload = request.get_json(silent=True) or {}
-    code = str(payload.get("code", "")).strip()
-    if len(code) != 8 or not code.isdigit():
-        return jsonify({"success": False, "detail": "Enter the 8-digit code shown by Libby."}), 400
+    token = str(payload.get("token", "")).strip()
+    if not token:
+        return jsonify({"success": False, "detail": "Paste your Libby identity token."}), 400
 
     client = get_container().libby_client()
-    result = client.pair_with_setup_code(code)
+    result = client.pair_with_identity_token(token)
     if not result.get("success"):
         return jsonify({"success": False, "detail": result.get("detail", "Pairing failed.")}), 400
     return jsonify({"success": True, "cards": result.get("cards", [])})

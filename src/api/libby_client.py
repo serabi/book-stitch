@@ -13,18 +13,29 @@ logger = logging.getLogger(__name__)
 
 SENTRY_BASE = "https://sentry.libbyapp.com"
 REQUEST_TIMEOUT = 10
-# Client version declared when acquiring a chip; Libby gates heavier
-# endpoints (/open/...) on this and answers client_upgrade_required without
-# it (verified live Aug 2026). Mirrors dewey's acquireChip: c=d:<version>, s=0.
-DEWEY_VERSION = "22.1.0"
-# Chips are bound to the User-Agent they were created with, and the bound
-# UA's browser version gates reader endpoints: a chip created with an old
-# browser UA gets client_upgrade_required on /open/ forever after (verified
-# live Aug 2026). Keep this a CURRENT browser string.
+# Chips are bound to the User-Agent they were created with and reader
+# endpoints are gated to tokens minted by real dewey sessions — clone-code
+# chips never get reader access no matter what they present (verified live
+# Aug 2026). We pair by importing the user's browser-session token.
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/133.0.0.0 Safari/537.36"
 )
+
+
+def _looks_like_identity_token(token: str) -> bool:
+    """Structural check for a dewey identity JWT (header.payload.signature,
+    payload decodable, audience readiverse)."""
+    parts = token.split(".")
+    if len(parts) != 3 or not all(parts):
+        return False
+    try:
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except (ValueError, json.JSONDecodeError):
+        return False
+    return isinstance(claims, dict) and claims.get("aud") == "readiverse"
 
 
 def _clamp_poll_mins(raw_value, floor=10, default=60):
@@ -38,12 +49,13 @@ def _clamp_poll_mins(raw_value, floor=10, default=60):
 class LibbyClient:
     """Read-only client for Libby's private sentry/passport APIs.
 
-    Auth model: Libby clone codes are pull-only. The user generates an
-    8-digit code from their own authenticated session and PageKeeper
-    submits it, cloning their library into a chip we control. Sentry calls
-    use Bearer auth; passport-session hosts authenticate via the session
-    hash in the URL itself and must NOT receive an Authorization header.
-    See docs/LIBBY.md.
+    Auth model: the user copies their identity JWT out of a logged-in
+    libbyapp.com browser session (localStorage key dewey:sentry.identity)
+    and PageKeeper uses it directly. Clone-code pairing is not viable —
+    those chips sync but are denied reader access. Sentry calls use Bearer
+    auth; passport-session hosts authenticate via the per-session hash in
+    the URL plus a one-time message handshake, and must NOT receive an
+    Authorization header. See docs/LIBBY.md.
     """
 
     def __init__(self, database_service=None, env_prefix="LIBBY"):
@@ -129,70 +141,49 @@ class LibbyClient:
 
     # ── Pairing / lifecycle ────────────────────────────────────────
 
-    def pair_with_setup_code(self, code: str) -> dict:
-        """Pair PageKeeper with a Libby account using an 8-digit setup code.
+    def pair_with_identity_token(self, token: str) -> dict:
+        """Pair PageKeeper using an identity token copied from the user's
+        own libbyapp.com browser session.
 
-        Libby clone codes are pull-only: the user generates a code from their
-        own authenticated session (libbyapp.com setup-code interview or
-        "Copy To Another Device") and PageKeeper submits it to clone their
-        library into a fresh chip. Entering a blank chip's code in the app
-        silently transfers nothing (verified live Aug 2026).
+        Why not setup codes: chips created via clone codes (Sonos-style)
+        sync fine but are permanently denied reader access — /open/ answers
+        client_upgrade_required / missing_chip for them no matter what UA,
+        version params, or tData they present (verified extensively live,
+        Aug 2026). Only tokens minted by a real dewey session can read
+        positions, so pairing means importing that token.
 
         Returns {"success": True, "cards": [...]} on success, or
         {"success": False, "error": ..., "detail": ...} on failure where
-        error is one of: invalid_code_format, expired_code, revoked_token,
-        http_error, network_error.
+        error is one of: invalid_token_format, revoked_token, http_error,
+        network_error.
         """
-        clean_code = str(code or "").strip()
-        if not (len(clean_code) == 8 and clean_code.isdigit()):
-            return {"success": False, "error": "invalid_code_format", "detail": "Setup code must be 8 digits."}
-
-        new_token = self._create_chip()
-        if not new_token:
+        clean_token = str(token or "").strip().strip('"')
+        if not _looks_like_identity_token(clean_token):
             return {
                 "success": False,
-                "error": "http_error",
-                "detail": "Could not create a Libby session — try again.",
+                "error": "invalid_token_format",
+                "detail": "That doesn't look like a Libby identity token — copy the full value of "
+                "dewey:sentry.identity from your browser console.",
             }
-        self._persist_setting(f"{self.env_prefix}_IDENTITY_TOKEN", new_token)
 
-        # Submit direction: form-encoded body, matching pylibby/calibre-plugin.
-        clone_response = self._sentry_request("POST", "/chip/clone/code", form_body={"code": clean_code})
-        if clone_response is None:
+        self._persist_setting(f"{self.env_prefix}_IDENTITY_TOKEN", clean_token)
+
+        # Verify the token against /chip/sync before declaring success.
+        state = self.get_sync_state(force=True)
+        if state is None:
             self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
             return {"success": False, "error": "network_error", "detail": "Could not reach Libby."}
 
-        if clone_response.status_code in (401, 403):
+        result_flag = state.get("result")
+        if result_flag in ("missing_chip", "revoked") or not self._extract_cards(state):
             self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
             return {
                 "success": False,
                 "error": "revoked_token",
-                "detail": "Libby rejected the pairing session — try again.",
-            }
-        if clone_response.status_code in (400, 404, 410):
-            self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
-            return {
-                "success": False,
-                "error": "expired_code",
-                "detail": "That setup code was invalid or has expired — generate a fresh one and retry.",
-            }
-        if clone_response.status_code != 200:
-            self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
-            logger.error("Libby: clone-by-code returned HTTP %s", clone_response.status_code)
-            return {
-                "success": False,
-                "error": "http_error",
-                "detail": f"Pairing failed (HTTP {clone_response.status_code}).",
+                "detail": "Libby rejected that token — it may have expired. Refresh libbyapp.com and copy a fresh one.",
             }
 
-        # Both reference clients refresh the chip after cloning (token
-        # rotation); keep the old token if the refresh fails.
-        refreshed_token = self._create_chip(authenticated=True)
-        if refreshed_token:
-            self._persist_setting(f"{self.env_prefix}_IDENTITY_TOKEN", refreshed_token)
-
-        state = self.get_sync_state(force=True)
-        cards = self._extract_cards(state or {})
+        cards = self._extract_cards(state)
         self.ensure_device_id()
         logger.info(
             "Libby: paired successfully; %d card(s) linked (%s)",
@@ -200,28 +191,6 @@ class LibbyClient:
             ", ".join(sanitize_log_data(c.get("name") or "") for c in cards) or "none named",
         )
         return {"success": True, "cards": cards}
-
-    def _create_chip(self, authenticated: bool = False) -> str | None:
-        """POST /chip for a fresh identity token. With authenticated=True the
-        call rotates an existing paired chip's token instead of making a
-        blank one. The c/s query params declare the client version — Libby
-        rejects versionless chips on reader endpoints."""
-        try:
-            response = self.session.post(
-                f"{SENTRY_BASE}/chip?client=dewey&c=d:{DEWEY_VERSION}&s=0",
-                timeout=REQUEST_TIMEOUT,
-                headers={"Authorization": f"Bearer {self.identity_token}"} if authenticated else {},
-            )
-        except requests.RequestException as e:
-            logger.error("Libby: chip creation failed: %s", sanitize_exception(e))
-            return None
-        if response.status_code != 200:
-            logger.error("Libby: chip creation returned HTTP %s", response.status_code)
-            return None
-        try:
-            return response.json().get("identity") or None
-        except ValueError:
-            return None
 
     def disconnect(self) -> bool:
         """Revoke the identity chip server-side.

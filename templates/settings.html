@@ -693,14 +693,14 @@
                         <div id="libby_body" class="sub-section-body {% if not libby_enabled %}collapsed{% endif %}">
                             {% if not libby_paired %}
                             <div class="form-group full-width">
-                                <label>Setup Code</label>
-                                <input type="text" id="libby_setup_code" inputmode="numeric" maxlength="8"
-                                    placeholder="8-digit code" autocomplete="off">
-                                <div class="help-text">
-                                    In Libby, go to <em>Copy To Another Device</em> (or open
-                                    <a href="https://libbyapp.com/interview/authenticate/setup-code" target="_blank" rel="noopener noreferrer">libbyapp.com/interview/authenticate/setup-code</a>
-                                    in a browser) and copy the 8-digit code it shows, then paste it here
-                                    within a few minutes.
+                                <label>Identity Token</label>
+                                <input type="password" id="libby_identity_token" autocomplete="off"
+                                    placeholder="Paste your Libby identity token">
+                                <div class="help-text settings-help-inline">
+                                    On a desktop browser where you use Libby, open <code>libbyapp.com</code>, press
+                                    <code>F12</code> (DevTools) → Console, and run:
+                                    <code>copy(JSON.parse(localStorage.getItem('dewey:sentry.identity')).value ?? localStorage.getItem('dewey:sentry.identity'))</code>
+                                    — then paste the copied token here.
                                 </div>
                             </div>
                             <div class="form-group full-width">

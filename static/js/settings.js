@@ -560,9 +560,9 @@ document.addEventListener('DOMContentLoaded', function () {
 /* ─── Libby pairing ─── */
 function libbyConnect(btn) {
     var originalText = btn.textContent;
-    var codeInput = document.getElementById('libby_setup_code');
+    var tokenInput = document.getElementById('libby_identity_token');
     var result = document.getElementById('libby_connect_result');
-    var code = (codeInput ? codeInput.value : '').trim();
+    var token = (tokenInput ? tokenInput.value : '').trim();
     btn.textContent = 'Connecting...';
     btn.disabled = true;
     if (result) {
@@ -572,7 +572,7 @@ function libbyConnect(btn) {
     fetch('/api/libby/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code })
+        body: JSON.stringify({ token: token })
     })
         .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
         .then(function(resp) {
