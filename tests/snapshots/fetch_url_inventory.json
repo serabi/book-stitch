@@ -17,7 +17,6 @@
   "/api/kosync/test",
   "/api/libby/connect",
   "/api/libby/disconnect",
-  "/api/libby/pairing/status",
   "/api/logs",
   "/api/logs/hardcover",
   "/api/logs/live",
