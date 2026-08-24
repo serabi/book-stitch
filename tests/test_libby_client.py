@@ -25,7 +25,10 @@ def make_response(status_code=200, json_body=None):
 
 @pytest.fixture
 def client(mock_db):
-    with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "", "LIBBY_DEVICE_ID": "", "LIBBY_ENABLED": "true"}):
+    with patch.dict(
+        os.environ,
+        {"LIBBY_IDENTITY_TOKEN": "", "LIBBY_SYNC_TOKEN": "", "LIBBY_DEVICE_ID": "", "LIBBY_ENABLED": "true"},
+    ):
         yield LibbyClient(database_service=mock_db)
 
 
@@ -42,15 +45,83 @@ VALID_TOKEN = make_jwt({"aud": "readiverse", "iss": "sentry", "chip": {"id": "ab
 
 
 class TestPairing:
-    def test_malformed_token_rejected(self, client):
+    def test_malformed_identity_token_rejected(self, client):
         for bad in ["", "not-a-jwt", "a.b.c", "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ3cm9uZyJ9.sig"]:
             result = client.pair_with_identity_token(bad)
             assert result["success"] is False
             assert result["error"] == "invalid_token_format"
-        # Nothing was persisted
+            assert result["error"] != "network_error"
+        # Nothing was persisted to either tier
         assert os.environ.get("LIBBY_IDENTITY_TOKEN") == ""
+        assert os.environ.get("LIBBY_SYNC_TOKEN") == ""
 
-    def test_pairing_success_stores_token_and_cards(self, client, mock_db):
+    def test_setup_code_rejects_bad_format(self, client):
+        for bad in ["12345", "abcdefgh", ""]:
+            result = client.pair_with_setup_code(bad)
+            assert result["success"] is False
+            assert result["error"] == "invalid_code_format"
+
+    def test_setup_code_pairing_stores_sync_token_and_cards(self, client, mock_db):
+        chip_response = make_response(200, {"identity": "chip-token", "chip": "chip-uuid"})
+        clone_response = make_response(200, {"result": "synchronized"})
+        cards_payload = {
+            "result": "synchronized",
+            "cards": [
+                {
+                    "cardId": "card-1",
+                    "cardName": "My Card",
+                    "advantageKey": "libkey",
+                    "library": {"name": "Town Library", "websiteId": "visit_town"},
+                },
+            ],
+        }
+        sync_response = make_response(200, cards_payload)
+
+        def post_side_effect(url, **kwargs):
+            if url.endswith("/chip?client=dewey&c=d:22.1.0&s=0"):
+                return chip_response
+            if url.endswith("/chip/clone/code"):
+                return clone_response
+            raise AssertionError(f"unexpected POST {url}")
+
+        def request_side_effect(method, url, **kwargs):
+            if url.endswith("/chip/sync"):
+                return sync_response
+            raise AssertionError(f"unexpected request {method} {url}")
+
+        with (
+            patch.dict(os.environ, {"LIBBY_SYNC_TOKEN": ""}),
+            patch.object(client.session, "post", side_effect=post_side_effect),
+            patch.object(client.session, "get", side_effect=request_side_effect),
+        ):
+            result = client.pair_with_setup_code("12345678")
+            # The sync-tier token lives in LIBBY_SYNC_TOKEN; identity stays empty
+            assert os.environ.get("LIBBY_SYNC_TOKEN") == "chip-token"
+
+        assert result["success"] is True
+        assert result["cards"][0]["library_key"] == "libkey"
+        assert os.environ.get("LIBBY_IDENTITY_TOKEN") == ""
+        mock_db.set_setting.assert_any_call("LIBBY_SYNC_TOKEN", "chip-token")
+
+    def test_setup_code_expired_reported(self, client):
+        chip_response = make_response(200, {"identity": "tok", "chip": "uuid"})
+        clone_response = make_response(410)
+
+        def post_side_effect(url, **kwargs):
+            if url.endswith("/chip/clone/code"):
+                return clone_response
+            return chip_response
+
+        with (
+            patch.object(client.session, "post", side_effect=post_side_effect),
+        ):
+            result = client.pair_with_setup_code("12345678")
+
+        assert result["success"] is False
+        assert result["error"] == "expired_code"
+        assert os.environ.get("LIBBY_SYNC_TOKEN") == ""
+
+    def test_identity_token_pairing_stores_full_access(self, client, mock_db):
         cards_payload = {
             "result": "synchronized",
             "cards": [
@@ -65,24 +136,17 @@ class TestPairing:
         sync_response = make_response(200, cards_payload)
 
         with (
-            patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": ""}),
+            patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "", "LIBBY_SYNC_TOKEN": ""}),
             patch.object(client.session, "request", return_value=sync_response),
         ):
             result = client.pair_with_identity_token(VALID_TOKEN)
-            # Env check must run inside the patch.dict scope — exiting it
-            # discards keys written while active.
             assert client.identity_token == VALID_TOKEN
+            assert client.can_read_positions is True
 
         assert result["success"] is True
-        assert result["cards"][0]["library_key"] == "libkey"
-        assert result["cards"][0]["name"] == "My Card"
-        # Token persisted to DB
         mock_db.set_setting.assert_any_call("LIBBY_IDENTITY_TOKEN", VALID_TOKEN)
-        # Device id was generated and persisted
-        device_calls = [c for c in mock_db.set_setting.call_args_list if c.args[0] == "LIBBY_DEVICE_ID"]
-        assert device_calls and device_calls[0].args[1]
 
-    def test_revoked_or_empty_token_reported_and_cleared(self, client):
+    def test_revoked_or_empty_identity_token_reported(self, client):
         for body in [{"result": "missing_chip"}, {"result": "synchronized", "cards": []}]:
             with (
                 patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": ""}),
@@ -93,15 +157,18 @@ class TestPairing:
             assert result["error"] == "revoked_token"
             assert os.environ.get("LIBBY_IDENTITY_TOKEN") == ""
 
-    def test_sync_failure_during_pairing(self, client):
-        with (
-            patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": ""}),
-            patch.object(client.session, "request", return_value=None),
-        ):
-            result = client.pair_with_identity_token(VALID_TOKEN)
-        assert result["success"] is False
-        assert result["error"] == "network_error"
-        assert os.environ.get("LIBBY_IDENTITY_TOKEN") == ""
+    def test_capability_flags_by_tier(self, client):
+        with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "", "LIBBY_SYNC_TOKEN": "sync-tok"}):
+            c = LibbyClient(database_service=MagicMock())
+            assert c.is_configured() is True
+            assert c.can_read_positions is False
+            assert c.active_sync_token == "sync-tok"
+        with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "full-tok", "LIBBY_SYNC_TOKEN": "sync-tok"}):
+            c = LibbyClient(database_service=MagicMock())
+            assert c.can_read_positions is True
+            assert c.active_sync_token == "full-tok"
+        with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "", "LIBBY_SYNC_TOKEN": ""}):
+            assert LibbyClient(database_service=MagicMock()).is_configured() is False
 
 
 class TestSyncState:

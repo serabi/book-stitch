@@ -295,25 +295,38 @@ def get_secret(key):
 
 @settings_bp.route("/api/libby/connect", methods=["POST"])
 def libby_connect():
-    """Pair PageKeeper using an identity token copied from the user's
-    libbyapp.com browser session."""
+    """Pair Libby. Body {"code": "NNNNNNNN"} pairs a sync-only chip;
+    {"token": "<jwt>"} pairs a full-access browser identity token."""
     payload = request.get_json(silent=True) or {}
+    code = str(payload.get("code", "")).strip()
     token = str(payload.get("token", "")).strip()
-    if not token:
-        return jsonify({"success": False, "detail": "Paste your Libby identity token."}), 400
+    if not code and not token:
+        return jsonify({"success": False, "detail": "Provide a setup code or an identity token."}), 400
+    if code and token:
+        return jsonify({"success": False, "detail": "Provide either a setup code or a token, not both."}), 400
 
     client = get_container().libby_client()
-    result = client.pair_with_identity_token(token)
+    result = client.pair_with_setup_code(code) if code else client.pair_with_identity_token(token)
     if not result.get("success"):
         return jsonify({"success": False, "detail": result.get("detail", "Pairing failed.")}), 400
-    return jsonify({"success": True, "cards": result.get("cards", [])})
+
+    database_service = get_database_service()
+    load_settings(database_service)
+    return jsonify(
+        {
+            "success": True,
+            "mode": "code" if code else "token",
+            "can_read_positions": client.can_read_positions,
+            "cards": result.get("cards", []),
+        }
+    )
 
 
 @settings_bp.route("/api/libby/disconnect", methods=["POST"])
 def libby_disconnect():
-    """Revoke the Libby identity chip and clear stored credentials."""
+    """Revoke all Libby chips and clear stored credentials."""
     client = get_container().libby_client()
-    if not client.identity_token:
+    if not client.identity_token and not client.sync_token:
         return jsonify({"success": True})
     if not client.disconnect():
         return (

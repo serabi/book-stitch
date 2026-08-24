@@ -83,6 +83,7 @@ ALL_SETTINGS = [
     # Libby (OverDrive)
     "LIBBY_ENABLED",
     "LIBBY_IDENTITY_TOKEN",
+    "LIBBY_SYNC_TOKEN",
     "LIBBY_POLL_MINS",
     "LIBBY_DEVICE_ID",
     # Telegram
@@ -183,6 +184,7 @@ DEFAULT_CONFIG = {
     "HARDCOVER_WEB_URL_EXTERNAL": "",
     "LIBBY_ENABLED": "false",
     "LIBBY_IDENTITY_TOKEN": "",
+    "LIBBY_SYNC_TOKEN": "",
     "LIBBY_POLL_MINS": "60",
     "LIBBY_DEVICE_ID": "",
     "TELEGRAM_ENABLED": "false",

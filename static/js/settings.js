@@ -559,11 +559,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
 /* ─── Libby pairing ─── */
 function libbyConnect(btn) {
-    var originalText = btn.textContent;
+    var codeInput = document.getElementById('libby_setup_code');
+    libbyPair(btn, { code: (codeInput ? codeInput.value : '').trim() }, 'Connecting...');
+}
+
+function libbyConnectToken(btn) {
     var tokenInput = document.getElementById('libby_identity_token');
+    libbyPair(btn, { token: (tokenInput ? tokenInput.value : '').trim() }, 'Verifying...');
+}
+
+function libbyPair(btn, body, busyText) {
+    var originalText = btn.textContent;
     var result = document.getElementById('libby_connect_result');
-    var token = (tokenInput ? tokenInput.value : '').trim();
-    btn.textContent = 'Connecting...';
+    btn.textContent = busyText;
     btn.disabled = true;
     if (result) {
         result.textContent = '';
@@ -572,7 +580,7 @@ function libbyConnect(btn) {
     fetch('/api/libby/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token })
+        body: JSON.stringify(body)
     })
         .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
         .then(function(resp) {
@@ -589,11 +597,13 @@ function libbyConnect(btn) {
             var lines = cards.map(function(c) {
                 return '\u2022 ' + (c.name || c.id) + (c.library ? ' \u2014 ' + c.library : '');
             });
+            var progressNote = resp.data.can_read_positions
+                ? 'Progress sync is active.'
+                : 'Loans & TBR tracking active. Add a browser token to enable progress sync.';
             PKModal.alert({
                 title: 'Libby Connected',
-                message: cards.length
-                    ? 'Linked card(s):\n' + lines.join('\n')
-                    : 'Paired successfully. No cards reported.',
+                message: (cards.length ? 'Linked card(s):\n' + lines.join('\n') : 'Paired successfully.') +
+                    '\n\n' + progressNote,
                 preserveWhitespace: true
             });
             window.location.reload();
