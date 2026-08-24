@@ -18,11 +18,13 @@ from src.api.grimmory_client import GrimmoryClient, GrimmoryClientGroup
 from src.api.hardcover_client import HardcoverClient
 from src.api.libby_client import LibbyClient
 from src.api.storyteller_api import StorytellerAPIClient
+from src.api.thunder_client import ThunderClient
 from src.db.database_service import DatabaseService
 from src.services.abs_service import ABSService
 from src.services.alignment_service import AlignmentService
 from src.services.background_job_service import BackgroundJobService
 from src.services.hardcover_service import HardcoverService
+from src.services.libby_service import LibbyService
 from src.services.library_service import LibraryService
 from src.services.migration_service import MigrationService
 from src.services.reading_date_service import ReadingDateService
@@ -33,6 +35,7 @@ from src.sync_clients.abs_sync_client import ABSSyncClient
 from src.sync_clients.grimmory_sync_client import GrimmoryAudioSyncClient, GrimmorySyncClient
 from src.sync_clients.hardcover_sync_client import HardcoverSyncClient
 from src.sync_clients.kosync_sync_client import KoSyncSyncClient
+from src.sync_clients.libby_sync_client import LibbySyncClient
 from src.sync_clients.storyteller_sync_client import StorytellerSyncClient
 from src.sync_manager import SyncManager
 from src.utils.ebook_utils import EbookParser
@@ -176,6 +179,12 @@ class Container(containers.DeclarativeContainer):
 
     abs_ebook_sync_client = providers.Singleton(ABSEbookSyncClient, abs_client, ebook_parser)
 
+    thunder_client = providers.Singleton(ThunderClient)
+
+    libby_service = providers.Singleton(LibbyService, database_service, libby_client, thunder_client)
+
+    libby_sync_client = providers.Singleton(LibbySyncClient, libby_client, ebook_parser, libby_service)
+
     hardcover_service = providers.Singleton(HardcoverService, hardcover_client, database_service, abs_client)
 
     reading_date_service = providers.Singleton(ReadingDateService, database_service, hardcover_client, abs_client)
@@ -229,6 +238,7 @@ class Container(containers.DeclarativeContainer):
         GrimmoryAudio=grimmory_audio_sync_client,
         Grimmory2Audio=grimmory_audio_sync_client_2,
         Hardcover=hardcover_sync_client,
+        Libby=libby_sync_client,
     )
 
     # Sync Manager

@@ -190,12 +190,8 @@ def test_get_highlights_for_book_empty(db_service):
 def test_get_bookfusion_books_by_book_id_filters_by_matched_book_id(db_service):
     book_a = _save_book(db_service, "abs-a", "Book A")
     book_b = _save_book(db_service, "abs-b", "Book B")
-    db_service.save_bookfusion_book(
-        BookfusionBook(bookfusion_id="bf-a", title="Catalog A", matched_book_id=book_a.id)
-    )
-    db_service.save_bookfusion_book(
-        BookfusionBook(bookfusion_id="bf-b", title="Catalog B", matched_book_id=book_b.id)
-    )
+    db_service.save_bookfusion_book(BookfusionBook(bookfusion_id="bf-a", title="Catalog A", matched_book_id=book_a.id))
+    db_service.save_bookfusion_book(BookfusionBook(bookfusion_id="bf-b", title="Catalog B", matched_book_id=book_b.id))
 
     for_a = db_service.get_bookfusion_books_by_book_id(book_a.id)
     assert {b.bookfusion_id for b in for_a} == {"bf-a"}
@@ -204,12 +200,8 @@ def test_get_bookfusion_books_by_book_id_filters_by_matched_book_id(db_service):
 
 def test_get_bookfusion_books_by_book_id_returns_all_matches(db_service):
     book = _save_book(db_service, "abs-a", "Book A")
-    db_service.save_bookfusion_book(
-        BookfusionBook(bookfusion_id="bf-a1", title="Catalog A1", matched_book_id=book.id)
-    )
-    db_service.save_bookfusion_book(
-        BookfusionBook(bookfusion_id="bf-a2", title="Catalog A2", matched_book_id=book.id)
-    )
+    db_service.save_bookfusion_book(BookfusionBook(bookfusion_id="bf-a1", title="Catalog A1", matched_book_id=book.id))
+    db_service.save_bookfusion_book(BookfusionBook(bookfusion_id="bf-a2", title="Catalog A2", matched_book_id=book.id))
     result = db_service.get_bookfusion_books_by_book_id(book.id)
     assert {b.bookfusion_id for b in result} == {"bf-a1", "bf-a2"}
 
@@ -221,8 +213,6 @@ def test_get_bookfusion_books_by_book_id_empty(db_service):
 
 def test_get_bookfusion_books_by_book_id_rows_detached_and_usable(db_service):
     book = _save_book(db_service, "abs-a", "Book A")
-    db_service.save_bookfusion_book(
-        BookfusionBook(bookfusion_id="bf-a", title="Catalog A", matched_book_id=book.id)
-    )
+    db_service.save_bookfusion_book(BookfusionBook(bookfusion_id="bf-a", title="Catalog A", matched_book_id=book.id))
     result = db_service.get_bookfusion_books_by_book_id(book.id)
     assert result[0].title == "Catalog A"

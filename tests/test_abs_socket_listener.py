@@ -207,9 +207,7 @@ class TestABSSocketListenerDebounce(unittest.TestCase):
         book = self._make_not_started_book("container-id")
         self.mock_db.get_book_by_abs_id.return_value = book
 
-        with patch.object(
-            listener._status_machine, "transition", return_value={"success": True}
-        ) as mock_transition:
+        with patch.object(listener._status_machine, "transition", return_value={"success": True}) as mock_transition:
             listener._handle_progress_event({"id": "p", "data": {"libraryItemId": "container-id", "progress": 0.10}})
 
         mock_transition.assert_called_once()

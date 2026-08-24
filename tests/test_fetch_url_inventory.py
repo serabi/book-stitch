@@ -69,8 +69,7 @@ def test_fetch_url_inventory_matches_snapshot():
         pytest.skip("Fetch URL inventory snapshot regenerated")
 
     assert SNAPSHOT_PATH.exists(), (
-        f"Missing fetch URL inventory snapshot at {SNAPSHOT_PATH}. "
-        "Regenerate with PAGEKEEPER_UPDATE_SNAPSHOTS=1."
+        f"Missing fetch URL inventory snapshot at {SNAPSHOT_PATH}. Regenerate with PAGEKEEPER_UPDATE_SNAPSHOTS=1."
     )
 
     expected = json.loads(SNAPSHOT_PATH.read_text())

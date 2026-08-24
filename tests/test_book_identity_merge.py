@@ -305,9 +305,7 @@ class TestBookIdentityMerge(unittest.TestCase):
             )
         )
         target = self.db.save_book(Book(abs_id="abs-target-race", title="Target"))
-        self.db.save_state(
-            State(abs_id=source.abs_id, book_id=source.id, client_name="KOReader", percentage=0.25)
-        )
+        self.db.save_state(State(abs_id=source.abs_id, book_id=source.id, client_name="KOReader", percentage=0.25))
         with self.db.get_session() as session:
             changed = session.query(Book).filter(Book.id == source.id).one()
             changed.kosync_doc_id = "d" * 32
@@ -343,9 +341,7 @@ class TestBookIdentityMerge(unittest.TestCase):
                     sync_mode="ebook_only",
                 )
             )
-            self.db.save_state(
-                State(abs_id=source.abs_id, book_id=source.id, client_name="KOReader", percentage=0.25)
-            )
+            self.db.save_state(State(abs_id=source.abs_id, book_id=source.id, client_name="KOReader", percentage=0.25))
 
             app, _ = create_app(test_container=_RouteContainer(self.db, self.temp_dir))
             app.config["TESTING"] = True
@@ -454,9 +450,7 @@ class TestBookIdentityMerge(unittest.TestCase):
             # Canonical identity wins on conflict; null isbn backfilled from target.
             self.assertEqual(hc.hardcover_book_id, "canonical-hc")
             self.assertEqual(hc.isbn, "9781234567890")
-            self.assertEqual(
-                session.query(HardcoverDetails).filter(HardcoverDetails.book_id == target.id).count(), 0
-            )
+            self.assertEqual(session.query(HardcoverDetails).filter(HardcoverDetails.book_id == target.id).count(), 0)
 
             align_rows = session.query(BookAlignment).all()
             self.assertEqual(len(align_rows), 1)
@@ -469,9 +463,7 @@ class TestBookIdentityMerge(unittest.TestCase):
             # last_updated is an onupdate column: the merge touches the row, so it
             # advances to merge time rather than being copied from the target.
             self.assertGreaterEqual(align.last_updated, original_alignment_ts)
-            self.assertEqual(
-                session.query(BookAlignment).filter(BookAlignment.book_id == target.id).count(), 0
-            )
+            self.assertEqual(session.query(BookAlignment).filter(BookAlignment.book_id == target.id).count(), 0)
 
     def test_backfill_null_fields_skips_foreign_keys(self):
         canonical = SimpleNamespace(book_id=None, linked_book_id=None, note=None)

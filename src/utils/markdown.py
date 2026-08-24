@@ -29,6 +29,7 @@ ALLOWED_HTML_ATTRIBUTES = {
     "a": {"href", "title"},
 }
 
+
 def sanitize_html(value):
     if not value:
         return Markup("")

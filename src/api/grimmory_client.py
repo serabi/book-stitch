@@ -189,7 +189,9 @@ class GrimmoryClient:
 
     def _refresh_filename_cache(self, filename):
         identities = self._filename_identities.get(filename, set())
-        books = [self._book_identity_cache[identity] for identity in identities if identity in self._book_identity_cache]
+        books = [
+            self._book_identity_cache[identity] for identity in identities if identity in self._book_identity_cache
+        ]
         if len(books) == 1:
             self._book_cache[filename] = books[0]
         else:
@@ -407,8 +409,7 @@ class GrimmoryClient:
 
             raw_batch_size = len(current_batch)
             is_last_page = isinstance(data, dict) and (
-                data.get("last") is True
-                or (isinstance(data.get("totalPages"), int) and page + 1 >= data["totalPages"])
+                data.get("last") is True or (isinstance(data.get("totalPages"), int) and page + 1 >= data["totalPages"])
             )
 
             if not current_batch:
@@ -793,7 +794,11 @@ class GrimmoryClient:
             if not selected:
                 self._refresh_book_cache()
                 selected = self._book_file_cache.get((str(book_id), str(file_id)))
-            if not selected or str(selected.get("id")) != str(book_id) or str(selected.get("bookFileId")) != str(file_id):
+            if (
+                not selected
+                or str(selected.get("id")) != str(book_id)
+                or str(selected.get("bookFileId")) != str(file_id)
+            ):
                 logger.warning("Grimmory: Refusing download for stale book/file identity %s/%s", book_id, file_id)
                 return None
             url = f"{self.base_url}/api/v1/books/{book_id}/files/{file_id}/download"

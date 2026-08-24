@@ -102,11 +102,7 @@ class GrimmoryAudioSyncClient(GrimmorySyncClient):
         if not self.is_configured():
             return None
         books = self.grimmory_client.get_all_books()
-        states = {
-            source_id: book
-            for book in books or []
-            if (source_id := self.grimmory_client.audio_source_id(book))
-        }
+        states = {source_id: book for book in books or [] if (source_id := self.grimmory_client.audio_source_id(book))}
         return states or None
 
     def get_supported_sync_types(self) -> set:

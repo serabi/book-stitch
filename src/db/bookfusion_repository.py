@@ -76,9 +76,7 @@ class BookFusionRepository(BaseRepository):
 
     def get_bookfusion_highlights(self):
         with self.get_session() as session:
-            query = session.query(BookfusionHighlight).order_by(
-                BookfusionHighlight.book_title, BookfusionHighlight.id
-            )
+            query = session.query(BookfusionHighlight).order_by(BookfusionHighlight.book_title, BookfusionHighlight.id)
             return self._query_and_expunge(session, query, one=False)
 
     def get_unmatched_bookfusion_highlights(self):

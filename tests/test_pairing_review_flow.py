@@ -9,9 +9,7 @@ from src.blueprints.helpers import EbookResult
 from src.services.book_intake_service import IntakeResult
 
 
-def _detected(
-    *, source="abs", source_id="abs-1", ebook_filename=None, matches=None, detected_id=7, media_format=None
-):
+def _detected(*, source="abs", source_id="abs-1", ebook_filename=None, matches=None, detected_id=7, media_format=None):
     return SimpleNamespace(
         id=detected_id,
         source=source,
@@ -166,9 +164,7 @@ def test_review_rejects_ebook_when_kosync_identity_changed(client, mock_containe
     assert "Exact editions verified" not in page
 
 
-def test_manual_companion_picker_keeps_started_grimmory_audiobook(
-    client, mock_container, review_setup
-):
+def test_manual_companion_picker_keeps_started_grimmory_audiobook(client, mock_container, review_setup):
     detected = _detected(
         source="grimmory",
         source_id="2:10:99",
@@ -212,9 +208,7 @@ def test_manual_companion_picker_keeps_started_grimmory_audiobook(
         source="Grimmory 2",
     )
     with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[ebook]):
-        selected = client.get(
-            f"/match?{_review_query(detected, 'grimmory', 'grimmory:2:44:441')}"
-        )
+        selected = client.get(f"/match?{_review_query(detected, 'grimmory', 'grimmory:2:44:441')}")
 
     selected_page = selected.get_data(as_text=True)
     assert selected.status_code == 200
@@ -375,9 +369,7 @@ def test_stale_recommended_edition_clears_candidate_and_recovers_manual_review(c
     review_setup.get_detected_book.return_value = detected
 
     with patch("src.blueprints.matching_bp.get_searchable_ebooks", return_value=[]):
-        response = client.get(
-            f"/match?{_review_query(detected, 'grimmory', 'grimmory:default:99:999')}"
-        )
+        response = client.get(f"/match?{_review_query(detected, 'grimmory', 'grimmory:default:99:999')}")
 
     page = response.get_data(as_text=True)
     assert response.status_code == 409

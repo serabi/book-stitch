@@ -179,7 +179,11 @@ def _effective_media_format(item):
 
 
 def _source_format(source, media_format=None):
-    return "Audiobook" if media_format == "audiobook" or (not media_format and source in {"abs", "abs_audiobook"}) else "Ebook"
+    return (
+        "Audiobook"
+        if media_format == "audiobook" or (not media_format and source in {"abs", "abs_audiobook"})
+        else "Ebook"
+    )
 
 
 def _candidate_source_id(match):
@@ -335,7 +339,8 @@ def _serialize_detected_pairing(detected, members=None):
             (
                 member
                 for member in members
-                if _declared_media_format(member) == "audiobook" and member.source in _AUDIOBOOK_REVIEW_SOURCES
+                if _declared_media_format(member) == "audiobook"
+                and member.source in _AUDIOBOOK_REVIEW_SOURCES
                 or (_declared_media_format(member) == "ebook" and member.source in _EBOOK_REVIEW_SOURCES)
             ),
             detected,
@@ -466,9 +471,7 @@ def _load_pairing_review(container, database_service, values, method="GET"):
     except ValueError:
         return None, "This match link is invalid.", 400, True
 
-    detected = database_service.get_detected_book(
-        values["detected_source_id"], source=values["detected_source"]
-    )
+    detected = database_service.get_detected_book(values["detected_source_id"], source=values["detected_source"])
     if not detected or getattr(detected, "id", None) != detected_id:
         return None, "This detected book is no longer available.", 409, True
     detected_format = _declared_media_format(detected)
@@ -617,9 +620,7 @@ def _exact_review_editions(container, review):
     if not audio:
         return None, "The selected audiobook edition is no longer available."
 
-    ebook_filename = (
-        detected.ebook_filename if ebook_item is detected else candidate.get("filename")
-    )
+    ebook_filename = detected.ebook_filename if ebook_item is detected else candidate.get("filename")
     if not ebook_filename:
         return None, "The selected ebook edition is no longer available."
     ebooks = [ebook for ebook in get_searchable_ebooks(ebook_filename) if ebook.name == ebook_filename]
@@ -639,11 +640,7 @@ def _exact_review_editions(container, review):
     if expected_kosync_id:
         grimmory_book, grimmory_client = find_in_grimmory(ebook_filename, ebook_source_id)
         book_id = grimmory_book.get("id") if grimmory_book else None
-        file_id = (
-            grimmory_book.get("bookFileId")
-            if grimmory_book and grimmory_book.get("isPrimary") is False
-            else None
-        )
+        file_id = grimmory_book.get("bookFileId") if grimmory_book and grimmory_book.get("isPrimary") is False else None
         actual_kosync_id = get_kosync_id_for_ebook(
             ebook_filename,
             book_id,
@@ -766,9 +763,7 @@ def _render_match_page(
         if link_book:
             link_title = link_book.title or link_to
 
-    abs_service, audiobooks, ebooks, storyteller_books = _load_match_resources(
-        container, search, attach_to, link_to
-    )
+    abs_service, audiobooks, ebooks, storyteller_books = _load_match_resources(container, search, attach_to, link_to)
 
     if selected_abs_id and not attach_to and not any(ab["id"] == selected_abs_id for ab in audiobooks):
         selected = next((ab for ab in get_audiobooks_conditionally() if ab["id"] == selected_abs_id), None)

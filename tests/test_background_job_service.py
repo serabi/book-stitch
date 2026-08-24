@@ -666,15 +666,16 @@ class TestPhaseTranscription:
             transcriber=transcriber,
         )
 
-        raw, source, _, _ = service._phase_transcription(
-            book, None, "Test", Path("/tmp/t.epub"), None, Mock()
-        )
+        raw, source, _, _ = service._phase_transcription(book, None, "Test", Path("/tmp/t.epub"), None, Mock())
 
         assert (raw, source) == ("whisper transcript", "WHISPER")
         grimmory_client.get_audio_files.assert_called_once_with("default:10:42")
         abs_client.get_audio_files.assert_not_called()
         transcriber.process_audio.assert_called_once_with(
-            "default:10:42", audio_files, full_book_text="book text", progress_callback=transcriber.process_audio.call_args.kwargs["progress_callback"]
+            "default:10:42",
+            audio_files,
+            full_book_text="book text",
+            progress_callback=transcriber.process_audio.call_args.kwargs["progress_callback"],
         )
 
     def test_smil_failure_falls_back_to_whisper(self):

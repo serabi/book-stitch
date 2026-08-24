@@ -24,6 +24,7 @@ for _mod_name in ("epubcfi",):
     if _mod_name not in sys.modules:
         sys.modules[_mod_name] = ModuleType(_mod_name)
 
+
 def _clean_html_stub(value, tags=None, attributes=None, **kwargs):
     return value
 
@@ -105,6 +106,9 @@ class MockContainer:
         self.mock_libby_client = Mock()
         self.mock_libby_client.is_configured.return_value = False
         self.mock_libby_client.identity_token = None
+        self.mock_libby_sync_client = Mock()
+        self.mock_libby_sync_client.is_configured.return_value = False
+        self.mock_libby_service = Mock()
 
         # ── Services ──
         self.mock_abs_service = MockABSService()
@@ -166,6 +170,12 @@ class MockContainer:
     def libby_client(self):
         return self.mock_libby_client
 
+    def libby_sync_client(self):
+        return self.mock_libby_sync_client
+
+    def libby_service(self):
+        return self.mock_libby_service
+
     def hardcover_service(self):
         return self.mock_hardcover_service
 
@@ -221,9 +231,7 @@ def _reset_app_globals():
 
     tracked = ("container", "manager", "database_service", "SYNC_PERIOD_MINS")
     saved = {name: getattr(app_setup, name) for name in tracked}
-    web_server_baseline = {
-        name: vars(web_server).get(name) for name in (*tracked, "app")
-    }
+    web_server_baseline = {name: vars(web_server).get(name) for name in (*tracked, "app")}
     saved_env = os.environ.copy()
 
     try:

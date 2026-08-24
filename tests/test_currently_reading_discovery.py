@@ -66,9 +66,7 @@ def test_storyteller_activity_surfaces_exact_abs_audiobook_candidate():
     _service(db, abs_client=abs_client, storyteller=storyteller).check_for_suggestions({}, [])
 
     detected = next(
-        call.args[0]
-        for call in db.save_detected_book.call_args_list
-        if call.args[0].source == "storyteller"
+        call.args[0] for call in db.save_detected_book.call_args_list if call.args[0].source == "storyteller"
     )
     assert detected.media_format == "ebook"
     assert [(match["source_key"], match["media_format"]) for match in detected.matches] == [
@@ -166,10 +164,7 @@ def test_grimmory_cover_uses_remote_book_id_not_qualified_file_identity():
         "instance_id": "default",
     }
 
-    assert (
-        SuggestionService._cover_url_for("grimmory", "book.epub", metadata)
-        == "/api/cover-proxy/grimmory/5721"
-    )
+    assert SuggestionService._cover_url_for("grimmory", "book.epub", metadata) == "/api/cover-proxy/grimmory/5721"
 
 
 def test_grimmory_audiobook_detection_uses_exact_book_and_file_identity():
@@ -252,9 +247,7 @@ def test_candidate_ranking_only_keeps_opposite_media_format_and_exact_source_key
         source_media_format="ebook",
     )
 
-    assert [(match["source_key"], match["media_format"]) for match in ranked] == [
-        ("grimmory:2:10:99", "audiobook")
-    ]
+    assert [(match["source_key"], match["media_format"]) for match in ranked] == [("grimmory:2:10:99", "audiobook")]
 
 
 def test_mapped_grimmory_server_does_not_hide_same_filename_on_other_server():
@@ -377,9 +370,7 @@ def test_abs_and_kosync_events_share_detection_window(pct, expected):
     db = _db()
     abs_client = Mock()
     abs_client.get_all_audiobooks.return_value = []
-    abs_client.get_item_details.return_value = {
-        "media": {"metadata": {"title": "Window Book", "authorName": "Reader"}}
-    }
+    abs_client.get_item_details.return_value = {"media": {"metadata": {"title": "Window Book", "authorName": "Reader"}}}
     service = _service(db, abs_client=abs_client)
     service._check_reverse_suggestions = Mock(return_value=[])
     service._check_cross_ebook_suggestions = Mock()
@@ -439,11 +430,7 @@ def test_scheduled_ebook_detection_merges_ranked_abs_and_live_candidates():
 
     _service(db, abs_client=abs_client).check_for_suggestions({}, [])
 
-    detected = next(
-        call.args[0]
-        for call in db.save_detected_book.call_args_list
-        if call.args[0].source == "kosync"
-    )
+    detected = next(call.args[0] for call in db.save_detected_book.call_args_list if call.args[0].source == "kosync")
     source_keys = {match.get("source_key") for match in detected.matches}
     assert source_keys == {"abs:abs-merge", "grimmory:default:Merge Book.epub"}
 

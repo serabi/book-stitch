@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__)
 
-_VALID_SUGGESTION_SOURCES = ("abs", "kosync", "storyteller", "grimmory")
+_VALID_SUGGESTION_SOURCES = ("abs", "kosync", "storyteller", "grimmory", "libby_loan", "libby_hold")
 
 
 # ---------------- Detected Books ----------------
@@ -244,6 +244,32 @@ def rescan_suggestions_status():
     container = get_container()
     status = container.suggestion_service().get_rescan_status()
     return jsonify({"success": True, **status})
+
+
+@api_bp.route("/api/libby/tbr/merge", methods=["POST"])
+def libby_tbr_merge():
+    """Merge reviewed Libby holds into tbr_items (explicit user action)."""
+    payload = request.get_json(silent=True) or {}
+    ids = [int(i) for i in payload.get("ids", []) if str(i).isdigit()]
+    container = get_container()
+    service = getattr(container, "libby_service", None)
+    if service is None:
+        return jsonify({"success": False, "detail": "Libby service unavailable"}), 400
+    merged = service.merge_tbr_items(ids)
+    return jsonify({"success": True, "merged": merged})
+
+
+@api_bp.route("/api/libby/tbr/dismiss", methods=["POST"])
+def libby_tbr_dismiss():
+    """Dismiss reviewed Libby holds without creating TBR items."""
+    payload = request.get_json(silent=True) or {}
+    ids = [int(i) for i in payload.get("ids", []) if str(i).isdigit()]
+    container = get_container()
+    service = getattr(container, "libby_service", None)
+    if service is None:
+        return jsonify({"success": False, "detail": "Libby service unavailable"}), 400
+    dismissed = service.dismiss_tbr_items(ids)
+    return jsonify({"success": True, "dismissed": dismissed})
 
 
 @api_bp.route("/api/suggestions/<source_id>/hide", methods=["POST"])

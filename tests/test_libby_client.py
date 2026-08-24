@@ -317,9 +317,11 @@ class TestDisconnect:
             assert client.disconnect() is True
 
     def test_disconnect_network_failure_is_false(self, client):
+        import requests as requests_lib
+
         with (
             patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}),
-            patch.object(client.session, "post", return_value=None),
+            patch.object(client.session, "post", side_effect=requests_lib.ConnectionError("down")),
         ):
             assert client.disconnect() is False
 
