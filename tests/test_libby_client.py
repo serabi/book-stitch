@@ -44,9 +44,9 @@ class TestPairing:
         assert result["code"] == "87654321"
         # Chip creation hit sentry with the dewey client param
         assert mock_post.call_args.args[0] == "https://sentry.libbyapp.com/chip?client=dewey"
-        # Code generation used the new chip's bearer token
+        # Code generation used the new chip's bearer token via GET (POST 404s)
         gen_call = mock_request.call_args
-        assert gen_call.args[0] == "POST"
+        assert gen_call.args[0] == "GET"
         assert gen_call.args[1].endswith("/chip/clone/code")
         assert gen_call.kwargs["headers"]["Authorization"] == "Bearer new-identity-token"
         # Token was persisted to DB and env

@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 SENTRY_BASE = "https://sentry.libbyapp.com"
 REQUEST_TIMEOUT = 10
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+    "Version/14.0.2 Safari/605.1.15"
+)
 
 
 def _clamp_poll_mins(raw_value, floor=10, default=60):
@@ -37,6 +41,7 @@ class LibbyClient:
         self.db = database_service
         self.env_prefix = env_prefix
         self.session = requests.Session()
+        self.session.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
         self._last_sync_state = None
 
     # ── Configuration ──────────────────────────────────────────────
@@ -141,7 +146,10 @@ class LibbyClient:
             }
         self._persist_setting(f"{self.env_prefix}_IDENTITY_TOKEN", new_token)
 
-        generate_response = self._sentry_request("POST", "/chip/clone/code")
+        # Code generation is a GET against the same endpoint the submit
+        # direction uses; a POST returns 404 (verified live + matches
+        # libby-calibre-plugin).
+        generate_response = self._sentry_request("GET", "/chip/clone/code")
         if generate_response is None:
             self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
             return {"success": False, "error": "network_error", "detail": "Could not reach Libby."}

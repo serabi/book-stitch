@@ -48,15 +48,29 @@ the hostname *is* the credential — those endpoints require no auth header.
 
 ```
 POST https://sentry.libbyapp.com/chip?client=dewey        → identity chip
+GET  https://sentry.libbyapp.com/chip/clone/code          → generate code (authenticated)
 POST https://sentry.libbyapp.com/chip/clone/code          ← pair via 8-digit setup code
-POST https://sentry.libbyapp.com/chip/clone/code          → generate code (authenticated)
+     (body: form-encoded code=NNNNNNNN; JSON body also accepted by pylibby)
 GET  https://sentry.libbyapp.com/chip/sync                → loans, holds, cards, tags
      (also: chip/revoke)
 ```
 
-- Setup codes come from `https://libbyapp.com/interview/authenticate/setup-code`
-  (the Sonos-speaker pairing flow; ~minutes validity)
+- **Code generation is a GET, not a POST** — POSTing `/chip/clone/code`
+  (even authenticated) returns 404. Verified live Aug 2026; matches
+  libby-calibre-plugin (`generate_clone_code` sends no params → its request
+  helper defaults to GET).
+- Two pairing directions share this endpoint:
+  - *Device-generate* (Libby's "Copy To Another Device" on the source
+    device): a paired chip GETs a code; another device submits it.
+  - *Target-generate* (what PageKeeper does): a fresh blank chip GETs a
+    code, the user enters it in their Libby app under Copy To Another
+    Device, and Libby clones the library INTO our chip. Completion is
+    detected by polling `/chip/sync` until `cards` is non-empty.
+  - The Sonos-style web flow at
+    `https://libbyapp.com/interview/authenticate/setup-code` is just the
+    source-device generator wrapped in an interview UI (~minutes validity).
 - All authenticated sentry calls use `Authorization: Bearer {identity}`
+  and a browser-like User-Agent with `Accept: application/json`
 - `/chip/sync` does **not** include checkout history or per-loan progress
 
 ### Circulation (all on sentry, Bearer auth)
