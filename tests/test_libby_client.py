@@ -95,11 +95,14 @@ class TestPairing:
             patch.object(client.session, "request", return_value=make_response(200, state_body)),
         ):
             result = client.check_pairing()
+            assert result["complete"] is True
+            assert result["cards"][0]["library_key"] == "libkey"
+            # Assert env persistence inside the patch.dict scope: exiting it
+            # discards keys written while active.
+            assert os.environ.get("LIBBY_DEVICE_ID")
 
-        assert result["complete"] is True
-        assert result["cards"][0]["library_key"] == "libkey"
-        assert os.environ.get("LIBBY_DEVICE_ID")
-        mock_db.set_setting.assert_any_call("LIBBY_DEVICE_ID", os.environ["LIBBY_DEVICE_ID"])
+        device_calls = [c for c in mock_db.set_setting.call_args_list if c.args[0] == "LIBBY_DEVICE_ID"]
+        assert device_calls and device_calls[0].args[1]
 
 
 class TestSyncState:
