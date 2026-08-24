@@ -11,7 +11,6 @@ from src.utils.logging_utils import sanitize_exception, sanitize_log_data
 logger = logging.getLogger(__name__)
 
 SENTRY_BASE = "https://sentry.libbyapp.com"
-SETUP_CODE_URL = "https://libbyapp.com/interview/authenticate/setup-code"
 REQUEST_TIMEOUT = 10
 
 
@@ -26,10 +25,12 @@ def _clamp_poll_mins(raw_value, floor=10, default=60):
 class LibbyClient:
     """Read-only client for Libby's private sentry/passport APIs.
 
-    Auth model: a long-lived identity token ("chip") obtained by cloning the
-    user's library via an 8-digit setup code. Sentry calls use Bearer auth;
-    passport-session hosts authenticate via the session hash in the URL itself
-    and must NOT receive an Authorization header. See docs/LIBBY.md.
+    Auth model: PageKeeper creates an identity chip ("chip") and shows the
+    user an 8-digit code; the user enters that code in their Libby app
+    (Copy To Another Device) and Libby clones their library into our chip.
+    Sentry calls use Bearer auth; passport-session hosts authenticate via
+    the session hash in the URL itself and must NOT receive an Authorization
+    header. See docs/LIBBY.md.
     """
 
     def __init__(self, database_service=None, env_prefix="LIBBY"):
@@ -103,18 +104,17 @@ class LibbyClient:
 
     # ── Pairing / lifecycle ────────────────────────────────────────
 
-    def pair_with_setup_code(self, code: str) -> dict:
-        """Exchange an 8-digit setup code for an identity chip.
+    def begin_pairing(self) -> dict:
+        """Start the pairing flow: create a fresh identity chip and generate
+        an 8-digit code for the user to enter in their Libby app.
 
-        Returns {"success": True, "identity_token": ..., "cards": [...]} on
-        success, or {"success": False, "error": ..., "detail": ...} on failure
-        where error is one of: invalid_code_format, expired_code,
-        revoked_token, http_error, network_error.
+        The chip stays unpaired (no cards) until the user completes code
+        entry; poll ``check_pairing()`` to detect completion.
+
+        Returns {"success": True, "code": "12345678"} or {"success": False,
+        "error": ..., "detail": ...} where error is http_error or
+        network_error.
         """
-        clean_code = str(code or "").strip()
-        if not (len(clean_code) == 8 and clean_code.isdigit()):
-            return {"success": False, "error": "invalid_code_format", "detail": "Setup code must be 8 digits."}
-
         try:
             response = self.session.post(f"{SENTRY_BASE}/chip?client=dewey", timeout=REQUEST_TIMEOUT)
         except requests.RequestException as e:
@@ -141,43 +141,49 @@ class LibbyClient:
             }
         self._persist_setting(f"{self.env_prefix}_IDENTITY_TOKEN", new_token)
 
-        clone_response = self._sentry_request("POST", "/chip/clone/code", json_body={"code": clean_code})
-        if clone_response is None:
+        generate_response = self._sentry_request("POST", "/chip/clone/code")
+        if generate_response is None:
+            self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
             return {"success": False, "error": "network_error", "detail": "Could not reach Libby."}
 
-        if clone_response.status_code in (401, 403):
+        if generate_response.status_code != 200:
             self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
-            return {
-                "success": False,
-                "error": "revoked_token",
-                "detail": "Libby rejected the pairing session — try again.",
-            }
-        if clone_response.status_code in (400, 404, 410):
-            return {
-                "success": False,
-                "error": "expired_code",
-                "detail": f"That setup code was invalid or has expired — generate a new one at {SETUP_CODE_URL}.",
-            }
-        if clone_response.status_code != 200:
+            logger.error("Libby: clone-code generation returned HTTP %s", generate_response.status_code)
             return {
                 "success": False,
                 "error": "http_error",
-                "detail": f"Pairing failed (HTTP {clone_response.status_code}).",
+                "detail": f"Pairing-code generation failed (HTTP {generate_response.status_code}).",
             }
 
         try:
-            payload = clone_response.json()
+            payload = generate_response.json()
         except ValueError:
             payload = {}
+        code = payload.get("code") if isinstance(payload, dict) else None
+        if not code:
+            self._clear_setting(f"{self.env_prefix}_IDENTITY_TOKEN")
+            return {"success": False, "error": "http_error", "detail": "Libby returned no pairing code."}
 
-        cards = self._extract_cards(payload)
-        self.ensure_device_id()
-        logger.info(
-            "Libby: paired successfully; %d card(s) linked (%s)",
-            len(cards),
-            ", ".join(sanitize_log_data(c.get("name") or "") for c in cards) or "none named",
-        )
-        return {"success": True, "identity_token": new_token, "cards": cards}
+        logger.info("Libby: pairing started; awaiting code entry in the Libby app")
+        return {"success": True, "code": str(code)}
+
+    def check_pairing(self) -> dict:
+        """Check whether the user completed code entry in the Libby app.
+
+        Returns {"complete": bool, "cards": [...]} — complete once the chip
+        reports at least one linked card.
+        """
+        state = self.get_sync_state(force=True)
+        cards = self._extract_cards(state or {})
+        complete = bool(cards)
+        if complete:
+            self.ensure_device_id()
+            logger.info(
+                "Libby: pairing completed; %d card(s) linked (%s)",
+                len(cards),
+                ", ".join(sanitize_log_data(c.get("name") or "") for c in cards) or "none named",
+            )
+        return {"complete": complete, "cards": cards}
 
     def disconnect(self) -> bool:
         """Revoke the identity chip server-side.

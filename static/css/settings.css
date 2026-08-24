@@ -345,6 +345,35 @@ input[aria-invalid="true"] {
   color: var(--color-libby);
 }
 
+.libby-pairing-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px dashed var(--color-libby, #43b78d);
+  border-radius: 10px;
+}
+
+.libby-pairing-label {
+  font-weight: 600;
+}
+
+.libby-pairing-code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 2.2em;
+  letter-spacing: 0.35em;
+  padding-left: 0.35em; /* balance trailing letter-spacing */
+  color: var(--color-libby, #43b78d);
+  user-select: all;
+}
+
+.libby-pairing-status {
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
 .accent-dot-telegram {
   background: var(--color-telegram);
   color: var(--color-telegram);

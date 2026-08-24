@@ -693,17 +693,16 @@
                         <div id="libby_body" class="sub-section-body {% if not libby_enabled %}collapsed{% endif %}">
                             {% if not libby_paired %}
                             <div class="form-group full-width">
-                                <label>Setup Code</label>
-                                <input type="text" id="libby_setup_code" inputmode="numeric" maxlength="8"
-                                    placeholder="8-digit code" autocomplete="off">
-                                <div class="help-text">
-                                    In Libby (web or app), open <code>Menu &gt; Copy to another device</code> or visit
-                                    <a href="https://libbyapp.com/interview/authenticate/setup-code" target="_blank" rel="noopener noreferrer">libbyapp.com/interview/authenticate/setup-code</a>
-                                    to generate an 8-digit code, then paste it here within a few minutes.
+                                <div class="help-text settings-help-inline">
+                                    Click <strong>Connect Libby</strong> to generate a pairing code, then open
+                                    Libby on your phone and choose <em>Copy To Another Device</em> to enter it.
                                 </div>
-                            </div>
-                            <div class="form-group full-width">
                                 <button type="button" class="btn btn-primary" onclick="libbyConnect(this)">Connect Libby</button>
+                                <div id="libby_code_box" class="libby-pairing-box" hidden>
+                                    <span class="libby-pairing-label">Enter this code in Libby:</span>
+                                    <span class="libby-pairing-code" id="libby_pairing_code"></span>
+                                    <span class="libby-pairing-status" id="libby_pairing_status">Waiting for you to enter the code…</span>
+                                </div>
                                 <div class="help-text" id="libby_connect_result"></div>
                             </div>
                             {% else %}
