@@ -16,6 +16,7 @@ from src.api.bookfusion_client import BookFusionClient
 from src.api.cwa_client import CWAClient
 from src.api.grimmory_client import GrimmoryClient, GrimmoryClientGroup
 from src.api.hardcover_client import HardcoverClient
+from src.api.libby_client import LibbyClient
 from src.api.storyteller_api import StorytellerAPIClient
 from src.db.database_service import DatabaseService
 from src.services.abs_service import ABSService
@@ -99,6 +100,8 @@ class Container(containers.DeclarativeContainer):
     )
 
     hardcover_client = providers.Singleton(HardcoverClient)
+
+    libby_client = providers.Singleton(LibbyClient, database_service=database_service)
 
     cwa_client = providers.Singleton(CWAClient)
 
