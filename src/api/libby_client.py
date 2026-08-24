@@ -17,9 +17,13 @@ REQUEST_TIMEOUT = 10
 # endpoints (/open/...) on this and answers client_upgrade_required without
 # it (verified live Aug 2026). Mirrors dewey's acquireChip: c=d:<version>, s=0.
 DEWEY_VERSION = "22.1.0"
+# Chips are bound to the User-Agent they were created with, and the bound
+# UA's browser version gates reader endpoints: a chip created with an old
+# browser UA gets client_upgrade_required on /open/ forever after (verified
+# live Aug 2026). Keep this a CURRENT browser string.
 USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1) AppleWebKit/605.1.15 (KHTML, like Gecko) "
-    "Version/14.0.2 Safari/605.1.15"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/133.0.0.0 Safari/537.36"
 )
 
 
