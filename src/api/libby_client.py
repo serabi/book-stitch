@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import uuid
-from urllib.parse import quote
 
 import requests
 
@@ -357,9 +356,12 @@ class LibbyClient:
                 "library": {"key": library_key or "", "name": library_name or ""},
             },
             "dewey-url": "https://libbyapp.com",
-            "spec": "V31",
+            # Spec value seen in real browser passport traffic (LIBBY.md HARs).
+            "spec": "V22",
         }
-        encoded = base64.b64encode(quote(json.dumps(tdata)).encode()).decode()
+        # dewey's btoa(unescape(encodeURIComponent(json))) nets out to plain
+        # UTF-8 base64 of the JSON string.
+        encoded = base64.b64encode(json.dumps(tdata).encode()).decode()
         path = f"/open/{segment}/card/{card_id}/title/{title_id}?t={encoded}&website_id={website_id or ''}"
         response = self._sentry_request("GET", path)
         if response is None:

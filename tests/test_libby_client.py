@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -72,9 +73,10 @@ class TestPairing:
         assert result["success"] is True
         assert result["cards"][0]["library_key"] == "libkey"
         assert result["cards"][0]["name"] == "My Card"
-        # Token was persisted to DB and env
+        # Token persisted to DB; env check must run inside the patch.dict
+        # scope (exiting it discards keys written while active)
         mock_db.set_setting.assert_any_call("LIBBY_IDENTITY_TOKEN", VALID_TOKEN)
-        assert os.environ.get("LIBBY_IDENTITY_TOKEN") == VALID_TOKEN
+        assert client.identity_token == VALID_TOKEN
         # Device id was generated and persisted
         device_calls = [c for c in mock_db.set_setting.call_args_list if c.args[0] == "LIBBY_DEVICE_ID"]
         assert device_calls and device_calls[0].args[1]
@@ -183,9 +185,18 @@ class TestPassport:
         assert passport["urls"]["possession"].endswith("/_d/possession")
         open_call = mock_request.call_args
         assert open_call.args[0] == "GET"
-        assert open_call.args[1].endswith("/open/audiobook/card/42/title/99")
+        url_arg = open_call.args[1]
+        assert "/open/audiobook/card/42/title/99?" in url_arg
+        assert "website_id=" in url_arg
         # Bearer auth on the sentry open call
         assert open_call.kwargs["headers"]["Authorization"] == "Bearer tok"
+        # tData decodes to codex context with dewey-url and spec
+        t_param = url_arg.split("?t=")[1].split("&")[0]
+        tdata = json.loads(base64.b64decode(t_param))
+        assert tdata["codex"]["title"]["titleId"] == "99"
+        assert tdata["codex"]["loan"]["psnKey"] == "42-99"
+        assert tdata["dewey-url"] == "https://libbyapp.com"
+        assert tdata["spec"] == "V22"
         # Cookie handshake: unauthenticated HEAD to web url with message
         mock_head.assert_called_once_with(
             "https://dewey-abc.read.libbyapp.com/?m=signedblob",
