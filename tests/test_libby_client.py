@@ -69,14 +69,15 @@ class TestPairing:
             patch.object(client.session, "request", return_value=sync_response),
         ):
             result = client.pair_with_identity_token(VALID_TOKEN)
+            # Env check must run inside the patch.dict scope — exiting it
+            # discards keys written while active.
+            assert client.identity_token == VALID_TOKEN
 
         assert result["success"] is True
         assert result["cards"][0]["library_key"] == "libkey"
         assert result["cards"][0]["name"] == "My Card"
-        # Token persisted to DB; env check must run inside the patch.dict
-        # scope (exiting it discards keys written while active)
+        # Token persisted to DB
         mock_db.set_setting.assert_any_call("LIBBY_IDENTITY_TOKEN", VALID_TOKEN)
-        assert client.identity_token == VALID_TOKEN
         # Device id was generated and persisted
         device_calls = [c for c in mock_db.set_setting.call_args_list if c.args[0] == "LIBBY_DEVICE_ID"]
         assert device_calls and device_calls[0].args[1]
