@@ -556,3 +556,81 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
+
+/* ─── Libby pairing ─── */
+function libbyConnect(btn) {
+    var originalText = btn.textContent;
+    var codeInput = document.getElementById('libby_setup_code');
+    var result = document.getElementById('libby_connect_result');
+    var code = (codeInput ? codeInput.value : '').trim();
+    btn.textContent = 'Connecting...';
+    btn.disabled = true;
+    result.textContent = '';
+    result.classList.remove('field-error');
+    fetch('/api/libby/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code })
+    })
+        .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
+        .then(function(resp) {
+            if (!resp.data.success) {
+                btn.textContent = originalText;
+                btn.disabled = false;
+                result.textContent = resp.data.detail || 'Pairing failed.';
+                result.className = 'help-text field-error';
+                return;
+            }
+            var cards = resp.data.cards || [];
+            var lines = cards.map(function(c) {
+                return '\u2022 ' + (c.name || c.id) + (c.library ? ' \u2014 ' + c.library : '');
+            });
+            PKModal.alert({
+                title: 'Libby Connected',
+                message: cards.length
+                    ? 'Linked card(s):\n' + lines.join('\n')
+                    : 'Paired successfully. No cards reported.',
+                preserveWhitespace: true
+            });
+            window.location.reload();
+        })
+        .catch(function() {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            result.textContent = 'Error reaching Libby.';
+            result.className = 'help-text field-error';
+        });
+}
+
+function libbyDisconnect(btn) {
+    var doDisconnect = function() {
+        btn.disabled = true;
+        btn.textContent = 'Disconnecting...';
+        fetch('/api/libby/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Disconnect';
+                    var result = document.getElementById('libby_connect_result');
+                    if (result) {
+                        result.textContent = data.detail || 'Disconnect failed.';
+                        result.className = 'help-text field-error';
+                    }
+                }
+            })
+            .catch(function() {
+                btn.disabled = false;
+                btn.textContent = 'Disconnect';
+            });
+    };
+    PKModal.confirm({
+        title: 'Disconnect Libby',
+        message: "This revokes the PageKeeper identity chip on Libby's servers and clears the stored token. Continue?",
+        confirmLabel: 'Disconnect',
+        confirmClass: 'btn btn-danger',
+        onConfirm: doDisconnect
+    });
+}

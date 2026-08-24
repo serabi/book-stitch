@@ -117,6 +117,15 @@
                     </svg>
                     Hardcover
                         </button>
+
+                        <button type="button" class="sidebar-tab" role="tab" id="tab-libby" aria-selected="false" aria-controls="panel-libby" onclick="switchTab('libby')" data-tab="libby">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                        <circle cx="12" cy="10" r="2.5"/>
+                    </svg>
+                    Libby
+                        </button>
                     </div>
 
                     <div class="settings-nav-group">
@@ -670,9 +679,55 @@
                     </div>
                 </div>
 
-                <!-- ─── Telegram ─── -->
-                <div class="tab-panel" id="panel-telegram" role="tabpanel" aria-labelledby="tab-telegram" aria-hidden="true" hidden>
+                <!-- ─── Libby ─── -->
+                <div class="tab-panel" id="panel-libby" role="tabpanel" aria-labelledby="tab-libby" aria-hidden="true" hidden>
                     <div class="panel-header">
+                        <h2>Libby</h2>
+                        <p>Sync reading progress from your Libby (OverDrive) loans — ebooks and audiobooks.</p>
+                    </div>
+
+                    {% set libby_paired = get_val('LIBBY_IDENTITY_TOKEN') != '' %}
+                    {% set libby_enabled = get_bool('LIBBY_ENABLED') or (libby_paired and get_val('LIBBY_ENABLED') == '') %}
+                    <div class="sub-section">
+                        {{ service_header('accent-dot-libby', 'Libby (OverDrive)', 'LIBBY_ENABLED', libby_enabled, 'libby_body', 'libby') }}
+                        <div id="libby_body" class="sub-section-body {% if not libby_enabled %}collapsed{% endif %}">
+                            {% if not libby_paired %}
+                            <div class="form-group full-width">
+                                <label>Setup Code</label>
+                                <input type="text" id="libby_setup_code" inputmode="numeric" maxlength="8"
+                                    placeholder="8-digit code" autocomplete="off">
+                                <div class="help-text">
+                                    In Libby (web or app), open <code>Menu &gt; Copy to another device</code> or visit
+                                    <a href="https://libbyapp.com/interview/authenticate/setup-code" target="_blank" rel="noopener noreferrer">libbyapp.com/interview/authenticate/setup-code</a>
+                                    to generate an 8-digit code, then paste it here within a few minutes.
+                                </div>
+                            </div>
+                            <div class="form-group full-width">
+                                <button type="button" class="btn btn-primary" onclick="libbyConnect(this)">Connect Libby</button>
+                                <div class="help-text" id="libby_connect_result"></div>
+                            </div>
+                            {% else %}
+                            <div class="form-group full-width">
+                                <div class="help-text settings-help-inline">
+                                    PageKeeper is paired with your Libby account via a revocable identity chip
+                                    (same mechanism as the Sonos pairing flow). Positions are read-only — nothing
+                                    is ever written back to Libby.
+                                </div>
+                                <button type="button" class="btn btn-danger" onclick="libbyDisconnect(this)">Disconnect</button>
+                                <div class="help-text" id="libby_connect_result"></div>
+                            </div>
+                            {% endif %}
+                            <div class="form-group">
+                                <label>Poll Interval (minutes)</label>
+                                <input type="number" name="LIBBY_POLL_MINS" min="10" value="{{ get_val('LIBBY_POLL_MINS', '60') }}">
+                                <div class="help-text">Minimum 10. Libby is polled at most this often; lower values increase request volume.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── Telegram ─── -->
+                <div class="tab-panel" id="panel-telegram" role="tabpanel" aria-labelledby="tab-telegram" aria-hidden="true" hidden>                    <div class="panel-header">
                         <h2>Telegram</h2>
                         <p>Send log notifications to a Telegram chat.</p>
                     </div>

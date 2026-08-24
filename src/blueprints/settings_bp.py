@@ -61,6 +61,7 @@ BOOL_SETTING_KEYS = [
     "INSTANT_SYNC_ENABLED",
     "ABS_SOCKET_ENABLED",
     "BOOKFUSION_ENABLED",
+    "LIBBY_ENABLED",
 ]
 
 
@@ -292,6 +293,38 @@ def get_secret(key):
     return jsonify({"value": value, "present": bool(value)})
 
 
+@settings_bp.route("/api/libby/connect", methods=["POST"])
+def libby_connect():
+    """Pair with Libby using an 8-digit setup code; stores the identity chip."""
+    payload = request.get_json(silent=True) or {}
+    code = str(payload.get("code", "")).strip()
+    if len(code) != 8 or not code.isdigit():
+        return jsonify({"success": False, "detail": "Enter the 8-digit code from Libby."}), 400
+
+    client = get_container().libby_client()
+    result = client.pair_with_setup_code(code)
+    if not result.get("success"):
+        return jsonify({"success": False, "detail": result.get("detail", "Pairing failed.")}), 400
+    return jsonify({"success": True, "cards": result.get("cards", [])})
+
+
+@settings_bp.route("/api/libby/disconnect", methods=["POST"])
+def libby_disconnect():
+    """Revoke the Libby identity chip and clear stored credentials."""
+    client = get_container().libby_client()
+    if not client.disconnect():
+        return (
+            jsonify({"success": False, "detail": "Could not confirm revocation with Libby — not clearing local settings."}),
+            502,
+        )
+    client.clear_credentials()
+    database_service = get_database_service()
+    database_service.set_setting("LIBBY_ENABLED", "false")
+    os.environ["LIBBY_ENABLED"] = "false"
+    load_settings(database_service)
+    return jsonify({"success": True})
+
+
 @settings_bp.route("/api/kosync/test", methods=["POST"])
 def test_kosync_connection():
     """Test connection to the configured KoSync server (legacy route)."""
@@ -312,6 +345,7 @@ def test_connection(service):
         "telegram": _test_telegram,
         "bookfusion": _test_bookfusion,
         "bookfusion_upload": _test_bookfusion_upload,
+        "libby": _test_libby,
     }
     tester = testers.get(service)
     if not tester:
@@ -554,3 +588,14 @@ def _test_bookfusion_upload() -> tuple[bool, str]:
     return client.check_upload_connection(
         api_key_override=_request_value("api_key", "BOOKFUSION_UPLOAD_API_KEY", secret=True)
     )
+
+
+def _test_libby() -> tuple[bool, str]:
+    client = get_container().libby_client()
+    if not client.identity_token:
+        return False, "Not paired — connect with a setup code first"
+    if client.check_connection():
+        state = client.get_sync_state() or {}
+        cards = len(state.get("cards") or [])
+        return True, f"Connected ({cards} card(s))"
+    return False, "Libby rejected the stored identity — reconnect required"
