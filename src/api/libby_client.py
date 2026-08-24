@@ -1,6 +1,9 @@
+import base64
+import json
 import logging
 import os
 import uuid
+from urllib.parse import quote
 
 import requests
 
@@ -10,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 SENTRY_BASE = "https://sentry.libbyapp.com"
 REQUEST_TIMEOUT = 10
+# Client version declared when acquiring a chip; Libby gates heavier
+# endpoints (/open/...) on this and answers client_upgrade_required without
+# it (verified live Aug 2026). Mirrors dewey's acquireChip: c=d:<version>, s=0.
+DEWEY_VERSION = "22.1.0"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1) AppleWebKit/605.1.15 (KHTML, like Gecko) "
     "Version/14.0.2 Safari/605.1.15"
@@ -39,7 +46,13 @@ class LibbyClient:
         self.db = database_service
         self.env_prefix = env_prefix
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
+        self.session.headers.update(
+            {
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+                "Referer": "https://libbyapp.com/",
+            }
+        )
         self._last_sync_state = None
 
     # ── Configuration ──────────────────────────────────────────────
@@ -187,10 +200,11 @@ class LibbyClient:
     def _create_chip(self, authenticated: bool = False) -> str | None:
         """POST /chip for a fresh identity token. With authenticated=True the
         call rotates an existing paired chip's token instead of making a
-        blank one."""
+        blank one. The c/s query params declare the client version — Libby
+        rejects versionless chips on reader endpoints."""
         try:
             response = self.session.post(
-                f"{SENTRY_BASE}/chip?client=dewey",
+                f"{SENTRY_BASE}/chip?client=dewey&c=d:{DEWEY_VERSION}&s=0",
                 timeout=REQUEST_TIMEOUT,
                 headers={"Authorization": f"Bearer {self.identity_token}"} if authenticated else {},
             )
@@ -255,7 +269,8 @@ class LibbyClient:
                     "id": str(card_id),
                     "name": card.get("cardName") or "",
                     "library": library.get("name") or "",
-                    "library_key": card.get("advantageKey") or library.get("websiteId") or "",
+                    "website_id": library.get("websiteId") or "",
+                    "library_key": card.get("advantageKey") or "",
                 }
             )
         return cards
@@ -335,23 +350,51 @@ class LibbyClient:
             return "magazine"
         return "book"
 
-    def get_passport(self, card_id, title_id, media_type: str = "book") -> dict | None:
-        """Open a loan's reader session; returns {urls, message, expires, ...}.
+    def get_passport(
+        self,
+        card_id,
+        title_id,
+        media_type: str = "book",
+        website_id: str | None = None,
+        library_name: str | None = None,
+        library_key: str | None = None,
+    ) -> dict | None:
+        """Open a loan's reader session (a "dervish passport").
 
-        Endpoint is GET /open/{type}/card/{cardId}/title/{titleId} — no
-        tData query params. The response includes a signed ``message`` that
-        must be presented to {urls.web}?{message} (unauthenticated HEAD) so
-        the reader host sets the session cookie used by possession reads.
+        Mirrors dewey's fetchDervishPassport: GET /open/{type}/card/
+        {cardId}/title/{titleId}?t={base64 tData}&website_id={card library
+        websiteId}. The tData blob carries codex context (loan psnKey,
+        library), the shell root URI, and the current client spec — the
+        server rejects requests whose spec/version look stale.
         """
+        if not website_id or not library_key:
+            for card in self._extract_cards(self.get_sync_state() or {}):
+                if card["id"] == str(card_id):
+                    website_id = website_id or card.get("website_id")
+                    library_name = library_name or card.get("library")
+                    library_key = library_key or card.get("library_key")
+                    break
+
         segment = self._media_type_path(media_type)
-        path = f"/open/{segment}/card/{card_id}/title/{title_id}"
+        psn_key = f"{card_id}-{title_id}"
+        tdata = {
+            "codex": {
+                "title": {"titleId": str(title_id), "format": media_type},
+                "loan": {"psnKey": psn_key, "slug": psn_key},
+                "library": {"key": library_key or "", "name": library_name or ""},
+            },
+            "dewey-url": "https://libbyapp.com",
+            "spec": "V31",
+        }
+        encoded = base64.b64encode(quote(json.dumps(tdata)).encode()).decode()
+        path = f"/open/{segment}/card/{card_id}/title/{title_id}?t={encoded}&website_id={website_id or ''}"
         response = self._sentry_request("GET", path)
         if response is None:
             return None
         if response.status_code != 200:
             logger.error(
                 "Libby: passport request for %s returned HTTP %s",
-                sanitize_log_data(f"{card_id}-{title_id}"),
+                sanitize_log_data(psn_key),
                 response.status_code,
             )
             return None
