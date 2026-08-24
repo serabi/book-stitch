@@ -29,6 +29,7 @@ _UNSET = object()
 class KoSyncOwnershipConflict(Exception):
     """A KoSync document is already or ambiguously owned by another Book."""
 
+
 _BOOK_MERGE_METADATA_ATTRS = (
     "title",
     "author",
@@ -414,11 +415,7 @@ class BookRepository(BaseRepository):
         """
         backfilled = []
         for column in model.__table__.columns:
-            if (
-                column.primary_key
-                or column.foreign_keys
-                or column.name in self._MOVE_UNIQUE_CHILD_SKIP_COLUMNS
-            ):
+            if column.primary_key or column.foreign_keys or column.name in self._MOVE_UNIQUE_CHILD_SKIP_COLUMNS:
                 continue
             if column.onupdate is not None:
                 continue
@@ -476,7 +473,10 @@ class BookRepository(BaseRepository):
             except IntegrityError:
                 session.rollback()
                 if not snapshot["book_id"] and not snapshot["abs_id"]:
-                    logger.warning("save_state could not resolve abs_id '%s' to a book after conflict — skipping", snapshot["abs_id"])
+                    logger.warning(
+                        "save_state could not resolve abs_id '%s' to a book after conflict — skipping",
+                        snapshot["abs_id"],
+                    )
                     return None
 
                 lookup = self._snapshot_lookup_filters(snapshot)
@@ -660,10 +660,7 @@ class BookRepository(BaseRepository):
     def get_failed_jobs(self, limit=20):
         with self.get_session() as session:
             db_query = (
-                session.query(Job)
-                .filter(Job.last_error.isnot(None))
-                .order_by(Job.last_attempt.desc())
-                .limit(limit)
+                session.query(Job).filter(Job.last_error.isnot(None)).order_by(Job.last_attempt.desc()).limit(limit)
             )
             return self._query_and_expunge(session, db_query, one=False)
 

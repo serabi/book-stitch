@@ -78,12 +78,8 @@ def test_save_grimmory_book_no_duplicate_on_repeated_save(repository):
 
 
 def test_get_all_grimmory_books_none_returns_all_servers(repository):
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="a.epub", title="A", server_id="server-a")
-    )
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="b.epub", title="B", server_id="server-b")
-    )
+    repository.save_grimmory_book(GrimmoryBook(filename="a.epub", title="A", server_id="server-a"))
+    repository.save_grimmory_book(GrimmoryBook(filename="b.epub", title="B", server_id="server-b"))
 
     rows = repository.get_all_grimmory_books()
 
@@ -94,12 +90,8 @@ def test_get_all_grimmory_books_none_returns_all_servers(repository):
 
 
 def test_get_all_grimmory_books_filters_by_server_id(repository):
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="a.epub", title="A", server_id="server-a")
-    )
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="b.epub", title="B", server_id="server-b")
-    )
+    repository.save_grimmory_book(GrimmoryBook(filename="a.epub", title="A", server_id="server-a"))
+    repository.save_grimmory_book(GrimmoryBook(filename="b.epub", title="B", server_id="server-b"))
 
     rows = repository.get_all_grimmory_books(server_id="server-a")
 
@@ -108,12 +100,8 @@ def test_get_all_grimmory_books_filters_by_server_id(repository):
 
 
 def test_get_all_grimmory_books_empty_string_filters_not_returns_all(repository):
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="empty.epub", title="Empty", server_id="")
-    )
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="named.epub", title="Named", server_id="server-a")
-    )
+    repository.save_grimmory_book(GrimmoryBook(filename="empty.epub", title="Empty", server_id=""))
+    repository.save_grimmory_book(GrimmoryBook(filename="named.epub", title="Named", server_id="server-a"))
 
     rows = repository.get_all_grimmory_books(server_id="")
 
@@ -122,9 +110,7 @@ def test_get_all_grimmory_books_empty_string_filters_not_returns_all(repository)
 
 
 def test_get_all_grimmory_books_missing_server_returns_empty(repository):
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="a.epub", title="A", server_id="server-a")
-    )
+    repository.save_grimmory_book(GrimmoryBook(filename="a.epub", title="A", server_id="server-a"))
 
     assert repository.get_all_grimmory_books(server_id="absent") == []
 
@@ -150,12 +136,8 @@ def test_get_all_grimmory_books_rows_detached_after_session_close(repository):
 
 
 def test_save_grimmory_book_distinguishes_by_server_id(repository):
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="shared.epub", title="Server A", server_id="a")
-    )
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="shared.epub", title="Server B", server_id="b")
-    )
+    repository.save_grimmory_book(GrimmoryBook(filename="shared.epub", title="Server A", server_id="a"))
+    repository.save_grimmory_book(GrimmoryBook(filename="shared.epub", title="Server B", server_id="b"))
 
     assert repository.get_grimmory_book("shared.epub", server_id="a").title == "Server A"
     assert repository.get_grimmory_book("shared.epub", server_id="b").title == "Server B"
@@ -176,9 +158,7 @@ def test_remote_identity_retains_same_filename_rows_and_deletes_exactly_one(repo
 
     assert repository.get_grimmory_book("shared.m4b", server_id="test") is None
     assert repository.get_grimmory_book_by_remote_id("10", "41", server_id="test").title == "Book 10"
-    assert repository.delete_grimmory_book(
-        "shared.m4b", server_id="test", book_id="10", file_id="41"
-    )
+    assert repository.delete_grimmory_book("shared.m4b", server_id="test", book_id="10", file_id="41")
     rows = repository.get_all_grimmory_books(server_id="test")
     assert [(row.remote_book_id, row.remote_file_id) for row in rows] == [("20", "42")]
 
@@ -232,9 +212,7 @@ def test_bulk_reconcile_upserts_snapshot_and_prunes_stale_exact_rows(repository)
 
 @pytest.mark.parametrize("raw_metadata", ["not-json", "[]"])
 def test_bulk_reconcile_prunes_malformed_legacy_rows(repository, raw_metadata):
-    repository.save_grimmory_book(
-        GrimmoryBook(filename="stale.epub", server_id="test", raw_metadata=raw_metadata)
-    )
+    repository.save_grimmory_book(GrimmoryBook(filename="stale.epub", server_id="test", raw_metadata=raw_metadata))
 
     repository.reconcile_grimmory_books("test", [])
 

@@ -40,7 +40,9 @@ SOURCE_EFFECTS = {
     "local": TransitionSideEffects(),
     "auto_complete": TransitionSideEffects(push_grimmory=False),
     "completion_sync": TransitionSideEffects(push_hardcover=False),
-    "manual_progress": TransitionSideEffects(journal=False, push_hardcover=False, cleanup_tbr=False, push_grimmory=False),
+    "manual_progress": TransitionSideEffects(
+        journal=False, push_hardcover=False, cleanup_tbr=False, push_grimmory=False
+    ),
 }
 
 

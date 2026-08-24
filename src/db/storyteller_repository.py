@@ -81,13 +81,10 @@ class StorytellerRepository(BaseRepository):
                 .subquery()
             )
 
-            query = (
-                session.query(StorytellerSubmission)
-                .join(
-                    latest,
-                    (StorytellerSubmission.book_id == latest.c.book_id)
-                    & (StorytellerSubmission.submitted_at == latest.c.max_ts),
-                )
+            query = session.query(StorytellerSubmission).join(
+                latest,
+                (StorytellerSubmission.book_id == latest.c.book_id)
+                & (StorytellerSubmission.submitted_at == latest.c.max_ts),
             )
             rows = self._query_and_expunge(session, query, one=False)
 

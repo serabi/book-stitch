@@ -33,9 +33,7 @@ def _save_book(db_service, abs_id="book-1", title="Title", author="Author"):
 
 
 def _save_job(db_service, book, last_attempt, **kwargs):
-    return db_service.save_job(
-        Job(abs_id=book.abs_id, book_id=book.id, last_attempt=last_attempt, **kwargs)
-    )
+    return db_service.save_job(Job(abs_id=book.abs_id, book_id=book.id, last_attempt=last_attempt, **kwargs))
 
 
 # ── update_book_metadata_overrides ──
@@ -58,9 +56,7 @@ def test_updates_title_and_author_overrides_independently(db_service):
 
 def test_unset_preserves_existing_override(db_service):
     book = _save_book(db_service)
-    db_service.update_book_metadata_overrides(
-        book.id, title_override="Keep Title", author_override="Keep Author"
-    )
+    db_service.update_book_metadata_overrides(book.id, title_override="Keep Title", author_override="Keep Author")
 
     updated = db_service.update_book_metadata_overrides(book.id, author_override="Changed Author")
 

@@ -382,9 +382,7 @@ class TestReadingTrackerModels(unittest.TestCase):
     def test_update_reading_journal_updates_created_at_only(self):
         """Passing only created_at updates the timestamp and leaves entry intact."""
         book = self._create_book()
-        j = self.db.add_reading_journal(
-            book.id, event="note", entry="keep", created_at=datetime(2026, 1, 1, 0, 0, 0)
-        )
+        j = self.db.add_reading_journal(book.id, event="note", entry="keep", created_at=datetime(2026, 1, 1, 0, 0, 0))
 
         new_dt = datetime(2026, 2, 2, 12, 30, 0)
         updated = self.db.update_reading_journal(j.id, created_at=new_dt)
@@ -394,9 +392,7 @@ class TestReadingTrackerModels(unittest.TestCase):
     def test_update_reading_journal_updates_both(self):
         """Passing both entry and created_at updates both fields."""
         book = self._create_book()
-        j = self.db.add_reading_journal(
-            book.id, event="note", entry="old", created_at=datetime(2026, 1, 1, 0, 0, 0)
-        )
+        j = self.db.add_reading_journal(book.id, event="note", entry="old", created_at=datetime(2026, 1, 1, 0, 0, 0))
 
         new_dt = datetime(2026, 3, 3, 9, 0, 0)
         updated = self.db.update_reading_journal(j.id, entry="new", created_at=new_dt)
@@ -431,9 +427,7 @@ class TestReadingTrackerModels(unittest.TestCase):
     def test_update_reading_journal_detached_after_session_close(self):
         """Returned journal is usable after the session has closed."""
         book = self._create_book()
-        j = self.db.add_reading_journal(
-            book.id, event="note", entry="old", created_at=datetime(2026, 1, 1, 0, 0, 0)
-        )
+        j = self.db.add_reading_journal(book.id, event="note", entry="old", created_at=datetime(2026, 1, 1, 0, 0, 0))
 
         updated = self.db.update_reading_journal(j.id, entry="detached")
         # Accessing attributes after the session closed must not raise DetachedInstanceError.

@@ -467,9 +467,7 @@ class BookFusionClient:
         while True:
             data = self.fetch_highlights(cursor=cursor, bookfusion_id=target_id)
             pages = data.get("pages") or []
-            result = self._process_highlight_pages(
-                pages, db_service, bookfusion_id=target_id, save_books=False
-            )
+            result = self._process_highlight_pages(pages, db_service, bookfusion_id=target_id, save_books=False)
             total_new += result["new_highlights"]
             all_new_ids.extend(result["new_ids"])
             for book in result.get("books", []):

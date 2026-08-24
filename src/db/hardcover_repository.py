@@ -64,7 +64,9 @@ class HardcoverRepository(BaseRepository):
                     | (HardcoverSyncLog.detail.ilike(like))
                     | (HardcoverSyncLog.error_message.ilike(like))
                 )
-            items, total = self._paginate(query.order_by(HardcoverSyncLog.created_at.desc()), page=page, per_page=per_page)
+            items, total = self._paginate(
+                query.order_by(HardcoverSyncLog.created_at.desc()), page=page, per_page=per_page
+            )
             return self._expunge_items(session, items), total
 
     def prune_hardcover_sync_logs(self, before_date):
