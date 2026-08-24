@@ -102,6 +102,9 @@ class MockContainer:
         self.mock_bookfusion_client.is_configured.return_value = False
         self.mock_bookfusion_client.highlights_api_key = ""
         self.mock_bookfusion_client.upload_api_key = ""
+        self.mock_libby_client = Mock()
+        self.mock_libby_client.is_configured.return_value = False
+        self.mock_libby_client.identity_token = None
 
         # ── Services ──
         self.mock_abs_service = MockABSService()
@@ -159,6 +162,9 @@ class MockContainer:
 
     def hardcover_client(self):
         return self.mock_hardcover_client
+
+    def libby_client(self):
+        return self.mock_libby_client
 
     def hardcover_service(self):
         return self.mock_hardcover_service

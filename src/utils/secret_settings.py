@@ -19,6 +19,8 @@ SECRET_SETTING_KEYS = frozenset(
         "DEEPGRAM_API_KEY",
         "BOOKFUSION_API_KEY",
         "BOOKFUSION_UPLOAD_API_KEY",
+        "LIBBY_IDENTITY_TOKEN",
+        "LIBBY_SYNC_TOKEN",
     }
 )
 

@@ -256,6 +256,22 @@
     "kind": "api"
   },
   {
+    "rule": "/api/libby/connect",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "settings_page.libby_connect",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/libby/disconnect",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "settings_page.libby_disconnect",
+    "kind": "api"
+  },
+  {
     "rule": "/api/logs",
     "methods": [
       "GET"
