@@ -1,5 +1,3 @@
-import base64
-import json
 import logging
 import os
 import uuid
@@ -236,7 +234,11 @@ class LibbyClient:
 
     @staticmethod
     def _extract_cards(sync_payload: dict) -> list[dict]:
-        """Normalize linked cards from any /chip payload shape."""
+        """Normalize linked cards from a /chip payload.
+
+        Real card shape: {cardId, cardName, advantageKey, library: {name,
+        websiteId, ...}, ...}.
+        """
         raw_cards = sync_payload.get("cards") if isinstance(sync_payload, dict) else None
         if not isinstance(raw_cards, list):
             return []
@@ -244,16 +246,16 @@ class LibbyClient:
         for card in raw_cards:
             if not isinstance(card, dict):
                 continue
-            card_id = card.get("id") or card.get("cardId")
+            card_id = card.get("cardId") or card.get("id")
             if card_id is None:
                 continue
             library = card.get("library") if isinstance(card.get("library"), dict) else {}
             cards.append(
                 {
                     "id": str(card_id),
-                    "name": card.get("name") or card.get("niceName") or "",
+                    "name": card.get("cardName") or "",
                     "library": library.get("name") or "",
-                    "library_key": library.get("key") or "",
+                    "library_key": card.get("advantageKey") or library.get("websiteId") or "",
                 }
             )
         return cards
@@ -281,8 +283,11 @@ class LibbyClient:
     def get_active_loans(self) -> list[dict]:
         """Return normalized active loans from the last sync state.
 
+        Real loan shape is FLAT: {id, cardId, title (string),
+        firstCreatorName, type: {id}, expireDate, websiteId, ...}.
+
         Each entry: {psn_key, card_id, title_id, title, authors, format,
-        isbn, expires, library_key}.
+        isbn, expires, library_key, media_type}.
         """
         state = self.get_sync_state()
         if not state:
@@ -291,28 +296,25 @@ class LibbyClient:
         for loan in state.get("loans") or []:
             if not isinstance(loan, dict):
                 continue
-            card = loan.get("card") if isinstance(loan.get("card"), dict) else {}
-            card_id = loan.get("cardId") or card.get("id")
-            title_info = loan.get("title") if isinstance(loan.get("title"), dict) else {}
-            title_id = loan.get("titleId") or title_info.get("id")
+            card_id = loan.get("cardId")
+            title_id = loan.get("id")
             if card_id is None or title_id is None:
                 continue
-            library = card.get("library") if isinstance(card.get("library"), dict) else {}
+            media_type = (loan.get("type") or {}).get("id") if isinstance(loan.get("type"), dict) else None
             loans.append(
                 {
                     "psn_key": f"{card_id}-{title_id}",
                     "card_id": str(card_id),
                     "title_id": str(title_id),
-                    "title": title_info.get("name") or title_info.get("title"),
-                    "authors": ", ".join(
-                        a.get("name", "") for a in title_info.get("authors") or [] if isinstance(a, dict)
-                    ),
-                    "format": title_info.get("type", {}).get("id")
-                    if isinstance(title_info.get("type"), dict)
-                    else None,
-                    "isbn": self._extract_isbn(title_info),
-                    "expires": loan.get("expires"),
-                    "library_key": library.get("key") or "",
+                    "title": loan.get("title"),
+                    "authors": loan.get("firstCreatorName") or "",
+                    "format": media_type,
+                    # Loans carry no ISBN directly; resolved in the matching
+                    # layer via metadata/spine lookups.
+                    "isbn": None,
+                    "expires": loan.get("expireDate") or loan.get("expires"),
+                    "library_key": loan.get("websiteId") or "",
+                    "media_type": self._media_type_path(media_type),
                 }
             )
         return loans
@@ -325,37 +327,25 @@ class LibbyClient:
         return [h for h in state.get("holds") or [] if isinstance(h, dict)]
 
     @staticmethod
-    def _extract_isbn(title_info: dict) -> str | None:
-        for key in ("isbn", "ISBN"):
-            value = title_info.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-            if isinstance(value, dict):
-                for sub in ("value", "isbn"):
-                    inner = value.get(sub)
-                    if isinstance(inner, str) and inner.strip():
-                        return inner.strip()
-        return None
+    def _media_type_path(media_type: str | None) -> str:
+        """Map a Libby type id onto the /open/{segment}/ URL segment."""
+        if media_type == "audiobook":
+            return "audiobook"
+        if media_type == "magazine":
+            return "magazine"
+        return "book"
 
-    def get_passport(self, card_id, title_id, library_key: str | None = None) -> dict | None:
-        """Issue a reader passport for a loan; returns {urls, expires, leeway, ...}."""
-        if not library_key:
-            for loan in self.get_active_loans():
-                if loan["card_id"] == str(card_id) and loan["title_id"] == str(title_id):
-                    library_key = loan.get("library_key")
-                    break
-        tdata = {
-            "codex": {
-                "title": {"titleId": str(title_id)},
-                "loan": {"psnKey": f"{card_id}-{title_id}"},
-                "library": {"key": library_key or ""},
-            },
-            "spec": "V22",
-            "locale": "en",
-        }
-        encoded = base64.b64encode(json.dumps(tdata).encode()).decode()
-        path = f"/open/book/card/{card_id}/title/{title_id}?t={encoded}&website_id={library_key or ''}"
-        response = self._sentry_request("GET", path, bearer=False)
+    def get_passport(self, card_id, title_id, media_type: str = "book") -> dict | None:
+        """Open a loan's reader session; returns {urls, message, expires, ...}.
+
+        Endpoint is GET /open/{type}/card/{cardId}/title/{titleId} — no
+        tData query params. The response includes a signed ``message`` that
+        must be presented to {urls.web}?{message} (unauthenticated HEAD) so
+        the reader host sets the session cookie used by possession reads.
+        """
+        segment = self._media_type_path(media_type)
+        path = f"/open/{segment}/card/{card_id}/title/{title_id}"
+        response = self._sentry_request("GET", path)
         if response is None:
             return None
         if response.status_code != 200:
@@ -366,10 +356,21 @@ class LibbyClient:
             )
             return None
         try:
-            return response.json()
+            passport = response.json()
         except ValueError as e:
             logger.error("Libby: passport response was invalid JSON: %s", e)
             return None
+
+        web_url = (passport.get("urls") or {}).get("web")
+        message = passport.get("message")
+        if web_url and message:
+            try:
+                self.session.head(f"{web_url}?{message}", headers={"Accept": "*/*"}, timeout=REQUEST_TIMEOUT)
+            except requests.RequestException as e:
+                logger.warning("Libby: reader-session cookie handshake failed: %s", sanitize_exception(e))
+        else:
+            logger.warning("Libby: passport missing web url or message for cookie handshake")
+        return passport
 
     def get_possession(self, possession_url: str) -> dict | None:
         """GET a passport's possession URL → position/marks/statistics.

@@ -1,5 +1,3 @@
-import base64
-import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -40,7 +38,12 @@ class TestPairing:
     def test_pairing_success_stores_token_and_cards(self, client, mock_db):
         cards_payload = {
             "cards": [
-                {"id": "card-1", "niceName": "My Card", "library": {"key": "libkey", "name": "Town Library"}},
+                {
+                    "cardId": "card-1",
+                    "cardName": "My Card",
+                    "advantageKey": "libkey",
+                    "library": {"name": "Town Library", "websiteId": "visit_town"},
+                },
             ]
         }
         chip_response = make_response(200, {"identity": "new-identity-token"})
@@ -140,82 +143,75 @@ class TestSyncState:
         with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": ""}):
             assert client.get_sync_state(force=True) is None
 
-    def test_active_loans_normalization_includes_psn_key_and_isbn(self, client):
+    def test_active_loans_normalization_flat_payload(self, client):
         state_body = {
             "loans": [
                 {
+                    "id": "99",
                     "cardId": "42",
-                    "titleId": "99",
-                    "expires": 1789395929,
-                    "title": {
-                        "id": "99",
-                        "name": "A Book",
-                        "type": {"id": "audiobook"},
-                        "isbn": "9780123456789",
-                        "authors": [{"name": "Author One"}, {"name": "Author Two"}],
-                    },
-                    "card": {"id": "42", "library": {"key": "lk"}},
+                    "title": "A Book",
+                    "firstCreatorName": "Author One",
+                    "type": {"id": "audiobook"},
+                    "expireDate": "2026-09-12",
+                    "websiteId": "visit_lib",
                 }
             ],
         }
-        with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}):
-            with patch.object(client.session, "request", return_value=make_response(200, state_body)):
-                loans = client.get_active_loans()
+        with (
+            patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}),
+            patch.object(client.session, "request", return_value=make_response(200, state_body)),
+        ):
+            loans = client.get_active_loans()
 
         assert len(loans) == 1
         loan = loans[0]
         assert loan["psn_key"] == "42-99"
+        assert loan["media_type"] == "audiobook"
         assert loan["format"] == "audiobook"
-        assert loan["isbn"] == "9780123456789"
-        assert loan["authors"] == "Author One, Author Two"
-        assert loan["library_key"] == "lk"
+        assert loan["title"] == "A Book"
+        assert loan["authors"] == "Author One"
+        assert loan["expires"] == "2026-09-12"
+        assert loan["library_key"] == "visit_lib"
+        # Loans carry no ISBN directly
+        assert loan["isbn"] is None
 
 
 class TestPassport:
-    def test_passport_request_construction(self, client):
+    def test_passport_request_construction_and_cookie_handshake(self, client):
         passport_body = {
             "urls": {
                 "web": "https://dewey-abc.read.libbyapp.com/",
                 "possession": "https://dewey-abc.read.libbyapp.com/_d/possession",
             },
+            "message": "m=signedblob",
             "expires": 1789395929,
             "leeway": 3600,
         }
-        with patch.object(client.session, "request", return_value=make_response(200, passport_body)) as mock_request:
-            passport = client.get_passport("42", "99", library_key="lk")
+        with (
+            patch.object(client.session, "request", return_value=make_response(200, passport_body)) as mock_request,
+            patch.object(client.session, "head") as mock_head,
+        ):
+            with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}):
+                passport = client.get_passport("42", "99", media_type="audiobook")
 
         assert passport["urls"]["possession"].endswith("/_d/possession")
-        call_args = mock_request.call_args
-        url_arg = call_args.args[1]
-        assert call_args.args[0] == "GET"
-        # No Authorization header on passport-session endpoints
-        assert "Authorization" not in call_args.kwargs["headers"]
-        # tData decodes to the documented codex shape
-        assert "t=" in url_arg and "website_id=lk" in url_arg
-        t_param = url_arg.split("?t=")[1].split("&")[0]
-        tdata = json.loads(base64.b64decode(t_param))
-        assert tdata["codex"]["title"]["titleId"] == "99"
-        assert tdata["codex"]["loan"]["psnKey"] == "42-99"
-        assert tdata["codex"]["library"]["key"] == "lk"
-        assert tdata["spec"] == "V22"
+        open_call = mock_request.call_args
+        assert open_call.args[0] == "GET"
+        assert open_call.args[1].endswith("/open/audiobook/card/42/title/99")
+        # Bearer auth on the sentry open call
+        assert open_call.kwargs["headers"]["Authorization"] == "Bearer tok"
+        # Cookie handshake: unauthenticated HEAD to web url with message
+        mock_head.assert_called_once_with(
+            "https://dewey-abc.read.libbyapp.com/?m=signedblob",
+            headers={"Accept": "*/*"},
+            timeout=10,
+        )
 
-    def test_passport_resolves_library_key_from_cached_loans(self, client):
-        state_body = {
-            "loans": [
-                {"cardId": "42", "titleId": "99", "card": {"id": "42", "library": {"key": "resolved-key"}}},
-            ],
-        }
-        passport_body = {"urls": {"possession": "x"}}
-        with patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}):
-            client._last_sync_state = state_body
-            with patch.object(
-                client.session, "request", return_value=make_response(200, passport_body)
-            ) as mock_request:
-                result = client.get_passport("42", "99")
-
-        assert result is not None
-        url_arg = mock_request.call_args.args[1]
-        assert "website_id=resolved-key" in url_arg
+    def test_media_type_path_mapping(self):
+        assert LibbyClient._media_type_path("audiobook") == "audiobook"
+        assert LibbyClient._media_type_path("magazine") == "magazine"
+        assert LibbyClient._media_type_path("ebook") == "book"
+        assert LibbyClient._media_type_path(None) == "book"
 
 
 class TestPossession:
