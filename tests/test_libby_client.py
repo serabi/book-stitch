@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.api.libby_client import SETUP_CODE_URL, LibbyClient
+from src.api.libby_client import LibbyClient
 
 
 @pytest.fixture
