@@ -59,16 +59,22 @@ GET  https://sentry.libbyapp.com/chip/sync                → loans, holds, card
   (even authenticated) returns 404. Verified live Aug 2026; matches
   libby-calibre-plugin (`generate_clone_code` sends no params → its request
   helper defaults to GET).
-- Two pairing directions share this endpoint:
-  - *Device-generate* (Libby's "Copy To Another Device" on the source
-    device): a paired chip GETs a code; another device submits it.
-  - *Target-generate* (what PageKeeper does): a fresh blank chip GETs a
-    code, the user enters it in their Libby app under Copy To Another
-    Device, and Libby clones the library INTO our chip. Completion is
-    detected by polling `/chip/sync` until `cards` is non-empty.
-  - The Sonos-style web flow at
-    `https://libbyapp.com/interview/authenticate/setup-code` is just the
-    source-device generator wrapped in an interview UI (~minutes validity).
+- **Clone codes are pull-only.** The chip that GENERATES a code is the
+  clone SOURCE; whoever SUBMITS the code pulls the generator's library.
+  - *Source-generate → tool-submit* is the working pattern (pylibby,
+    libby-calibre-plugin, PageKeeper): the user generates a code from their
+    own authenticated session — via `https://libbyapp.com/interview/
+    authenticate/setup-code` (the Sonos interview UI) or the app's
+    "Copy To Another Device" — and the tool POSTs it as a form-encoded
+    `code=NNNNNNNN` body to `/chip/clone/code`, authenticated as a fresh
+    blank chip. Both reference clients re-POST `/chip?client=dewey`
+    authenticated after cloning, which rotates the identity token while
+    keeping the cloned cards.
+  - *Target-generate does not work*: a blank chip CAN generate a code via
+    GET, but entering that code in the app is treated as "pull from the
+    generating chip" — the app reports success while transferring nothing
+    from an empty source (verified live Aug 2026; our chip stayed at zero
+    cards). Don't build on this direction.
 - All authenticated sentry calls use `Authorization: Bearer {identity}`
   and a browser-like User-Agent with `Accept: application/json`
 - `/chip/sync` does **not** include checkout history or per-loan progress

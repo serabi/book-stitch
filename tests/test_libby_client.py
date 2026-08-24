@@ -30,79 +30,86 @@ def client(mock_db):
 
 
 class TestPairing:
-    def test_begin_pairing_returns_code_and_stores_token(self, client, mock_db):
+    def test_invalid_code_format_rejected(self, client):
+        result = client.pair_with_setup_code("12345")
+        assert result["success"] is False
+        assert result["error"] == "invalid_code_format"
+        result = client.pair_with_setup_code("abcdefgh")
+        assert result["success"] is False
+
+    def test_pairing_success_stores_token_and_cards(self, client, mock_db):
+        cards_payload = {
+            "cards": [
+                {"id": "card-1", "niceName": "My Card", "library": {"key": "libkey", "name": "Town Library"}},
+            ]
+        }
         chip_response = make_response(200, {"identity": "new-identity-token"})
-        generate_response = make_response(200, {"code": "87654321"})
+        clone_response = make_response(200, {"result": "synchronized"})
+        refresh_response = make_response(200, {"identity": "rotated-token"})
+        sync_response = make_response(200, cards_payload)
+
+        def request_side_effect(method, url, **kwargs):
+            if url.endswith("/chip/clone/code"):
+                assert method == "POST"
+                return clone_response
+            if url.endswith("/chip/sync"):
+                return sync_response
+            raise AssertionError(f"unexpected sentry request: {method} {url}")
 
         with (
-            patch.object(client.session, "post", return_value=chip_response) as mock_post,
-            patch.object(client.session, "request", return_value=generate_response) as mock_request,
+            patch.object(client.session, "post", side_effect=[chip_response, refresh_response]),
+            patch.object(client.session, "request", side_effect=request_side_effect) as mock_request,
         ):
-            result = client.begin_pairing()
+            result = client.pair_with_setup_code("12345678")
 
         assert result["success"] is True
-        assert result["code"] == "87654321"
-        # Chip creation hit sentry with the dewey client param
-        assert mock_post.call_args.args[0] == "https://sentry.libbyapp.com/chip?client=dewey"
-        # Code generation used the new chip's bearer token via GET (POST 404s)
-        gen_call = mock_request.call_args
-        assert gen_call.args[0] == "GET"
-        assert gen_call.args[1].endswith("/chip/clone/code")
-        assert gen_call.kwargs["headers"]["Authorization"] == "Bearer new-identity-token"
-        # Token was persisted to DB and env
-        mock_db.set_setting.assert_any_call("LIBBY_IDENTITY_TOKEN", "new-identity-token")
-        assert os.environ.get("LIBBY_IDENTITY_TOKEN") == "new-identity-token"
+        assert result["cards"][0]["library_key"] == "libkey"
+        # Clone call submitted the code form-encoded with bearer auth
+        clone_call = next(c for c in mock_request.call_args_list if c.args[1].endswith("/chip/clone/code"))
+        assert clone_call.kwargs["data"] == {"code": "12345678"}
+        assert clone_call.kwargs["headers"]["Authorization"] == "Bearer new-identity-token"
+        # Chip was created then rotated post-clone; final token persisted
+        assert os.environ.get("LIBBY_IDENTITY_TOKEN") == "rotated-token"
+        mock_db.set_setting.assert_any_call("LIBBY_IDENTITY_TOKEN", "rotated-token")
+        # Device id was generated and persisted
+        device_calls = [c for c in mock_db.set_setting.call_args_list if c.args[0] == "LIBBY_DEVICE_ID"]
+        assert device_calls and device_calls[0].args[1]
 
-    def test_begin_pairing_chip_network_failure(self, client):
-        import requests as requests_lib
-
-        with patch.object(client.session, "post", side_effect=requests_lib.ConnectionError("down")):
-            result = client.begin_pairing()
-        assert result["success"] is False
-        assert result["error"] == "network_error"
-        assert os.environ.get("LIBBY_IDENTITY_TOKEN") == ""
-
-    def test_begin_pairing_generate_failure_clears_token(self, client):
+    def test_expired_code_reported_and_token_cleared(self, client):
         chip_response = make_response(200, {"identity": "tok"})
-        generate_response = make_response(500)
+        clone_response = make_response(410)
 
         with (
             patch.object(client.session, "post", return_value=chip_response),
-            patch.object(client.session, "request", return_value=generate_response),
+            patch.object(client.session, "request", return_value=clone_response),
         ):
-            result = client.begin_pairing()
+            result = client.pair_with_setup_code("12345678")
 
         assert result["success"] is False
-        assert result["error"] == "http_error"
+        assert result["error"] == "expired_code"
         assert os.environ.get("LIBBY_IDENTITY_TOKEN") == ""
 
-    def test_check_pairing_incomplete_when_no_cards(self, client):
-        state_body = {"result": "synchronized", "cards": []}
-        with (
-            patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}),
-            patch.object(client.session, "request", return_value=make_response(200, state_body)),
-        ):
-            result = client.check_pairing()
-        assert result == {"complete": False, "cards": []}
+    def test_rejected_session_reported_and_token_cleared(self, client):
+        chip_response = make_response(200, {"identity": "tok"})
+        clone_response = make_response(403)
 
-    def test_check_pairing_completes_with_cards_and_generates_device_id(self, client, mock_db):
-        state_body = {
-            "result": "synchronized",
-            "cards": [{"id": "card-1", "niceName": "My Card", "library": {"key": "libkey", "name": "Town Library"}}],
-        }
         with (
-            patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}),
-            patch.object(client.session, "request", return_value=make_response(200, state_body)),
+            patch.object(client.session, "post", return_value=chip_response),
+            patch.object(client.session, "request", return_value=clone_response),
         ):
-            result = client.check_pairing()
-            assert result["complete"] is True
-            assert result["cards"][0]["library_key"] == "libkey"
-            # Assert env persistence inside the patch.dict scope: exiting it
-            # discards keys written while active.
-            assert os.environ.get("LIBBY_DEVICE_ID")
+            result = client.pair_with_setup_code("12345678")
 
-        device_calls = [c for c in mock_db.set_setting.call_args_list if c.args[0] == "LIBBY_DEVICE_ID"]
-        assert device_calls and device_calls[0].args[1]
+        assert result["success"] is False
+        assert result["error"] == "revoked_token"
+        assert os.environ.get("LIBBY_IDENTITY_TOKEN") == ""
+
+    def test_chip_creation_network_failure(self, client):
+        import requests as requests_lib
+
+        with patch.object(client.session, "post", side_effect=requests_lib.ConnectionError("down")):
+            result = client.pair_with_setup_code("12345678")
+        assert result["success"] is False
+        assert result["error"] == "http_error"
 
 
 class TestSyncState:

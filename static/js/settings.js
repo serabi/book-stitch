@@ -558,32 +558,45 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 /* ─── Libby pairing ─── */
-var _libbyPairingTimer = null;
-
 function libbyConnect(btn) {
     var originalText = btn.textContent;
+    var codeInput = document.getElementById('libby_setup_code');
     var result = document.getElementById('libby_connect_result');
-    btn.textContent = 'Generating code...';
+    var code = (codeInput ? codeInput.value : '').trim();
+    btn.textContent = 'Connecting...';
     btn.disabled = true;
     if (result) {
         result.textContent = '';
         result.classList.remove('field-error');
     }
-    fetch('/api/libby/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    fetch('/api/libby/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code })
+    })
         .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
         .then(function(resp) {
-            btn.textContent = originalText;
-            btn.disabled = false;
-            if (!resp.data.success || !resp.data.code) {
+            if (!resp.data.success) {
+                btn.textContent = originalText;
+                btn.disabled = false;
                 if (result) {
-                    result.textContent = resp.data.detail || 'Could not start pairing.';
+                    result.textContent = resp.data.detail || 'Pairing failed.';
                     result.className = 'help-text field-error';
                 }
                 return;
             }
-            document.getElementById('libby_code_box').hidden = false;
-            document.getElementById('libby_pairing_code').textContent = resp.data.code;
-            libbyPollPairingStatus(0);
+            var cards = resp.data.cards || [];
+            var lines = cards.map(function(c) {
+                return '\u2022 ' + (c.name || c.id) + (c.library ? ' \u2014 ' + c.library : '');
+            });
+            PKModal.alert({
+                title: 'Libby Connected',
+                message: cards.length
+                    ? 'Linked card(s):\n' + lines.join('\n')
+                    : 'Paired successfully. No cards reported.',
+                preserveWhitespace: true
+            });
+            window.location.reload();
         })
         .catch(function() {
             btn.textContent = originalText;
@@ -593,40 +606,6 @@ function libbyConnect(btn) {
                 result.className = 'help-text field-error';
             }
         });
-}
-
-function libbyPollPairingStatus(attempt) {
-    var statusEl = document.getElementById('libby_pairing_status');
-    if (attempt > 100) { /* ~5 minutes at 3s */
-        if (statusEl) statusEl.textContent = 'Timed out — click Connect Libby to try again.';
-        return;
-    }
-    _libbyPairingTimer = setTimeout(function() {
-        fetch('/api/libby/pairing/status')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success && data.complete) {
-                    if (statusEl) statusEl.textContent = 'Connected!';
-                    var cards = data.cards || [];
-                    var lines = cards.map(function(c) {
-                        return '\u2022 ' + (c.name || c.id) + (c.library ? ' \u2014 ' + c.library : '');
-                    });
-                    PKModal.alert({
-                        title: 'Libby Connected',
-                        message: cards.length
-                            ? 'Linked card(s):\n' + lines.join('\n')
-                            : 'Paired successfully. No cards reported.',
-                        preserveWhitespace: true
-                    });
-                    window.location.reload();
-                } else {
-                    libbyPollPairingStatus(attempt + 1);
-                }
-            })
-            .catch(function() {
-                libbyPollPairingStatus(attempt + 1);
-            });
-    }, 3000);
 }
 
 function libbyDisconnect(btn) {

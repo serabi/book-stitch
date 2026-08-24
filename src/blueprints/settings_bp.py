@@ -295,23 +295,17 @@ def get_secret(key):
 
 @settings_bp.route("/api/libby/connect", methods=["POST"])
 def libby_connect():
-    """Start Libby pairing: create a chip and generate a code for the user
-    to enter in their Libby app."""
+    """Pair with Libby using the user's 8-digit setup code; stores the identity chip."""
+    payload = request.get_json(silent=True) or {}
+    code = str(payload.get("code", "")).strip()
+    if len(code) != 8 or not code.isdigit():
+        return jsonify({"success": False, "detail": "Enter the 8-digit code shown by Libby."}), 400
+
     client = get_container().libby_client()
-    result = client.begin_pairing()
+    result = client.pair_with_setup_code(code)
     if not result.get("success"):
         return jsonify({"success": False, "detail": result.get("detail", "Pairing failed.")}), 400
-    return jsonify({"success": True, "code": result.get("code")})
-
-
-@settings_bp.route("/api/libby/pairing/status", methods=["GET"])
-def libby_pairing_status():
-    """Poll whether the user completed code entry; returns linked cards."""
-    client = get_container().libby_client()
-    if not client.identity_token:
-        return jsonify({"success": False, "detail": "No pairing in progress."}), 400
-    result = client.check_pairing()
-    return jsonify({"success": True, "complete": result["complete"], "cards": result["cards"]})
+    return jsonify({"success": True, "cards": result.get("cards", [])})
 
 
 @settings_bp.route("/api/libby/disconnect", methods=["POST"])
@@ -322,7 +316,9 @@ def libby_disconnect():
         return jsonify({"success": True})
     if not client.disconnect():
         return (
-            jsonify({"success": False, "detail": "Could not confirm revocation with Libby — not clearing local settings."}),
+            jsonify(
+                {"success": False, "detail": "Could not confirm revocation with Libby — not clearing local settings."}
+            ),
             502,
         )
     client.clear_credentials()
