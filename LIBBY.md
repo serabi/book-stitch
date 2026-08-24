@@ -49,35 +49,60 @@ the hostname *is* the credential — those endpoints require no auth header.
 ```
 POST https://sentry.libbyapp.com/chip?client=dewey        → identity chip
 GET  https://sentry.libbyapp.com/chip/clone/code          → generate code (authenticated)
-POST https://sentry.libbyapp.com/chip/clone/code          ← pair via 8-digit setup code
-     (body: form-encoded code=NNNNNNNN; JSON body also accepted by pylibby)
+POST https://sentry.libbyapp.com/chip/clone/code          ← submit setup code
+     (body: form-encoded code=NNNNNNNN)
 GET  https://sentry.libbyapp.com/chip/sync                → loans, holds, cards, tags
      (also: chip/revoke)
 ```
 
-- **Code generation is a GET, not a POST** — POSTing `/chip/clone/code`
-  (even authenticated) returns 404. Verified live Aug 2026; matches
-  libby-calibre-plugin (`generate_clone_code` sends no params → its request
-  helper defaults to GET).
-- **Clone codes are pull-only.** The chip that GENERATES a code is the
-  clone SOURCE; whoever SUBMITS the code pulls the generator's library.
-  - *Source-generate → tool-submit* is the working pattern (pylibby,
-    libby-calibre-plugin, PageKeeper): the user generates a code from their
-    own authenticated session — via `https://libbyapp.com/interview/
-    authenticate/setup-code` (the Sonos interview UI) or the app's
-    "Copy To Another Device" — and the tool POSTs it as a form-encoded
-    `code=NNNNNNNN` body to `/chip/clone/code`, authenticated as a fresh
-    blank chip. Both reference clients re-POST `/chip?client=dewey`
-    authenticated after cloning, which rotates the identity token while
-    keeping the cloned cards.
-  - *Target-generate does not work*: a blank chip CAN generate a code via
-    GET, but entering that code in the app is treated as "pull from the
-    generating chip" — the app reports success while transferring nothing
-    from an empty source (verified live Aug 2026; our chip stayed at zero
-    cards). Don't build on this direction.
-- All authenticated sentry calls use `Authorization: Bearer {identity}`
-  and a browser-like User-Agent with `Accept: application/json`
+- **Chip vs identity:** `POST /chip` returns `{chip: <uuid>, identity:
+  <JWT>, primary, syncable}`. The chip uuid is the stable session record;
+  the identity is a rotating JWT (`aud: "readiverse"`, ~7-day exp) used as
+  the Bearer token. Authenticated `/chip` re-issues identity for an existing
+  chip. dewey's own acquire call sends query params
+  `client=dewey&c=d:<version>&s=0` and `v=<first segment of chip uuid>` on
+  rotations.
+- **⚠️ Clone-code chips cannot read positions.** Chips paired via setup
+  codes (Sonos flow or otherwise) authenticate and `/chip/sync` perfectly,
+  but every attempt to open a loan is refused — `/open/…` answers
+  `{"result":"client_upgrade_required"}` or `missing_chip` regardless of
+  User-Agent, declared client version (`c=` param), tData contents/spec,
+  Origin/Referer/sec-fetch headers, TLS stack (curl vs python), or which
+  sentry host is used. Verified exhaustively live Aug 2026 across three
+  separately-paired chips. Only tokens minted by a real logged-in browser
+  session can read. This is why libby-calibre-plugin lost download/open
+  capability in 2024 and pivoted to pasting browser tokens.
+- **Working pairing method (PageKeeper's):** the user opens
+  <code>libbyapp.com</code> in a desktop browser, reads
+  `localStorage["dewey:sentry.identity"]` from DevTools (its `.value`
+  holds the JWT), and pastes it into PageKeeper. That token has full
+  reader access. Expiry follows the JWT `exp` (~7 days); whether
+  authenticated rotation via `POST /chip?v=…` extends access without
+  breaking the browser session is untested.
+- Code generation (GET) and code submission (POST form-encoded) both exist
+  on `/chip/clone/code`; POSTing without params 404s. Setup-code pairing
+  still yields a sync-capable chip — usable for loans/holds/TBR features
+  only, never positions.
+- All authenticated sentry calls use `Authorization: Bearer {identity}`,
+  `Accept: application/json`, and a current-browser User-Agent with
+  `Referer: https://libbyapp.com/`. Chips behave as bound to their creation
+  context: presenting a different UA than the chip's yields `missing_chip`.
 - `/chip/sync` does **not** include checkout history or per-loan progress
+
+### `/chip/sync` payload shapes (verified live Aug 2026)
+
+Loans are **flat objects** — `title` is a plain string, not a nested object:
+
+```json
+{"id": "<titleId>", "cardId": "<cardId>", "title": "The Lost Metal",
+ "firstCreatorName": "Brandon Sanderson", "subtitle": null,
+ "type": {"id": "audiobook"}, "formats": […], "overDriveFormat": …,
+ "expireDate": "…", "checkoutId": …, "websiteId": "85", …}
+```
+
+Cards: `{"cardId", "cardName", "advantageKey" (library key, e.g. "mcplmd"),
+"library": {"name", "websiteId", "logo"}, "limits", "counts", …}`. The
+`library.websiteId` is what passport requests want in `website_id`.
 
 ### Circulation (all on sentry, Bearer auth)
 
@@ -96,8 +121,13 @@ DELETE card/{cardId}/hold/{titleId}          cancel hold
 GET /open/book/card/{cardId}/title/{titleId}?t={base64 tData}&website_id={key}
 ```
 
-`tData` (base64 JSON): `{codex: {title: {titleId, ...}, loan: {psnKey},
-library: {key, ...}}, "dewey-url": ..., spec: "V22", locale}`
+`tData` (base64 of UTF-8 JSON; dewey's `btoa(unescape(encodeURIComponent(…)))`
+nets out to plain base64): `{codex: {title: {titleId, format}, loan:
+{psnKey, slug}, library: {key, name}}, "dewey-url":
+"https://libbyapp.com", spec: "V22", locale?}`. The `website_id` query
+param is the **card's `library.websiteId`** from `/chip/sync` (not the
+advantageKey). Verified live Aug 2026 with a browser token: spec V22 and
+V31-shaped blobs both pass content checks once the chip has reader access.
 
 Response:
 
@@ -118,10 +148,29 @@ Response:
 `expires` ≈ 21 days. Audio passports use the same shape against a
 `.listen.libbyapp.com` host.
 
+**Before touching any reader host**, present the passport's signed message:
+`HEAD {urls.web}?{message}` with no Authorization header — this sets the
+reader session cookie that possession/activity requests ride on.
+
 ### Position read
 
+Two stores exist; **check both** — they disagree:
+
+1. **Legacy sentry data store** (works for all formats, reflects
+   cross-device sync incl. phone-app sessions):
+   ```
+   GET https://sentry.libbyapp.com/card/{cardId}/{format}/data/{titleId}
+   → {bankScope, marks, position, statistics, timestamps}
+   ```
+   Verified live Aug 2026: audiobook positions (77% into a title) were
+   present HERE while the possession endpoint returned `position: null`
+   for the same loan. `format` ∈ `book` / `audiobook` / `magazine`.
+
+2. **Reader possession** (`GET {urls.passport urls.possession}`, after the
+   cookie handshake): reflects web-reader session state. Can be null while
+   the legacy store holds a position.
+
 ```
-GET {urls.possession}
 → {
   "timestamps": {"generated":…, "created":…, "updated":…, "accessed":…,
                  "stamped":…, "expires":…},
@@ -130,15 +179,6 @@ GET {urls.possession}
   "statistics": {"positions": N, "accesses": N, "readingTime": seconds}
 }
 ```
-
-Legacy/shell variant (404 `"result":"missing_stamp"` when empty):
-
-```
-GET    https://sentry.libbyapp.com/card/{cardId}/{format}/data/{titleId}
-DELETE https://sentry.libbyapp.com/card/any/{format}/data/{titleId}   (reset)
-```
-
-`{format}` ∈ `book` (observed) / `audiobook` / `magazine`.
 
 ### Position write
 
