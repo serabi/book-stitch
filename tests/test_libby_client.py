@@ -84,10 +84,10 @@ class TestPairing:
                 return clone_response
             raise AssertionError(f"unexpected POST {url}")
 
-        def request_side_effect(method, url, **kwargs):
+        def request_side_effect(url, **kwargs):
             if url.endswith("/chip/sync"):
                 return sync_response
-            raise AssertionError(f"unexpected request {method} {url}")
+            raise AssertionError(f"unexpected request {url}")
 
         with (
             patch.dict(os.environ, {"LIBBY_SYNC_TOKEN": ""}),
@@ -319,7 +319,7 @@ class TestDisconnect:
     def test_disconnect_network_failure_is_false(self, client):
         with (
             patch.dict(os.environ, {"LIBBY_IDENTITY_TOKEN": "tok"}),
-            patch.object(client.session, "request", return_value=None),
+            patch.object(client.session, "post", return_value=None),
         ):
             assert client.disconnect() is False
 
