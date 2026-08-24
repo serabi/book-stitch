@@ -272,6 +272,14 @@
     "kind": "api"
   },
   {
+    "rule": "/api/libby/pairing/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "settings_page.libby_pairing_status",
+    "kind": "api"
+  },
+  {
     "rule": "/api/logs",
     "methods": [
       "GET"
