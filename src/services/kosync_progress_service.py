@@ -114,7 +114,13 @@ class KosyncProgressService:
             logger.debug("KOSync: Updated linked book '%s' to %.2f%%", linked_book.title, percentage)
             is_internal = device and device.lower() in INTERNAL_DEVICE_NAMES
             instant_sync_enabled = os.environ.get("INSTANT_SYNC_ENABLED", "true").lower() != "false"
-            if linked_book.status == "active" and self.manager and not is_internal and instant_sync_enabled and debounce_manager:
+            if (
+                linked_book.status == "active"
+                and self.manager
+                and not is_internal
+                and instant_sync_enabled
+                and debounce_manager
+            ):
                 logger.debug("KOSync PUT: Progress event recorded for '%s'", linked_book.title)
                 debounce_manager.record_event(linked_book.id, linked_book.title)
 
@@ -171,7 +177,10 @@ class KosyncProgressService:
         docs_with_progress = [
             d
             for d in sibling_docs
-            if d.percentage and float(d.percentage) > 0 and d.timestamp and (now_ts - d.timestamp.timestamp()) < 30 * 86400
+            if d.percentage
+            and float(d.percentage) > 0
+            and d.timestamp
+            and (now_ts - d.timestamp.timestamp()) < 30 * 86400
         ]
         if not docs_with_progress:
             docs_with_progress = [d for d in sibling_docs if d.percentage and float(d.percentage) > 0 and d.timestamp]

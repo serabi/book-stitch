@@ -204,7 +204,11 @@ class TestReadingServiceSetProgress:
 
         svc = ReadingService(db)
         svc.status_machine = Mock()
-        svc.status_machine.transition.return_value = {"success": True, "status": "active", "previous_status": "not_started"}
+        svc.status_machine.transition.return_value = {
+            "success": True,
+            "status": "active",
+            "previous_status": "not_started",
+        }
 
         result = svc.set_progress(1, 0.5, container)
 

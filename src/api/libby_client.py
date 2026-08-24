@@ -411,18 +411,15 @@ class LibbyClient:
         self._last_sync_state = state
         return state
 
-    def get_active_loans(self) -> list[dict]:
+    def get_active_loans(self) -> list[dict] | None:
         """Return normalized active loans from the last sync state.
 
-        Real loan shape is FLAT: {id, cardId, title (string),
-        firstCreatorName, type: {id}, expireDate, websiteId, ...}.
-
-        Each entry: {psn_key, card_id, title_id, title, authors, format,
-        isbn, expires, library_key, media_type}.
-        """
+        Returns None when /chip/sync could not be fetched; [] when synced
+        but empty. Each entry: {psn_key, card_id, title_id, title, authors,
+        format, isbn, expires, library_key, media_type}."""
         state = self.get_sync_state()
-        if not state:
-            return []
+        if state is None:
+            return None
         loans = []
         for loan in state.get("loans") or []:
             if not isinstance(loan, dict):
@@ -544,6 +541,31 @@ class LibbyClient:
         else:
             logger.warning("Libby: passport missing web url or message for cookie handshake")
         return passport
+
+    def get_legacy_position(self, card_id, title_id, media_type: str = "book") -> dict | None:
+        """GET /card/{cardId}/{format}/data/{titleId} — the cross-device
+        position store. Holds positions (incl. audiobook progress from
+        phone sessions) that the reader possession endpoint may lack.
+        Returns {position, marks, statistics, ...} or None."""
+        if not self.identity_token and not self.sync_token:
+            return None
+        segment = self._media_type_path(media_type)
+        path = f"/card/{card_id}/{segment}/data/{title_id}"
+        response = self._sentry_request("GET", path)
+        if response is None:
+            return None
+        if response.status_code != 200:
+            logger.debug(
+                "Libby: legacy position store for %s returned HTTP %s",
+                sanitize_log_data(f"{card_id}-{title_id}"),
+                response.status_code,
+            )
+            return None
+        try:
+            return response.json()
+        except ValueError as e:
+            logger.error("Libby: legacy position store returned invalid JSON: %s", e)
+            return None
 
     def get_possession(self, possession_url: str) -> dict | None:
         """GET a passport's possession URL → position/marks/statistics.

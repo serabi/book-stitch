@@ -146,12 +146,8 @@ def test_cache_book_info_updates_same_remote_identity_without_marking_ambiguous(
     ):
         client = GrimmoryClient(database_service=mock_db)
 
-    client._cache_book_info(
-        "Book.epub", {"id": "book", "bookFileId": "file", "fileName": "Book.epub", "title": "Old"}
-    )
-    client._cache_book_info(
-        "Book.epub", {"id": "book", "bookFileId": "file", "fileName": "Book.epub", "title": "New"}
-    )
+    client._cache_book_info("Book.epub", {"id": "book", "bookFileId": "file", "fileName": "Book.epub", "title": "Old"})
+    client._cache_book_info("Book.epub", {"id": "book", "bookFileId": "file", "fileName": "Book.epub", "title": "New"})
 
     assert client.find_book_by_filename("book.epub", allow_refresh=False)["id"] == "book"
     assert client.find_book_by_filename("BOOK.epub", allow_refresh=False)["title"] == "New"
@@ -478,17 +474,13 @@ def test_reload_retains_duplicate_filenames_by_remote_identity(mock_db):
     rows = [
         GrimmoryBook(
             filename="shared.m4b",
-            raw_metadata=json.dumps(
-                {"id": 10, "bookFileId": 41, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"}
-            ),
+            raw_metadata=json.dumps({"id": 10, "bookFileId": 41, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"}),
             remote_book_id=10,
             remote_file_id=41,
         ),
         GrimmoryBook(
             filename="shared.m4b",
-            raw_metadata=json.dumps(
-                {"id": 20, "bookFileId": 42, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"}
-            ),
+            raw_metadata=json.dumps({"id": 20, "bookFileId": 42, "fileName": "shared.m4b", "bookType": "AUDIOBOOK"}),
             remote_book_id=20,
             remote_file_id=42,
         ),

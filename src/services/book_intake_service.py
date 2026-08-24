@@ -231,14 +231,14 @@ class BookIntakeService:
 
         processing_token = None
         if detected_source and detected_source_id:
-            processing_token = self.database_service.claim_detected_book(
-                detected_source_id, source=detected_source
-            )
+            processing_token = self.database_service.claim_detected_book(detected_source_id, source=detected_source)
             if not processing_token:
                 detected = self.database_service.get_detected_book(detected_source_id, source=detected_source)
                 if getattr(detected, "status", None) == "resolved" and self._mapping_matches(prepared):
                     return IntakeResult(book=prepared.current_book)
-                return IntakeResult(error="This pairing is already being processed or is no longer active", status_code=409)
+                return IntakeResult(
+                    error="This pairing is already being processed or is no longer active", status_code=409
+                )
 
         confirmed_merge_id = None
         try:
@@ -359,7 +359,9 @@ class BookIntakeService:
             audio_info = audio_group.find_audiobook_by_source_id(audio_source_id)
             if not audio_info:
                 restore_claim()
-                return IntakeResult(error="The selected Grimmory audiobook changed. Review the match again.", status_code=409)
+                return IntakeResult(
+                    error="The selected Grimmory audiobook changed. Review the match again.", status_code=409
+                )
 
             prepared = self._prepare_mapping(
                 None,
@@ -434,7 +436,9 @@ class BookIntakeService:
     def _grimmory_audio_target(self, audio_source_id, ebook_book, kosync_doc_id):
         audio_book = self.database_service.get_book_by_grimmory_audio_source_id(audio_source_id)
         if audio_book and ebook_book and audio_book.id != ebook_book.id:
-            return None, IntakeResult(error="The audiobook and ebook already belong to different books", status_code=409)
+            return None, IntakeResult(
+                error="The audiobook and ebook already belong to different books", status_code=409
+            )
 
         target = audio_book or ebook_book
         if target and getattr(target, "grimmory_audio_source_id", None) not in (None, audio_source_id):
@@ -473,7 +477,11 @@ class BookIntakeService:
         existing_book = self.database_service.get_book_by_kosync_id(kosync_doc_id)
         if not isinstance(getattr(existing_book, "id", None), int):
             existing_book = None
-        merge_book = existing_book if existing_book and getattr(existing_book, "id", None) != getattr(current_book, "id", None) else None
+        merge_book = (
+            existing_book
+            if existing_book and getattr(existing_book, "id", None) != getattr(current_book, "id", None)
+            else None
+        )
         return _PreparedMapping(
             abs_id=abs_id,
             ebook_filename=ebook_filename,

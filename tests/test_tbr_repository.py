@@ -140,9 +140,7 @@ class TestTbrRepository(unittest.TestCase):
         ol_row, _ = self.db.add_tbr_item("By Open Library", ol_work_key="/works/OL123")
         self.assertNotEqual(hc_row.id, ol_row.id)
 
-        existing, created = self.db.add_tbr_item(
-            "Matches Both", hardcover_book_id=42, ol_work_key="/works/OL123"
-        )
+        existing, created = self.db.add_tbr_item("Matches Both", hardcover_book_id=42, ol_work_key="/works/OL123")
 
         self.assertFalse(created)
         self.assertEqual(existing.id, hc_row.id)

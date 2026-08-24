@@ -18,11 +18,11 @@ def test_navigation_shell_exposes_primary_and_utility_destinations(flask_app):
     for destination in ("/", "/reading", "/suggestions", "/settings", "/match", "/logs"):
         assert f'href="{destination}"' in html
     assert '<span class="sidebar-label">Currently Reading</span>' in html
-    assert '<span>Currently Reading</span>' in html
+    assert "<span>Currently Reading</span>" in html
     assert '<span class="sidebar-label">Logs</span>' in html
     assert html.index('href="/match"') < html.index('href="/suggestions"')
-    assert '/static/icon.png' in html
-    assert '/static/grimmory-app.png' not in html
+    assert "/static/icon.png" in html
+    assert "/static/grimmory-app.png" not in html
 
 
 def test_every_navigation_shell_has_a_skip_link_target():

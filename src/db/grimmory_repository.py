@@ -91,9 +91,7 @@ class GrimmoryRepository(BaseRepository):
                     session.delete(row)
 
             live_legacy_keys = {(book.remote_book_id, book.filename) for book in incoming_books}
-            legacy_rows = [
-                row for row in existing if row.remote_book_id is None or row.remote_file_id is None
-            ]
+            legacy_rows = [row for row in existing if row.remote_book_id is None or row.remote_file_id is None]
             legacy_filename_counts = {}
             for row in legacy_rows:
                 legacy_filename_counts[row.filename] = legacy_filename_counts.get(row.filename, 0) + 1

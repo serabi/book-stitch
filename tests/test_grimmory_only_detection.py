@@ -76,7 +76,9 @@ class TestGrimmoryOnlyDetection(unittest.TestCase):
             self.service._check_cross_ebook_suggestions()
 
         self.mock_db.save_detected_book.assert_not_called()
-        exclusion_records = [record for record in logs.records if "outside the 1%-95% progress window" in record.getMessage()]
+        exclusion_records = [
+            record for record in logs.records if "outside the 1%-95% progress window" in record.getMessage()
+        ]
         self.assertEqual(len(exclusion_records), 1)
         self.assertEqual(exclusion_records[0].levelno, logging.DEBUG)
         self.assertIn("excluded 1 books", exclusion_records[0].getMessage())

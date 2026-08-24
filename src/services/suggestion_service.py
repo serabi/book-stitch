@@ -928,9 +928,7 @@ class SuggestionService:
                     pass
         return mapped
 
-    def _check_cross_ebook_suggestions(
-        self, errors: set[str] | None = None, abs_audiobooks: list[dict] | None = None
-    ):
+    def _check_cross_ebook_suggestions(self, errors: set[str] | None = None, abs_audiobooks: list[dict] | None = None):
         """Check for cross-ebook pairings (Storyteller<->Grimmory, Storyteller<->KoSync, KoSync<->Grimmory)."""
         all_books = self.database_service.get_all_books()
         mapped_st_uuids = {b.storyteller_uuid for b in all_books if b.storyteller_uuid}

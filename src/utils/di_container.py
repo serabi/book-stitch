@@ -33,6 +33,7 @@ from src.sync_clients.abs_sync_client import ABSSyncClient
 from src.sync_clients.grimmory_sync_client import GrimmoryAudioSyncClient, GrimmorySyncClient
 from src.sync_clients.hardcover_sync_client import HardcoverSyncClient
 from src.sync_clients.kosync_sync_client import KoSyncSyncClient
+from src.sync_clients.libby_sync_client import LibbySyncClient
 from src.sync_clients.storyteller_sync_client import StorytellerSyncClient
 from src.sync_manager import SyncManager
 from src.utils.ebook_utils import EbookParser
@@ -176,6 +177,8 @@ class Container(containers.DeclarativeContainer):
 
     abs_ebook_sync_client = providers.Singleton(ABSEbookSyncClient, abs_client, ebook_parser)
 
+    libby_sync_client = providers.Singleton(LibbySyncClient, libby_client, ebook_parser)
+
     hardcover_service = providers.Singleton(HardcoverService, hardcover_client, database_service, abs_client)
 
     reading_date_service = providers.Singleton(ReadingDateService, database_service, hardcover_client, abs_client)
@@ -229,6 +232,7 @@ class Container(containers.DeclarativeContainer):
         GrimmoryAudio=grimmory_audio_sync_client,
         Grimmory2Audio=grimmory_audio_sync_client_2,
         Hardcover=hardcover_sync_client,
+        Libby=libby_sync_client,
     )
 
     # Sync Manager

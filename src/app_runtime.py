@@ -218,9 +218,7 @@ def get_or_create_secret_key(persist_only: bool = False) -> str:
         return key
     except Exception as exc:
         if persist_only:
-            raise EphemeralSecretKeyError(
-                f"Could not persist a secret key under {data_dir} ({exc})."
-            ) from exc
+            raise EphemeralSecretKeyError(f"Could not persist a secret key under {data_dir} ({exc}).") from exc
         logger.warning("Could not persist Flask secret key — using ephemeral key")
         return secrets.token_hex(32)
 

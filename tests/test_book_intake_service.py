@@ -135,9 +135,7 @@ def test_link_grimmory_audiobook_creates_book_without_abs_side_effects():
     assert result.book.sync_mode == "audiobook"
     abs_service.add_to_collection.assert_not_called()
     hc.assert_not_called()
-    db.complete_detected_book.assert_called_once_with(
-        "default:10:42", "owner-token", source="grimmory"
-    )
+    db.complete_detected_book.assert_called_once_with("default:10:42", "owner-token", source="grimmory")
     db.resolve_detected_book.assert_any_call("default:10:42", source="grimmory")
     db.resolve_detected_book.assert_any_call("ebook-hash", source="kosync")
     method_names = [call[0] for call in db.method_calls]
@@ -269,9 +267,7 @@ def test_link_grimmory_audiobook_restores_claim_when_exact_audio_changes():
     )
 
     assert result.status_code == 409
-    db.restore_detected_book.assert_called_once_with(
-        "default:10:42", "owner-token", source="grimmory"
-    )
+    db.restore_detected_book.assert_called_once_with("default:10:42", "owner-token", source="grimmory")
     db.save_book.assert_not_called()
 
 
@@ -292,9 +288,7 @@ def test_link_grimmory_audiobook_restores_claim_when_ebook_identity_changes():
 
     assert result.status_code == 409
     assert "no longer matches" in result.error
-    db.restore_detected_book.assert_called_once_with(
-        "default:10:42", "owner-token", source="grimmory"
-    )
+    db.restore_detected_book.assert_called_once_with("default:10:42", "owner-token", source="grimmory")
     db.save_book.assert_not_called()
 
 
@@ -315,9 +309,7 @@ def test_link_grimmory_audiobook_returns_conflict_on_concurrent_unique_claim():
     )
 
     assert result.status_code == 409
-    db.restore_detected_book.assert_called_once_with(
-        "default:10:42", "owner-token", source="grimmory"
-    )
+    db.restore_detected_book.assert_called_once_with("default:10:42", "owner-token", source="grimmory")
 
 
 def test_concurrent_grimmory_links_cannot_create_two_books_for_one_kosync_hash(tmp_path):
@@ -341,9 +333,10 @@ def test_concurrent_grimmory_links_cannot_create_two_books_for_one_kosync_hash(t
     db.get_book_by_kosync_id.side_effect = lookup_kosync
     service, _, _, _, _ = _make_service(db=db, kosync_id="shared-hash")
     db.save_book_with_kosync_ownership.side_effect = repository.save_book_with_kosync_ownership
-    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.side_effect = (
-        lambda source_id: {"id": source_id.split(":")[1], "title": "Book"}
-    )
+    service.container.grimmory_client_group.return_value.find_audiobook_by_source_id.side_effect = lambda source_id: {
+        "id": source_id.split(":")[1],
+        "title": "Book",
+    }
 
     def link(audio_source_id):
         return service.link_grimmory_audiobook_ebook(
@@ -745,9 +738,7 @@ def test_collection_exception_after_commit_still_completes_detection():
     db.complete_detected_book.return_value = True
     abs_service = Mock()
     abs_service.add_to_collection.side_effect = RuntimeError("ABS unavailable")
-    service, db, _abs, _bl, _hc = _make_service(
-        db=db, abs_service=abs_service, kosync_id="hash-exact"
-    )
+    service, db, _abs, _bl, _hc = _make_service(db=db, abs_service=abs_service, kosync_id="hash-exact")
     kwargs = {
         "abs_id": "abs-1",
         "title": "Exact Book",

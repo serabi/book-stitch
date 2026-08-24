@@ -118,6 +118,7 @@ class Book(Base):
     title_override = Column(String(500), nullable=True)
     author_override = Column(String(500), nullable=True)
     grimmory_audio_source_id = Column(String(255), nullable=True, unique=True, index=True)
+    libby_psn_key = Column(String(255), nullable=True, unique=True, index=True)
 
     # Reading tracker fields
     started_at = Column(String(10), nullable=True)  # YYYY-MM-DD
@@ -166,6 +167,7 @@ class Book(Base):
         title_override: str = None,
         author_override: str = None,
         grimmory_audio_source_id: str = None,
+        libby_psn_key: str = None,
         started_at: str = None,
         finished_at: str = None,
         rating: float = None,
@@ -189,6 +191,7 @@ class Book(Base):
         self.title_override = title_override
         self.author_override = author_override
         self.grimmory_audio_source_id = grimmory_audio_source_id
+        self.libby_psn_key = libby_psn_key
         self.started_at = started_at
         self.finished_at = finished_at
         self.rating = rating

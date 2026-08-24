@@ -67,9 +67,7 @@ def _compare_or_update(name, payload):
         path.write_text(serialized)
         pytest.skip(f"Snapshot {name!r} regenerated")
 
-    assert path.exists(), (
-        f"Missing snapshot {path}. Regenerate with PAGEKEEPER_UPDATE_SNAPSHOTS=1."
-    )
+    assert path.exists(), f"Missing snapshot {path}. Regenerate with PAGEKEEPER_UPDATE_SNAPSHOTS=1."
 
     expected = json.loads(path.read_text())
     assert payload == expected, (

@@ -138,9 +138,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         )
         self.assertIsNotNone(self.db_service.claim_detected_book("group-audio", source="abs"))
 
-        dismissed = self.db_service.dismiss_detected_books(
-            [("abs", "group-audio"), ("kosync", "group-ebook")]
-        )
+        dismissed = self.db_service.dismiss_detected_books([("abs", "group-audio"), ("kosync", "group-ebook")])
 
         self.assertFalse(dismissed)
         self.assertEqual(self.db_service.get_detected_book("group-audio", source="abs").status, "processing")
@@ -275,9 +273,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         token = self.db_service.claim_detected_book("renewed-claim", source="abs")
         with self.db_service.get_session() as session:
             row = session.query(DetectedBook).filter_by(source="abs", source_id="renewed-claim").one()
-            row.processing_started_at = (
-                datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE + timedelta(seconds=1)
-            )
+            row.processing_started_at = datetime.now(UTC) - DetectedRepository._PROCESSING_LEASE + timedelta(seconds=1)
 
         self.assertFalse(self.db_service.renew_detected_book_claim("renewed-claim", "wrong", source="abs"))
         self.assertTrue(self.db_service.renew_detected_book_claim("renewed-claim", token, source="abs"))
@@ -443,9 +439,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
             DetectedBook(source="abs", source_id="status-apply", title="S", progress_percentage=0.1)
         )
         self.db_service.save_detected_book(
-            DetectedBook(
-                source="abs", source_id="status-apply", title="S", progress_percentage=0.2, status="resolved"
-            )
+            DetectedBook(source="abs", source_id="status-apply", title="S", progress_percentage=0.2, status="resolved")
         )
 
         row = self.db_service.get_detected_book("status-apply", source="abs")
@@ -867,15 +861,9 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         """Results are ordered by last_seen_at descending."""
         from datetime import UTC, datetime
 
-        self.db_service.save_detected_book(
-            self._make_detected("oldest", datetime(2020, 1, 1, tzinfo=UTC))
-        )
-        self.db_service.save_detected_book(
-            self._make_detected("newest", datetime(2024, 1, 1, tzinfo=UTC))
-        )
-        self.db_service.save_detected_book(
-            self._make_detected("middle", datetime(2022, 1, 1, tzinfo=UTC))
-        )
+        self.db_service.save_detected_book(self._make_detected("oldest", datetime(2020, 1, 1, tzinfo=UTC)))
+        self.db_service.save_detected_book(self._make_detected("newest", datetime(2024, 1, 1, tzinfo=UTC)))
+        self.db_service.save_detected_book(self._make_detected("middle", datetime(2022, 1, 1, tzinfo=UTC)))
 
         ordered = [b.source_id for b in self.db_service.get_active_detected_books()]
         self.assertEqual(ordered, ["newest", "middle", "oldest"])
@@ -885,9 +873,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         from datetime import UTC, datetime
 
         for i in range(5):
-            self.db_service.save_detected_book(
-                self._make_detected(f"limit-{i}", datetime(2020, 1, 1 + i, tzinfo=UTC))
-            )
+            self.db_service.save_detected_book(self._make_detected(f"limit-{i}", datetime(2020, 1, 1 + i, tzinfo=UTC)))
 
         limited = self.db_service.get_active_detected_books(limit=2)
         self.assertEqual([b.source_id for b in limited], ["limit-4", "limit-3"])
@@ -896,9 +882,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         """limit=0 applies .limit(0) and returns an empty list."""
         from datetime import UTC, datetime
 
-        self.db_service.save_detected_book(
-            self._make_detected("present", datetime(2023, 1, 1, tzinfo=UTC))
-        )
+        self.db_service.save_detected_book(self._make_detected("present", datetime(2023, 1, 1, tzinfo=UTC)))
 
         self.assertEqual(self.db_service.get_active_detected_books(limit=0), [])
 
@@ -906,9 +890,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         """Returns an empty list when no active detected rows exist."""
         from datetime import UTC, datetime
 
-        self.db_service.save_detected_book(
-            self._make_detected("only-dismissed", datetime(2023, 1, 1, tzinfo=UTC))
-        )
+        self.db_service.save_detected_book(self._make_detected("only-dismissed", datetime(2023, 1, 1, tzinfo=UTC)))
         self.assertTrue(self.db_service.dismiss_detected_book("only-dismissed", source="abs"))
 
         self.assertEqual(self.db_service.get_active_detected_books(), [])
@@ -917,9 +899,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         """Returned rows are expunged, so their attributes remain usable after the session closes."""
         from datetime import UTC, datetime
 
-        self.db_service.save_detected_book(
-            self._make_detected("detached", datetime(2023, 5, 5, tzinfo=UTC))
-        )
+        self.db_service.save_detected_book(self._make_detected("detached", datetime(2023, 5, 5, tzinfo=UTC)))
 
         rows = self.db_service.get_active_detected_books()
         self.assertEqual(len(rows), 1)
@@ -953,23 +933,15 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
 
     def test_get_all_ebook_filenames_returns_filenames_from_active_rows(self):
         """Filenames are collected from active detected rows' matches_json."""
-        self._save_detected_with_matches(
-            "active-one", '[{"filename": "alpha.epub"}, {"filename": "beta.epub"}]'
-        )
+        self._save_detected_with_matches("active-one", '[{"filename": "alpha.epub"}, {"filename": "beta.epub"}]')
 
-        self.assertEqual(
-            self.db_service.get_all_ebook_filenames(), {"alpha.epub", "beta.epub"}
-        )
+        self.assertEqual(self.db_service.get_all_ebook_filenames(), {"alpha.epub", "beta.epub"})
 
     def test_get_all_ebook_filenames_excludes_dismissed_and_resolved(self):
         """Dismissed and resolved rows are excluded even when they carry matches."""
         self._save_detected_with_matches("active", '[{"filename": "active.epub"}]')
-        self._save_detected_with_matches(
-            "dismissed", '[{"filename": "dismissed.epub"}]', status="dismissed"
-        )
-        self._save_detected_with_matches(
-            "resolved", '[{"filename": "resolved.epub"}]', status="resolved"
-        )
+        self._save_detected_with_matches("dismissed", '[{"filename": "dismissed.epub"}]', status="dismissed")
+        self._save_detected_with_matches("resolved", '[{"filename": "resolved.epub"}]', status="resolved")
 
         self.assertEqual(self.db_service.get_all_ebook_filenames(), {"active.epub"})
 
@@ -991,8 +963,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         """Match dicts missing filename or with falsey filename values are skipped."""
         self._save_detected_with_matches(
             "mixed",
-            '[{"filename": "kept.epub"}, {"author": "no filename"}, '
-            '{"filename": ""}, {"filename": null}]',
+            '[{"filename": "kept.epub"}, {"author": "no filename"}, {"filename": ""}, {"filename": null}]',
         )
 
         self.assertEqual(self.db_service.get_all_ebook_filenames(), {"kept.epub"})
@@ -1000,9 +971,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
     def test_get_all_ebook_filenames_collapses_duplicates(self):
         """Identical filenames across rows collapse to a single set entry."""
         self._save_detected_with_matches("first", '[{"filename": "dup.epub"}]')
-        self._save_detected_with_matches(
-            "second", '[{"filename": "dup.epub"}, {"filename": "dup.epub"}]'
-        )
+        self._save_detected_with_matches("second", '[{"filename": "dup.epub"}, {"filename": "dup.epub"}]')
 
         self.assertEqual(self.db_service.get_all_ebook_filenames(), {"dup.epub"})
 
@@ -1021,13 +990,9 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
         Reading matches_json post-expunge must not raise DetachedInstanceError;
         a non-empty result proves the scalar column was available after detach.
         """
-        self._save_detected_with_matches(
-            "detached", '[{"filename": "detached.epub"}]'
-        )
+        self._save_detected_with_matches("detached", '[{"filename": "detached.epub"}]')
 
-        self.assertEqual(
-            self.db_service.get_all_ebook_filenames(), {"detached.epub"}
-        )
+        self.assertEqual(self.db_service.get_all_ebook_filenames(), {"detached.epub"})
 
     def test_upsert_without_normalize_hook_is_unaffected(self):
         """Default _upsert callers (no normalize hook) keep blind attribute-copy
@@ -1257,13 +1222,16 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
 
         conn = sqlite3.connect(self.test_db_path)
         conn.execute("DROP INDEX IF EXISTS uq_states_book_id_client_name")
-        conn.executemany("""
+        conn.executemany(
+            """
             INSERT INTO states (abs_id, book_id, client_name, last_updated, percentage)
             VALUES (?, ?, ?, ?, ?)
-        """, [
-            (book.abs_id, book.id, "kosync", 100.0, 0.10),
-            (book.abs_id, book.id, "kosync", 200.0, 0.20),
-        ])
+        """,
+            [
+                (book.abs_id, book.id, "kosync", 100.0, 0.10),
+                (book.abs_id, book.id, "kosync", 200.0, 0.20),
+            ],
+        )
         conn.commit()
         conn.close()
 
@@ -1436,9 +1404,7 @@ class TestDatabaseServiceIntegration(unittest.TestCase):
 
         repo._dedupe_existing_states = miss_first_lookup
         repo._snapshot_state_scalars = snapshot_then_mark
-        repo._hydrate_state_book_reference = guard_state_helper(
-            "_hydrate_state_book_reference", original_hydrate
-        )
+        repo._hydrate_state_book_reference = guard_state_helper("_hydrate_state_book_reference", original_hydrate)
         repo._state_lookup_filters = guard_state_helper("_state_lookup_filters", original_state_lookup)
         repo._apply_state_attrs = guard_state_helper("_apply_state_attrs", original_apply_state)
         try:
@@ -2527,12 +2493,15 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
             command.upgrade(alembic_cfg, "head")
 
             conn = sqlite3.connect(db_path)
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT client_name, percentage
                 FROM states
                 WHERE book_id = ?
                 ORDER BY client_name
-            """, (book_id,)).fetchall()
+            """,
+                (book_id,),
+            ).fetchall()
             index_names = {row[1] for row in conn.execute("PRAGMA index_list(states)").fetchall()}
             state_columns = {row[1]: row for row in conn.execute("PRAGMA table_info(states)").fetchall()}
             self.assertIn("uq_states_book_id_client_name", index_names)
@@ -2540,10 +2509,13 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
             self.assertEqual(rows, [("abs", 0.05), ("kosync", 0.30)])
 
             with self.assertRaises(sqlite3.IntegrityError):
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO states (abs_id, book_id, client_name, percentage)
                     VALUES ('dedupe-book', ?, 'kosync', 0.99)
-                """, (book_id,))
+                """,
+                    (book_id,),
+                )
                 conn.commit()
             conn.close()
 
@@ -2584,16 +2556,18 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
             command.upgrade(alembic_cfg, "head")
 
             conn = sqlite3.connect(db_path)
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT last_updated, percentage
                 FROM states
                 WHERE book_id = ? AND client_name = 'kosync'
-            """, (book_id,)).fetchall()
+            """,
+                (book_id,),
+            ).fetchall()
             conn.close()
 
             self.assertEqual(len(rows), 1, "Duplicate kosync rows were not collapsed")
-            self.assertEqual(rows[0], (100.0, 0.60),
-                             "NULL last_updated row should have lost to the timestamped row")
+            self.assertEqual(rows[0], (100.0, 0.60), "NULL last_updated row should have lost to the timestamped row")
 
     def test_state_uniqueness_migration_downgrade_drops_unique_index(self):
         """Downgrading the head revision removes the unique index but keeps the rows."""
@@ -2613,10 +2587,13 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
                 VALUES ('downgrade-book', 'Downgrade Book', 'active')
             """)
             book_id = cursor.lastrowid
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO states (abs_id, book_id, client_name, last_updated, percentage)
                 VALUES ('downgrade-book', ?, 'kosync', 100.0, 0.10)
-            """, (book_id,))
+            """,
+                (book_id,),
+            )
             conn.commit()
             indexes_before = {row[1] for row in conn.execute("PRAGMA index_list(states)").fetchall()}
             conn.close()
@@ -2627,13 +2604,10 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
 
             conn = sqlite3.connect(db_path)
             indexes_after = {row[1] for row in conn.execute("PRAGMA index_list(states)").fetchall()}
-            surviving = conn.execute(
-                "SELECT percentage FROM states WHERE book_id = ?", (book_id,)
-            ).fetchone()
+            surviving = conn.execute("SELECT percentage FROM states WHERE book_id = ?", (book_id,)).fetchone()
             conn.close()
 
-            self.assertNotIn("uq_states_book_id_client_name", indexes_after,
-                             "Downgrade did not drop the unique index")
+            self.assertNotIn("uq_states_book_id_client_name", indexes_after, "Downgrade did not drop the unique index")
             self.assertIsNotNone(surviving, "Downgrade should not delete state rows")
             self.assertEqual(surviving[0], 0.10)
 
@@ -2652,10 +2626,7 @@ class TestLegacyDatabaseMigration(unittest.TestCase):
         from src.db.models import State
 
         migration_path = (
-            Path(__file__).parent.parent
-            / "alembic"
-            / "versions"
-            / "w3x4y5z6a7b8_add_unique_state_book_client_index.py"
+            Path(__file__).parent.parent / "alembic" / "versions" / "w3x4y5z6a7b8_add_unique_state_book_client_index.py"
         )
         spec = importlib.util.spec_from_file_location("_w3x4_migration", migration_path)
         migration = importlib.util.module_from_spec(spec)
@@ -2953,9 +2924,7 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
     def test_suggestion_exists_true_regardless_of_status(self):
         """suggestion_exists returns True for any row, including hidden and ignored."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id1", title="Test", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id1", title="Test", source="abs"))
         self.assertTrue(self.db_service.suggestion_exists("id1", source="abs"))
 
         self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
@@ -2972,9 +2941,7 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
     def test_is_suggestion_ignored_only_for_ignored_status(self):
         """is_suggestion_ignored returns True only when the row's status is exactly 'ignored'."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id1", title="Test", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id1", title="Test", source="abs"))
         self.assertFalse(self.db_service.is_suggestion_ignored("id1", source="abs"))
 
         self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
@@ -3093,14 +3060,12 @@ class TestSuggestionSourceScoping(unittest.TestCase):
             indexes = conn.execute("PRAGMA index_list(pending_suggestions)").fetchall()
             unique_by_name = {row[1]: row[2] for row in indexes}
             self.assertIn("ix_pending_suggestions_source_id_source", unique_by_name)
-            self.assertEqual(unique_by_name["ix_pending_suggestions_source_id_source"], 1,
-                             "Index exists but is not UNIQUE")
+            self.assertEqual(
+                unique_by_name["ix_pending_suggestions_source_id_source"], 1, "Index exists but is not UNIQUE"
+            )
 
             columns = [
-                row[2]
-                for row in conn.execute(
-                    "PRAGMA index_info(ix_pending_suggestions_source_id_source)"
-                ).fetchall()
+                row[2] for row in conn.execute("PRAGMA index_info(ix_pending_suggestions_source_id_source)").fetchall()
             ]
             self.assertEqual(columns, ["source_id", "source"])
 
@@ -3118,9 +3083,7 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
     def test_save_pending_suggestion_hidden_stays_hidden_when_incoming_pending(self):
         """A hidden suggestion must remain hidden when re-saved as pending."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id1", title="Title", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id1", title="Title", source="abs"))
         self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
 
         saved = self.db_service.save_pending_suggestion(
@@ -3134,9 +3097,7 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
     def test_save_pending_suggestion_hidden_overwritten_by_incoming_non_pending(self):
         """An incoming non-pending status replaces an existing hidden status as before."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id1", title="Title", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id1", title="Title", source="abs"))
         self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
 
         saved = self.db_service.save_pending_suggestion(
@@ -3148,9 +3109,7 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
     def test_save_pending_suggestion_hidden_preservation_scoped_by_source(self):
         """Hidden preservation only applies within the same source, not across sources."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id1", title="ABS", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id1", title="ABS", source="abs"))
         self.assertTrue(self.db_service.hide_suggestion("id1", source="abs"))
 
         kosync_saved = self.db_service.save_pending_suggestion(
@@ -3251,26 +3210,16 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
     def test_pending_suggestion_count_counts_pending_rows(self):
         """get_pending_suggestion_count counts suggestions whose status is pending."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id1", title="A", source="abs")
-        )
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id2", title="B", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id1", title="A", source="abs"))
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id2", title="B", source="abs"))
         self.assertEqual(self.db_service.get_pending_suggestion_count(), 2)
 
     def test_pending_suggestion_count_excludes_non_pending_statuses(self):
         """Hidden, ignored, and dismissed suggestions are excluded from the pending count."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="pending", title="P", source="abs")
-        )
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="hidden", title="H", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="pending", title="P", source="abs"))
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="hidden", title="H", source="abs"))
         self.assertTrue(self.db_service.hide_suggestion("hidden", source="abs"))
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="ignored", title="I", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="ignored", title="I", source="abs"))
         self.assertTrue(self.db_service.ignore_suggestion("ignored", source="abs"))
         self.db_service.save_pending_suggestion(
             self.PendingSuggestion(source_id="dismissed", title="D", source="abs", status="dismissed")
@@ -3280,9 +3229,7 @@ class TestSuggestionSourceScoping(unittest.TestCase):
 
     def test_pending_suggestion_count_ignores_source_when_pending(self):
         """Source value does not matter for the pending count as long as status is pending."""
-        self.db_service.save_pending_suggestion(
-            self.PendingSuggestion(source_id="id1", title="ABS", source="abs")
-        )
+        self.db_service.save_pending_suggestion(self.PendingSuggestion(source_id="id1", title="ABS", source="abs"))
         self.db_service.save_pending_suggestion(
             self.PendingSuggestion(source_id="id1", title="KOSync", source="kosync")
         )

@@ -102,8 +102,7 @@ def test_route_inventory_matches_snapshot(route_inventory):
         pytest.skip("Route inventory snapshot regenerated")
 
     assert SNAPSHOT_PATH.exists(), (
-        f"Missing route inventory snapshot at {SNAPSHOT_PATH}. "
-        "Regenerate with PAGEKEEPER_UPDATE_SNAPSHOTS=1."
+        f"Missing route inventory snapshot at {SNAPSHOT_PATH}. Regenerate with PAGEKEEPER_UPDATE_SNAPSHOTS=1."
     )
 
     expected = json.loads(SNAPSHOT_PATH.read_text())
