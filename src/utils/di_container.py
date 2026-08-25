@@ -18,11 +18,13 @@ from src.api.grimmory_client import GrimmoryClient, GrimmoryClientGroup
 from src.api.hardcover_client import HardcoverClient
 from src.api.libby_client import LibbyClient
 from src.api.storyteller_api import StorytellerAPIClient
+from src.api.thunder_client import ThunderClient
 from src.db.database_service import DatabaseService
 from src.services.abs_service import ABSService
 from src.services.alignment_service import AlignmentService
 from src.services.background_job_service import BackgroundJobService
 from src.services.hardcover_service import HardcoverService
+from src.services.libby_service import LibbyService
 from src.services.library_service import LibraryService
 from src.services.migration_service import MigrationService
 from src.services.reading_date_service import ReadingDateService
@@ -177,7 +179,11 @@ class Container(containers.DeclarativeContainer):
 
     abs_ebook_sync_client = providers.Singleton(ABSEbookSyncClient, abs_client, ebook_parser)
 
-    libby_sync_client = providers.Singleton(LibbySyncClient, libby_client, ebook_parser)
+    thunder_client = providers.Singleton(ThunderClient)
+
+    libby_service = providers.Singleton(LibbyService, database_service, libby_client, thunder_client)
+
+    libby_sync_client = providers.Singleton(LibbySyncClient, libby_client, ebook_parser, libby_service)
 
     hardcover_service = providers.Singleton(HardcoverService, hardcover_client, database_service, abs_client)
 

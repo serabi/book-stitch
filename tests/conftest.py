@@ -108,6 +108,7 @@ class MockContainer:
         self.mock_libby_client.identity_token = None
         self.mock_libby_sync_client = Mock()
         self.mock_libby_sync_client.is_configured.return_value = False
+        self.mock_libby_service = Mock()
 
         # ── Services ──
         self.mock_abs_service = MockABSService()
@@ -171,6 +172,9 @@ class MockContainer:
 
     def libby_sync_client(self):
         return self.mock_libby_sync_client
+
+    def libby_service(self):
+        return self.mock_libby_service
 
     def hardcover_service(self):
         return self.mock_hardcover_service

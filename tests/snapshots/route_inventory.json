@@ -272,6 +272,22 @@
     "kind": "api"
   },
   {
+    "rule": "/api/libby/tbr/dismiss",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.libby_tbr_dismiss",
+    "kind": "api"
+  },
+  {
+    "rule": "/api/libby/tbr/merge",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.libby_tbr_merge",
+    "kind": "api"
+  },
+  {
     "rule": "/api/logs",
     "methods": [
       "GET"

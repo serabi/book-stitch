@@ -31,9 +31,10 @@ class LibbySyncClient(SyncClient):
     instead of hammering a struggling API.
     """
 
-    def __init__(self, libby_client: LibbyClient, ebook_parser: EbookParser):
+    def __init__(self, libby_client: LibbyClient, ebook_parser: EbookParser, libby_service=None):
         super().__init__(ebook_parser)
         self.libby_client = libby_client
+        self.libby_service = libby_service
         # psn_key -> {"pct": float, "reading_time": int|None}
         self._positions: dict[str, dict] = {}
         # psn_key -> passport response (re-issued near expiry)
@@ -105,6 +106,13 @@ class LibbySyncClient(SyncClient):
         self._last_fetch = time.time()
         self._consecutive_failures = 0
         logger.info("Libby: refreshed %d position(s) from %d active loan(s)", len(fresh), len(loans))
+
+        if self.libby_service is not None:
+            try:
+                self.libby_service.refresh(dict(self._positions))
+            except Exception as e:
+                logger.warning("Libby: post-refresh service pass failed: %s", e)
+
         return dict(self._positions)
 
     def _register_failure(self):
